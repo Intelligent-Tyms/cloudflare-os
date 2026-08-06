@@ -596,6 +596,7 @@ export class GitHubApi {
       "/search/issues",
       {
         q: query,
+        advanced_search: true,
         page,
         per_page: perPage,
         sort,
