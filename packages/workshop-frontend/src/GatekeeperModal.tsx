@@ -1,4 +1,4 @@
-import { withDoResetRetry } from './rpcErrors'
+import { logRpcFailure, withDoResetRetry } from './rpcErrors'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Dialog, useKumoToastManager, type PortalContainer } from '@cloudflare/kumo'
 import {
@@ -441,7 +441,7 @@ export default function GatekeeperModal({
         }
       })
       .catch(error => {
-        console.error('Failed to subscribe to connected accounts:', error)
+        logRpcFailure('Failed to subscribe to connected accounts:', error)
       })
 
     return () => {
