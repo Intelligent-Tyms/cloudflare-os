@@ -1,11 +1,17 @@
+// Vitest runs under node, but the src/ tsconfig only has browser types — hence the suppressions.
+// @ts-expect-error node builtin without @types/node
+import { readFileSync } from 'node:fs'
+// @ts-expect-error node builtin without @types/node
+import { createRequire } from 'node:module'
 import { describe, expect, it, vi } from 'vitest'
+import { AUTH_ERROR_CODES, createAuthError } from '@gadgets/workshop-shared/api'
 
 vi.mock('./errorReporting', () => ({ reportIssue: vi.fn() }))
 
 import { reportIssue } from './errorReporting'
 import {
   classifyRpcError, getDurableObjectId, isDurableObjectResetError, isOverloadedError,
-  isTransientRpcError, logRpcFailure, reportDoResetError, withDoResetRetry,
+  CONNECTION_MESSAGES, isTransientRpcError, logRpcFailure, reportDoResetError, withDoResetRetry,
 } from './rpcErrors'
 
 // The reject frame observed in prod for a DO storage-timeout reset.
@@ -31,6 +37,8 @@ describe('classifyRpcError', () => {
       'Durable Object reset because its code was updated.',
       "Durable Object's isolate exceeded its memory limit and was reset.",
       'Durable Object exceeded its CPU time limit and was reset.',
+      // What later calls on an already-dead capability reject with (flagless).
+      'The execution context which hosts this callback is no longer running.',
     ]) {
       expect(classifyRpcError(new Error(message))).toBe('do-reset')
     }
@@ -50,9 +58,15 @@ describe('classifyRpcError', () => {
     expect(classifyRpcError(new Error('WebSocket connection failed.'))).toBe('connection')
     expect(classifyRpcError(new Error('RPC session was shut down by disposing the main stub')))
         .toBe('connection')
+    expect(classifyRpcError(new Error('Attempted to use RPC stub after it has been disposed.')))
+        .toBe('connection')
   })
 
   it('classifies auth failures, which must never be retried or quieted', () => {
+    // Coded errors are authoritative; bare messages are the fallback for older deployments.
+    expect(classifyRpcError(createAuthError(AUTH_ERROR_CODES.invalidSessionToken))).toBe('auth')
+    expect(classifyRpcError(Object.assign(new Error('nope'), { code: 'INVALID_SESSION_TOKEN' })))
+        .toBe('auth')
     expect(classifyRpcError(new Error('invalid session token'))).toBe('auth')
     expect(classifyRpcError(new Error('Not authenticated with Access.'))).toBe('auth')
   })
@@ -147,6 +161,18 @@ describe('logRpcFailure', () => {
     } finally {
       debug.mockRestore()
       error.mockRestore()
+    }
+  })
+})
+
+// Canary: these client-local errors carry no flags, so the classifier matches capnweb's message
+// strings. Pin them to the installed build so an upgrade fails here, not silently in the UX.
+describe('capnweb transport messages', () => {
+  it('still exist in the installed capnweb build', () => {
+    const require = createRequire(import.meta.url)
+    const source = readFileSync(require.resolve('capnweb'), 'utf8')
+    for (const message of CONNECTION_MESSAGES) {
+      expect(source, `capnweb no longer raises "${message}"`).toContain(message)
     }
   })
 })
