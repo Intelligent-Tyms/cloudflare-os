@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { DotsThree, Star, ShareNetwork, Trash, Pencil } from '@phosphor-icons/react'
+import { Ellipsis, Star, Share2, Trash2, Pencil } from 'lucide-react'
 import { DropdownMenu } from '@cloudflare/kumo'
 import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER, MENU_POSITIONER_STYLE } from '../menuStyles'
 import { useState, useEffect, useRef } from 'react'
@@ -97,7 +97,7 @@ export default function SidebarGadgetRow({
                     aria-label="Workspace actions"
                     className="flex h-6 w-6 items-center justify-center rounded-md text-kumo-subtle opacity-0 transition-[opacity,color,background-color] group-hover:opacity-100 hover:bg-kumo-fill hover:text-kumo-default focus:opacity-100"
                   >
-                    <DotsThree size={14} weight="bold" />
+                    <Ellipsis size={14} strokeWidth={2.5} />
                   </button>
                 }
               />
@@ -112,14 +112,14 @@ export default function SidebarGadgetRow({
                   onClick={() => onTogglePin(gadget)}
                   className={MENU_ITEM}
                 >
-                  <Star size={13} className="mr-2" weight={gadget.pinned ? 'fill' : 'regular'} />
+                  <Star size={13} className="mr-2" {...(gadget.pinned ? { fill: 'currentColor', strokeWidth: 0 } : {})} />
                   {gadget.pinned ? 'Unfavorite' : 'Favorite'}
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
                   onClick={() => onShare(gadget)}
                   className={MENU_ITEM}
                 >
-                  <ShareNetwork size={13} className="mr-2" /> Share
+                  <Share2 size={13} className="mr-2" /> Share
                 </DropdownMenu.Item>
                 <DropdownMenu.Separator />
                 <DropdownMenu.Item
@@ -127,7 +127,7 @@ export default function SidebarGadgetRow({
                   onClick={() => onDelete(gadget)}
                   className={MENU_ITEM_DANGER}
                 >
-                  <Trash size={13} className="mr-2" />
+                  <Trash2 size={13} className="mr-2" />
                   {gadget.owner ? 'Dismiss' : 'Delete'}
                 </DropdownMenu.Item>
               </DropdownMenu.Content>

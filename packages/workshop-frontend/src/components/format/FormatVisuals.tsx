@@ -28,7 +28,8 @@ export function FormatGlyph({
   weight?: 'regular' | 'fill'
 }) {
   const Icon = FORMAT_ICONS[formatOf(output).icon]
-  return <Icon size={GLYPH_SIZES[size]} className={className} weight={weight} />
+  // Lucide is stroke-based: the old `fill` weight (selected state) becomes a heavier stroke.
+  return <Icon size={GLYPH_SIZES[size]} className={className} strokeWidth={weight === 'fill' ? 2.5 : 2} />
 }
 
 // ─── tile ────────────────────────────────────────────────────────────────────

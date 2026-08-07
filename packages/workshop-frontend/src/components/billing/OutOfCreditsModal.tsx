@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CloudflareUsageInfo, CloudflareAccountOption } from '@gadgets/workshop-shared/api'
 import { Dialog, Button, Loader, useKumoToastManager } from '@cloudflare/kumo'
-import { CloudWarning, Lightning } from '@phosphor-icons/react'
+import { CloudAlert, Zap } from 'lucide-react'
 import { useOptionalAuthenticatedApi } from '../../AuthContext'
 import { buildAddCreditsUrl } from './creditsUrl'
 import ResetCountdown from './ResetCountdown'
@@ -89,7 +89,7 @@ export default function OutOfCreditsModal({ open, onClose }: OutOfCreditsModalPr
     <Dialog.Root open={open} onOpenChange={(o) => { if (!o) onClose() }}>
       <Dialog className="p-6 sm:w-[560px]" size="base">
         <Dialog.Title className="text-lg font-semibold mb-2 flex items-center gap-2">
-          <CloudWarning size={22} weight="bold" className="text-kumo-warning" />
+          <CloudAlert size={22} strokeWidth={2.5} className="text-kumo-warning" />
           You've reached your free usage limit
         </Dialog.Title>
 
@@ -172,7 +172,7 @@ export default function OutOfCreditsModal({ open, onClose }: OutOfCreditsModalPr
                 <>
                   <Button variant="secondary" onClick={onClose}>Maybe later</Button>
                   <Button variant="primary" onClick={connect} loading={connecting}>
-                    <Lightning size={16} weight="bold" />
+                    <Zap size={16} strokeWidth={2.5} />
                     Connect Cloudflare
                   </Button>
                 </>

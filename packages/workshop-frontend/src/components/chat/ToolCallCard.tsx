@@ -6,13 +6,13 @@ import {
   Link as LinkIcon,
   Rocket,
   FileCode,
-  MagnifyingGlass,
+  Search,
   Shield,
-  Lightning,
-  CheckCircle,
-  WarningCircle,
+  Zap,
+  CircleCheck,
+  CircleAlert,
   Clock,
-} from '@phosphor-icons/react'
+} from 'lucide-react'
 import type { ToolCall } from '../../data/chat'
 
 const iconMap: Record<string, React.ElementType> = {
@@ -21,9 +21,9 @@ const iconMap: Record<string, React.ElementType> = {
   connection: LinkIcon,
   deploy: Rocket,
   file: FileCode,
-  search: MagnifyingGlass,
+  search: Search,
   shield: Shield,
-  zap: Lightning,
+  zap: Zap,
 }
 
 function StatusIndicator({ status }: { status: string }) {
@@ -31,9 +31,9 @@ function StatusIndicator({ status }: { status: string }) {
     case 'running':
       return <Loader size="sm" />
     case 'complete':
-      return <CheckCircle size={14} weight="fill" className="text-kumo-success" />
+      return <CircleCheck size={14} strokeWidth={2.5} className="text-kumo-success" />
     case 'error':
-      return <WarningCircle size={14} weight="fill" className="text-kumo-danger" />
+      return <CircleAlert size={14} strokeWidth={2.5} className="text-kumo-danger" />
     case 'waiting':
       return <Clock size={14} className="text-kumo-subtle" />
     default:
@@ -43,7 +43,7 @@ function StatusIndicator({ status }: { status: string }) {
 
 export default function ToolCallCard({ tool }: { tool: ToolCall }) {
   const [open, setOpen] = useState(false)
-  const Icon = iconMap[tool.icon] || Lightning
+  const Icon = iconMap[tool.icon] || Zap
 
   return (
     <div className="rounded-lg border border-kumo-line overflow-hidden">
@@ -52,7 +52,7 @@ export default function ToolCallCard({ tool }: { tool: ToolCall }) {
         onClick={() => setOpen(!open)}
         className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-kumo-tint transition-colors"
       >
-        <Icon size={14} weight="duotone" className="text-kumo-subtle flex-shrink-0" />
+        <Icon size={14} className="text-kumo-subtle flex-shrink-0" />
         <span className="flex-1 text-xs text-kumo-default truncate">{tool.label}</span>
         {tool.duration != null && (
           <span className="font-mono text-[11px] text-kumo-subtle tabular-nums flex-shrink-0">

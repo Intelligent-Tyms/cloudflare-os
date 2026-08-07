@@ -1,15 +1,15 @@
 import { Link } from '@tanstack/react-router'
 import {
-  Blueprint,
   BookOpen,
   Compass,
+  DraftingCompass,
   Hexagon,
   House,
-  MagnifyingGlass,
-  SidebarSimple,
-  SquaresFour,
-  Stack,
-} from '@phosphor-icons/react'
+  Layers,
+  LayoutGrid,
+  PanelLeft,
+  Search,
+} from 'lucide-react'
 import { useSiteName } from '../../ServerConfigContext'
 import SiteLogo from '../SiteLogo'
 import { useGatekeeperApps } from '../../useGatekeeperApps'
@@ -65,7 +65,7 @@ export default function Sidebar({
       >
         <Link to="/" aria-label={siteName} className="flex min-w-0 items-center gap-2">
           <SiteLogo size={20} className="shrink-0">
-            <Hexagon size={20} weight="bold" className="text-kumo-brand shrink-0" />
+            <Hexagon size={20} strokeWidth={2.5} className="text-kumo-brand shrink-0" />
           </SiteLogo>
           {!collapsed && (
             <span className="truncate text-[14px] leading-5 font-semibold tracking-[-0.25px] text-kumo-default">
@@ -82,7 +82,7 @@ export default function Sidebar({
               title="Search (⌘K)"
               className="press flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-kumo-inactive transition-colors hover:bg-kumo-tint hover:text-kumo-default"
             >
-              <MagnifyingGlass size={15} />
+              <Search size={15} />
             </button>
             <button
               type="button"
@@ -91,7 +91,7 @@ export default function Sidebar({
               title="Collapse sidebar"
               className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-kumo-inactive transition-colors hover:bg-kumo-tint hover:text-kumo-default"
             >
-              <SidebarSimple size={15} />
+              <PanelLeft size={15} />
             </button>
           </div>
         )}
@@ -106,7 +106,7 @@ export default function Sidebar({
           title="Expand sidebar"
           className="mx-auto mt-2 flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-kumo-inactive transition-colors hover:bg-kumo-tint hover:text-kumo-default"
         >
-          <SidebarSimple size={15} className="rotate-180" />
+          <PanelLeft size={15} className="rotate-180" />
         </button>
       )}
 
@@ -118,25 +118,25 @@ export default function Sidebar({
             <SidebarItem
               to="/"
               label="Home"
-              icon={<House size={14} weight="regular" />}
+              icon={<House size={14} />}
               collapsed={collapsed}
             />
             <SidebarItem
               to="/workspaces"
               label="Workspaces"
-              icon={<SquaresFour size={14} weight="regular" />}
+              icon={<LayoutGrid size={14} />}
               collapsed={collapsed}
             />
             <SidebarItem
               to="/blueprints"
               label="Blueprints"
-              icon={<Blueprint size={14} weight="regular" />}
+              icon={<DraftingCompass size={14} />}
               collapsed={collapsed}
             />
             <SidebarItem
               to="/outputs"
               label="Outputs"
-              icon={<Stack size={14} weight="regular" />}
+              icon={<Layers size={14} />}
               collapsed={collapsed}
             />
             {/* Gatekeeper management apps (e.g. the Context Library), listed dynamically. */}
@@ -171,7 +171,7 @@ export default function Sidebar({
                       }}
                     />
                   ) : (
-                    <BookOpen size={14} weight="regular" />
+                    <BookOpen size={14} />
                   )
                 }
                 collapsed={collapsed}
@@ -181,7 +181,7 @@ export default function Sidebar({
             <SidebarItem
               to="/explore"
               label="Explore"
-              icon={<Compass size={14} weight="regular" />}
+              icon={<Compass size={14} />}
               collapsed={collapsed}
             />
           </nav>

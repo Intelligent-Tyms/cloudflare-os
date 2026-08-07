@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react'
 import { useKumoToastManager } from '@cloudflare/kumo'
-import { DownloadSimple } from '@phosphor-icons/react'
+import { Download } from 'lucide-react'
 import { Overseer, CodeSubscriber, CodeUpdate } from '@gadgets/workshop-shared/api'
 import { RpcStub, RpcTarget } from 'capnweb'
 import * as Y from 'yjs'
@@ -889,7 +889,7 @@ export default function GadgetCodeInterface({ overseer, filesRoot, height = '100
                 disabled={!activeFileDownloadable}
                 className="!h-6 !w-6"
               >
-                <DownloadSimple size={14} weight="bold" />
+                <Download size={14} strokeWidth={2.5} />
               </WorkshopIconButton>
             </div>
           )}

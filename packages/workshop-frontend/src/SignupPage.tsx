@@ -2,7 +2,7 @@ import { useState, FormEvent } from "react";
 import { Link } from "@tanstack/react-router";
 import { RpcStub } from "capnweb";
 import { PublicApi } from "@gadgets/workshop-shared/api";
-import { Hexagon } from "@phosphor-icons/react";
+import { Hexagon } from "lucide-react";
 import { Input, Button, Banner, Loader } from "@cloudflare/kumo";
 import { hashPassword } from "./passwordHash";
 import { useServerConfig, useServerConfigError, useSiteName } from "./ServerConfigContext";
@@ -127,7 +127,7 @@ export default function SignupPage({ rpcStub }: SignupPageProps) {
         <div className="flex flex-col items-center mb-8">
           <SiteLogo size={40} className="mb-3">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-kumo-brand mb-3">
-              <Hexagon size={20} className="text-white" weight="bold" />
+              <Hexagon size={20} className="text-white" strokeWidth={2.5} />
             </div>
           </SiteLogo>
           <h1 className="text-xl font-semibold text-kumo-default">

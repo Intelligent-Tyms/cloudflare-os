@@ -9,7 +9,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Button, DropdownMenu, Input, Switch, useKumoToastManager } from '@cloudflare/kumo'
-import { ArrowDown, ArrowUp, CaretDown, CaretRight, Plus, Sparkle, Trash, Warning } from '@phosphor-icons/react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Plus, Sparkles, Trash2, TriangleAlert } from 'lucide-react'
 import type {
   AdminApi,
   AdminFormat,
@@ -243,7 +243,7 @@ function FormatRow({
               className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-kumo-tint text-kumo-danger"
               title="This blueprint no longer exists"
             >
-              <Warning size={16} />
+              <TriangleAlert size={16} />
             </span>
           ) : (
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-kumo-fill text-kumo-subtle">
@@ -270,7 +270,7 @@ function FormatRow({
           </span>
 
           <span className="shrink-0 text-kumo-inactive">
-            {open ? <CaretDown size={13} /> : <CaretRight size={13} />}
+            {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           </span>
         </button>
 
@@ -374,7 +374,7 @@ function FormatRow({
                     agent had been told nothing. Mirrors #listStandardFormats in overseer.ts. */}
                 {format.output && (
                   <p className="mt-2 flex items-start gap-1.5 rounded-md bg-kumo-tint/60 px-2.5 py-2 font-mono text-[11px] leading-4 text-kumo-subtle">
-                    <Sparkle size={12} className="mt-0.5 shrink-0" />
+                    <Sparkles size={12} className="mt-0.5 shrink-0" />
                     <span className="min-w-0">
                       <span className="block">
                         “{format.output.noun}” — a standard format on this deployment
@@ -405,7 +405,7 @@ function FormatRow({
                 </p>
                 {!format.bundled && (
                   <Button variant="secondary" disabled={busy} onClick={onRemove}>
-                    <Trash size={13} className="mr-1.5" />
+                    <Trash2 size={13} className="mr-1.5" />
                     Stop offering
                   </Button>
                 )}
@@ -416,7 +416,7 @@ function FormatRow({
           {format.missing && (
             <div className="flex justify-end">
               <Button variant="secondary" disabled={busy} onClick={onRemove}>
-                <Trash size={13} className="mr-1.5" />
+                <Trash2 size={13} className="mr-1.5" />
                 Remove
               </Button>
             </div>

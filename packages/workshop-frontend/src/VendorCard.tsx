@@ -1,5 +1,5 @@
 import { Text, Loader } from '@cloudflare/kumo'
-import { LinkSimple } from '@phosphor-icons/react'
+import { Link2 } from 'lucide-react'
 import { VendorDescription } from '@gadgets/workshop-shared/gatekeeper'
 import Avatar from './components/Avatar'
 
@@ -29,7 +29,7 @@ export default function VendorCard({
         src={vendor.logo?.url}
         background={vendor.color}
         size={48}
-        fallback={<LinkSimple size={22} />}
+        fallback={<Link2 size={22} />}
       />
       <div className="flex-1">
         <Text variant="body" bold as="span" DANGEROUS_className="block text-base">

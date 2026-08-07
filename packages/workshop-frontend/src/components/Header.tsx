@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Hexagon, List, X } from '@phosphor-icons/react'
+import { Hexagon, Menu, X } from 'lucide-react'
 import { useOptionalAuthenticatedApi } from '../AuthContext'
 import { useGatekeeperApps } from '../useGatekeeperApps'
 import { useSiteName } from '../ServerConfigContext'
@@ -47,7 +47,7 @@ export default function Header() {
         <div className="flex items-center gap-6">
           <Link to="/" className="flex items-center gap-2">
             <SiteLogo size={22} className="shrink-0">
-              <Hexagon size={22} className="text-kumo-brand" weight="bold" />
+              <Hexagon size={22} className="text-kumo-brand" strokeWidth={2.5} />
             </SiteLogo>
             <span className="text-base font-semibold tracking-tight text-kumo-default">
               {siteName}
@@ -108,7 +108,7 @@ export default function Header() {
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="w-8 h-8 rounded-md flex items-center justify-center hover:bg-kumo-tint transition-colors text-kumo-default"
             >
-              {mobileMenuOpen ? <X size={20} /> : <List size={20} />}
+              {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
           </div>
         </div>

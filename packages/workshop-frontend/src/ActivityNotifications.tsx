@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Popover } from '@cloudflare/kumo'
-import { ArrowRight, Pulse } from '@phosphor-icons/react'
+import { ArrowRight, Activity } from 'lucide-react'
 import type { RpcStub } from 'capnweb'
 import type { ActionLogEntry, Overseer } from '@gadgets/workshop-shared/api'
 import { CountBadge } from './components/CountBadge'
@@ -47,7 +47,7 @@ export default function ActivityNotifications({
               pending.length > 0 ? 'text-kumo-strong' : 'text-kumo-subtle hover:text-kumo-default'
             }`}
           >
-            <Pulse size={16} weight={pending.length > 0 ? 'bold' : 'regular'} />
+            <Activity size={16} strokeWidth={pending.length > 0 ? 2.5 : 2} />
             <CountBadge count={pending.length} tone="solid" className="absolute -right-0.5 -top-0.5" />
           </button>
         }

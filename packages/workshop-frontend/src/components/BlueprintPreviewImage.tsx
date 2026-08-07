@@ -1,4 +1,4 @@
-import { Hexagon } from '@phosphor-icons/react'
+import { Hexagon } from 'lucide-react'
 import { getGradient } from './BlueprintCard'
 
 export function BlueprintPreviewImage({
@@ -53,7 +53,7 @@ export function BlueprintPreviewPlaceholder({ id }: { id: string }) {
         ))}
       </svg>
       <div className="absolute left-4 top-4 grid h-8 w-8 place-items-center rounded-xl bg-kumo-base/80 text-kumo-brand shadow-[0_1px_2px_rgba(0,0,0,0.04)] ring-1 ring-kumo-line">
-        <Hexagon size={14} weight="bold" />
+        <Hexagon size={14} strokeWidth={2.5} />
       </div>
     </div>
   )

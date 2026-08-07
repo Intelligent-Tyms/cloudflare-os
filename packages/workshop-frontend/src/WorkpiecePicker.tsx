@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CaretLeft, CaretRight, Check, Lightning, PencilSimple, Pulse, X } from '@phosphor-icons/react'
+import { ChevronLeft, ChevronRight, Check, Zap, Pencil, Activity, X } from 'lucide-react'
 import { FormatGlyph } from './components/format/FormatVisuals'
 import { Tooltip } from '@cloudflare/kumo'
 import type { WorkpieceId, WorkpieceSummary } from '@gadgets/workshop-shared/api'
@@ -70,7 +70,7 @@ export default function WorkpiecePicker({
         {expanded && (
           <span className="text-[11px] font-medium uppercase tracking-[0.06em]">Outputs</span>
         )}
-        {expanded ? <CaretRight size={14} /> : <CaretLeft size={14} />}
+        {expanded ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
       </button>
 
       <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden px-1.5 pb-2">
@@ -164,7 +164,7 @@ export default function WorkpiecePicker({
                         ? 'flex-shrink-0 text-kumo-inactive'
                         : 'absolute bottom-0.5 left-0.5 rounded-full border border-kumo-base bg-kumo-base text-kumo-inactive'}
                     >
-                      <Lightning size={expanded ? 14 : 10} weight="fill" />
+                      <Zap size={expanded ? 14 : 10} fill="currentColor" strokeWidth={0} />
                     </span>
                   )}
                 </button>
@@ -176,7 +176,7 @@ export default function WorkpiecePicker({
                   title="Rename gadget"
                   aria-label={`Rename ${gadget.title}`}
                 >
-                  <PencilSimple size={13} />
+                  <Pencil size={13} />
                 </WorkshopIconButton>
               )}
             </div>
@@ -191,7 +191,7 @@ export default function WorkpiecePicker({
               expanded ? 'h-8 gap-2 px-2 text-left' : 'h-9 w-9 justify-center self-center'
             }`}
           >
-            <Pulse size={expanded ? 15 : 17} className="flex-shrink-0 text-kumo-inactive" />
+            <Activity size={expanded ? 15 : 17} className="flex-shrink-0 text-kumo-inactive" />
             {expanded && <span className="min-w-0 flex-1 truncate">View activity</span>}
             {expanded ? (
               <CountBadge count={pendingActivityCount} />

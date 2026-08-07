@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { AiChatAuthorInfo } from '@gadgets/workshop-shared/api'
 import { hashPassword } from './passwordHash'
 import { CF_ACCESS_MODE } from './useAuth'
-import { User, Pencil, Check, X, Lock, Camera, Copy, Eye, EyeSlash } from '@phosphor-icons/react'
+import { User, Pencil, Check, X, Lock, Camera, Copy, Eye, EyeOff } from 'lucide-react'
 import { useAvatar, invalidateAvatarCache } from './useAvatar'
 import { compressAvatar, avatarBlobUrl } from './avatarUtils'
 import UsageSettings from './components/billing/UsageSettings'
@@ -72,7 +72,7 @@ function PasswordField({
           aria-label={show ? 'Hide password' : 'Show password'}
           className="absolute right-1.5 top-1/2 grid h-7 w-7 -translate-y-1/2 cursor-pointer place-items-center rounded-md text-kumo-inactive transition-colors hover:text-kumo-default"
         >
-          {show ? <EyeSlash size={15} /> : <Eye size={15} />}
+          {show ? <EyeOff size={15} /> : <Eye size={15} />}
         </button>
       </div>
       {error ? (
@@ -333,7 +333,7 @@ export default function SettingsPage() {
                     aria-label="Save display name"
                     className={PRIMARY_BTN}
                   >
-                    <Check size={15} weight="bold" />
+                    <Check size={15} strokeWidth={2.5} />
                     Save
                   </button>
                   <button
@@ -419,7 +419,7 @@ export default function SettingsPage() {
                     disabled={passwordLoading || !currentPassword || !newPassword || !confirmPassword}
                     className={PRIMARY_BTN}
                   >
-                    <Lock size={14} weight="bold" />
+                    <Lock size={14} strokeWidth={2.5} />
                     {passwordLoading ? 'Changing…' : 'Change password'}
                   </button>
                 </div>

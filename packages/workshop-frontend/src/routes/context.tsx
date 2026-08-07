@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { BookOpen, Sparkle, type Icon as PhosphorIcon } from '@phosphor-icons/react'
+import { BookOpen, Sparkles, type LucideIcon } from 'lucide-react'
 import { useDocumentTitle } from '../useDocumentTitle'
 import ComingSoonPreview from '../components/ComingSoonPreview'
 import { useSiteName } from '../ServerConfigContext'
@@ -21,9 +21,9 @@ interface ContextItem {
   updated: string
 }
 
-const TYPE_META: Record<Kind, { label: string; Icon: PhosphorIcon }> = {
+const TYPE_META: Record<Kind, { label: string; Icon: LucideIcon }> = {
   collection: { label: 'Collection', Icon: BookOpen },
-  skill: { label: 'Skill', Icon: Sparkle },
+  skill: { label: 'Skill', Icon: Sparkles },
 }
 
 const MOCK_ITEMS: ContextItem[] = [

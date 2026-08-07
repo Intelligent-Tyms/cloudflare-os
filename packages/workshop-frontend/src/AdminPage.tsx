@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react'
 import { RpcStub } from 'capnweb'
 import { Switch, Textarea, Input, Button, Tabs, useKumoToastManager } from '@cloudflare/kumo'
-import { Hexagon, ShieldWarning, UserPlus } from '@phosphor-icons/react'
+import { Hexagon, ShieldAlert, UserPlus } from 'lucide-react'
 import { useAuthenticatedApi } from './AuthContext'
 import { AdminApi, AdminFormat, AdminResourceVendor, AmbientGatekeeperMode, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from './theme'
@@ -361,7 +361,7 @@ export default function AdminPage() {
   if (!isAdmin) {
     return (
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-16 text-center">
-        <ShieldWarning size={32} className="mx-auto text-kumo-subtle mb-3" />
+        <ShieldAlert size={32} className="mx-auto text-kumo-subtle mb-3" />
         <p className="text-sm text-kumo-default">You don't have access to this page.</p>
       </div>
     )
@@ -491,7 +491,7 @@ export default function AdminPage() {
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex h-16 w-16 items-center justify-center rounded-xl border border-kumo-line bg-kumo-base p-2">
               <SiteLogo size={40} srcOverride={siteLogoUrl}>
-                <Hexagon size={32} weight="bold" className="text-kumo-brand" />
+                <Hexagon size={32} strokeWidth={2.5} className="text-kumo-brand" />
               </SiteLogo>
             </div>
             <input

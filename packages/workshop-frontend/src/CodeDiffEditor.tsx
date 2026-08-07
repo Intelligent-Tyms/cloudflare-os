@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Editor } from '@monaco-editor/react'
-import { Columns, Rows } from '@phosphor-icons/react'
+import { Columns2, Rows2 } from 'lucide-react'
 import type { editor } from 'monaco-editor'
 import type * as Y from 'yjs'
 import { MonacoBinding } from 'y-monaco'
@@ -428,7 +428,7 @@ export default function CodeDiffEditor({
               aria-pressed={diffLayoutPreference === 'stacked'}
               onClick={() => setDiffLayoutPreference('stacked')}
             >
-              <Rows size={15} weight="regular" />
+              <Rows2 size={15} />
             </button>
             <button
               type="button"
@@ -439,7 +439,7 @@ export default function CodeDiffEditor({
               disabled={!canSplitDiff}
               onClick={() => setDiffLayoutPreference('split')}
             >
-              <Columns size={15} weight="regular" />
+              <Columns2 size={15} />
             </button>
           </div>
           <div

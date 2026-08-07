@@ -1,4 +1,4 @@
-import { Plus } from '@phosphor-icons/react'
+import { Plus } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 import { useAuthenticatedApi } from '../AuthContext'
 import { useState, useEffect } from 'react'

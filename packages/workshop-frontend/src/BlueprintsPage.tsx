@@ -1,10 +1,10 @@
 import { Link } from "@tanstack/react-router";
 import { useKumoToastManager } from "@cloudflare/kumo";
 import {
-  Blueprint as BlueprintIcon,
+  DraftingCompass as BlueprintIcon,
   BookOpen,
-  MagnifyingGlass,
-} from "@phosphor-icons/react";
+  Search,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { BlueprintPublicInfo } from "@gadgets/workshop-shared/api";
 import { VendorDescription } from "@gadgets/workshop-shared/gatekeeper";
@@ -94,7 +94,7 @@ export default function BlueprintsPage() {
           Featured
         </span>
         <div className="relative sm:w-64">
-          <MagnifyingGlass
+          <Search
             size={16}
             className="absolute left-3 top-1/2 -translate-y-1/2 text-kumo-inactive"
           />
@@ -189,7 +189,7 @@ function FeaturedBlueprintCard({
 
       <div className="flex flex-1 items-start gap-2.5 px-3 py-2.5">
         <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-kumo-fill text-kumo-subtle">
-          <BlueprintIcon size={15} weight="regular" />
+          <BlueprintIcon size={15} />
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13px] font-medium leading-[18px] tracking-[-0.25px] text-kumo-default">
@@ -235,7 +235,7 @@ function FeaturedBlueprintRow({
       className="group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 transition-colors duration-150 ease-out hover:bg-kumo-tint"
     >
       <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-kumo-fill text-kumo-subtle">
-        <BlueprintIcon size={16} weight="regular" />
+        <BlueprintIcon size={16} />
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium tracking-[-0.25px] text-kumo-default">

@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Hexagon } from '@phosphor-icons/react'
+import { Hexagon } from 'lucide-react'
 import { FormatGlyph } from './components/format/FormatVisuals'
 import { RpcStub } from 'capnweb'
 import {
@@ -66,7 +66,7 @@ export default function GadgetUseView({
         <div className="flex items-center gap-2 min-w-0">
           <Link to="/" aria-label="Home" className="flex-shrink-0 hover:opacity-80 transition-opacity">
             <SiteLogo size={22}>
-              <Hexagon size={22} className="text-kumo-brand" weight="bold" />
+              <Hexagon size={22} className="text-kumo-brand" strokeWidth={2.5} />
             </SiteLogo>
           </Link>
 
@@ -99,7 +99,7 @@ export default function GadgetUseView({
                 }`}
               >
                 <span className="flex items-center gap-1.5">
-                  <FormatGlyph output={g.output} size="sm" className="flex-shrink-0" weight="regular" />
+                  <FormatGlyph output={g.output} size="sm" className="flex-shrink-0" />
                   <span className="block max-w-[160px] truncate">{g.title}</span>
                 </span>
               </button>

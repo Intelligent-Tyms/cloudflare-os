@@ -4,7 +4,7 @@ import { RpcStub, RpcTarget } from 'capnweb'
 import { PublicApi, AuthenticatedApi, AdminApi, BlueprintPublicInfo, BlueprintBinding, BlueprintBindingAssignment, BlueprintUserSummary, AiChatAuthorInfo, ConnectedAccountsSubscriber } from '@gadgets/workshop-shared/api'
 import { AccountDescription, SupportedResource, VendorDescription, ResourceConfiguratorFrame } from '@gadgets/workshop-shared/gatekeeper'
 import { Button, Dialog, DropdownMenu, Select, Tooltip, useKumoToastManager } from '@cloudflare/kumo'
-import { ArrowsOutSimple, ArrowLeft, ArrowSquareOut, DotsThree, DownloadSimple, Lightning, Plus, Robot, Sparkle, Star, Trash, X } from '@phosphor-icons/react'
+import { Maximize2, ArrowLeft, ExternalLink, Ellipsis, Download, Zap, Plus, Bot, Sparkles, Star, Trash2, X } from 'lucide-react'
 
 import { useAuth } from './useAuth'
 import LoginPage from './LoginPage'
@@ -798,7 +798,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
           }}
           className="mb-8 inline-flex cursor-pointer items-center gap-2 px-1 py-1 text-[13px] leading-[18px] font-medium tracking-[-0.25px] text-kumo-subtle transition-[color,transform] duration-150 ease-out hover:text-kumo-default active:scale-[0.98]"
         >
-          <ArrowLeft size={14} weight="bold" />
+          <ArrowLeft size={14} strokeWidth={2.5} />
           Back
         </button>
 
@@ -806,7 +806,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
           <div className="min-w-0">
             {isFeatured && (
               <span className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-[rgba(255,72,1,0.10)] px-2 py-1 text-[11px] leading-4 font-semibold tracking-[-0.1px] text-kumo-brand">
-                <Star size={12} weight="fill" />
+                <Star size={12} fill="currentColor" strokeWidth={0} />
                 Featured
               </span>
             )}
@@ -855,7 +855,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
                   disabled={addingToLibrary || loadingLibraryState}
                   className="press inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-kumo-line bg-kumo-base p-0 text-kumo-subtle transition-colors duration-150 ease-out hover:border-kumo-fill hover:bg-kumo-tint hover:text-kumo-default disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <Plus size={17} weight="bold" />
+                  <Plus size={17} strokeWidth={2.5} />
                 </button>
               </Tooltip>
             )}
@@ -867,13 +867,13 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
                     aria-label="More blueprint actions"
                     className="!h-10 !w-10 shrink-0 rounded-lg border border-kumo-line bg-kumo-base text-kumo-subtle hover:border-kumo-fill hover:bg-kumo-tint hover:text-kumo-default data-[popup-open]:border-kumo-fill data-[popup-open]:bg-kumo-tint data-[popup-open]:text-kumo-default"
                   >
-                    <DotsThree size={18} weight="bold" />
+                    <Ellipsis size={18} strokeWidth={2.5} />
                   </WorkshopIconButton>
                 )}
               />
               <DropdownMenu.Content className={MENU_CONTENT}>
                 <DropdownMenu.Item
-                  icon={<DownloadSimple size={13} className="mr-2" />}
+                  icon={<Download size={13} className="mr-2" />}
                   onClick={handleDownload}
                   disabled={downloading}
                   className={MENU_ITEM}
@@ -882,7 +882,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
                 </DropdownMenu.Item>
 
                 <DropdownMenu.Item
-                  icon={<Star size={13} className="mr-2" weight={isPinned ? 'fill' : 'regular'} />}
+                  icon={<Star size={13} className="mr-2" fill={isPinned ? 'currentColor' : 'none'} strokeWidth={isPinned ? 0 : 2} />}
                   onClick={handleTogglePinned}
                   disabled={updatingPinned}
                   className={MENU_ITEM}
@@ -892,7 +892,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
 
                 {sourceWorkspace && (
                   <DropdownMenu.Item
-                    icon={<ArrowSquareOut size={13} className="mr-2" />}
+                    icon={<ExternalLink size={13} className="mr-2" />}
                     onClick={() => window.open(`/workspace/${sourceWorkspace.workspaceId}`, '_blank', 'noopener,noreferrer')}
                     className={MENU_ITEM}
                   >
@@ -904,7 +904,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
                   <>
                     <DropdownMenu.Separator />
                     <DropdownMenu.Item
-                      icon={<Trash size={13} className="mr-2" />}
+                      icon={<Trash2 size={13} className="mr-2" />}
                       variant="danger"
                       onClick={() => setShowDeleteConfirm(true)}
                       className={MENU_ITEM_DANGER}
@@ -919,7 +919,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
                     <DropdownMenu.Separator />
                     {isUploadedBlueprint ? (
                       <DropdownMenu.Item
-                        icon={<Trash size={13} className="mr-2" />}
+                        icon={<Trash2 size={13} className="mr-2" />}
                         variant="danger"
                         onClick={() => setShowDeleteConfirm(true)}
                         className={MENU_ITEM_DANGER}
@@ -928,7 +928,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
                       </DropdownMenu.Item>
                     ) : (
                       <DropdownMenu.Item
-                        icon={<Trash size={13} className="mr-2" />}
+                        icon={<Trash2 size={13} className="mr-2" />}
                         variant="danger"
                         onClick={handleRemoveFromLibrary}
                         disabled={removingFromLibrary}
@@ -944,7 +944,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
                   <>
                     <DropdownMenu.Separator />
                     <DropdownMenu.Item
-                      icon={<Sparkle size={13} className="mr-2" weight={isFeatured ? 'fill' : 'regular'} />}
+                      icon={<Sparkles size={13} className="mr-2" fill={isFeatured ? 'currentColor' : 'none'} strokeWidth={isFeatured ? 0 : 2} />}
                       onClick={handleToggleFeatured}
                       disabled={updatingFeatured}
                       className={MENU_ITEM}
@@ -1140,7 +1140,7 @@ function BlueprintScreenshotHero({
               className="aspect-[16/9] w-full object-cover"
             />
             <span className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full border border-kumo-line bg-kumo-base/90 text-kumo-subtle opacity-0 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[opacity,color,background-color] duration-150 ease-out group-hover:opacity-100 group-hover:text-kumo-default">
-              <ArrowsOutSimple size={14} weight="bold" />
+              <Maximize2 size={14} strokeWidth={2.5} />
             </span>
           </button>
         )}
@@ -1234,9 +1234,9 @@ function BindingIconTile({
       <span className="text-[13px] font-semibold text-kumo-subtle">{fallback}</span>
     )
   } else if (binding.type === 'aiModel') {
-    icon = <Robot size={16} className="text-kumo-subtle" />
+    icon = <Bot size={16} className="text-kumo-subtle" />
   } else {
-    icon = <Lightning size={16} className="text-kumo-subtle" />
+    icon = <Zap size={16} className="text-kumo-subtle" />
   }
 
   return (

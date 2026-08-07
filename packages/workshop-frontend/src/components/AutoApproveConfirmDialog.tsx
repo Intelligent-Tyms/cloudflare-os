@@ -1,5 +1,5 @@
 import { Dialog } from '@cloudflare/kumo'
-import { X } from '@phosphor-icons/react'
+import { X } from 'lucide-react'
 import { WorkshopButton, WorkshopIconButton } from './WorkshopControls'
 
 interface AutoApproveConfirmDialogProps {

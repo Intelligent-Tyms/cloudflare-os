@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Dialog, Select, Loader, Text, useKumoToastManager } from '@cloudflare/kumo'
-import { Warning, Plus, ArrowClockwise, CheckCircle } from '@phosphor-icons/react'
+import { TriangleAlert, Plus, RotateCw, CircleCheck } from 'lucide-react'
 import { RpcStub, RpcTarget } from 'capnweb'
 import {
   AuthenticatedApi,
@@ -288,7 +288,7 @@ export default function ObserverConfigModal({
                       the gatekeeper or authored by the overseer, and must not be parsed. */}
                   {need.failure && (
                     <div className={`flex items-start gap-2 px-3 py-2 rounded-md text-xs text-kumo-warning bg-kumo-warning-tint border border-kumo-warning/20${matching.length === 0 ? '' : ' mb-3'}`}>
-                      <Warning size={14} className="mt-0.5 shrink-0" />
+                      <TriangleAlert size={14} className="mt-0.5 shrink-0" />
                       <div className="min-w-0">
                         <span className="font-medium">
                           {accountLabel(accounts.get(need.failure.accountId), need.failure.accountId)}
@@ -311,7 +311,7 @@ export default function ObserverConfigModal({
                           </div>
                           {matching[0].credentialsValid && (
                             <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-kumo-success">
-                              <CheckCircle size={15} weight="fill" /> Ready
+                              <CircleCheck size={15} strokeWidth={2.5} /> Ready
                             </span>
                           )}
                         </div>
@@ -351,9 +351,9 @@ export default function ObserverConfigModal({
                           className="flex items-center gap-1.5 text-xs text-kumo-warning hover:underline disabled:opacity-60"
                         >
                           {reconnecting === chosen.id ? (
-                            <ArrowClockwise size={12} className="animate-spin" />
+                            <RotateCw size={12} className="animate-spin" />
                           ) : (
-                            <Warning size={12} />
+                            <TriangleAlert size={12} />
                           )}
                           {reconnecting === chosen.id
                             ? 'Re-authenticating…'

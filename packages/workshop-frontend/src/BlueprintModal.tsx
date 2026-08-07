@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Dialog, useKumoToastManager } from '@cloudflare/kumo'
-import { ArrowsClockwise, Check, Copy, ImageSquare, Pencil, Plus, Trash, Warning, X } from '@phosphor-icons/react'
+import { RefreshCw, Check, Copy, Image, Pencil, Plus, Trash2, TriangleAlert, X } from 'lucide-react'
 import { RpcStub } from 'capnweb'
 import { BlueprintGadgetSummary, GadgetClient, GadgetMetadata, Overseer, BlueprintBindingAnnotation, BlueprintScreenshotUpload } from '@gadgets/workshop-shared/api'
 import { WorkshopButton, WorkshopIconButton, WorkshopInput, WorkshopInputArea } from './components/WorkshopControls'
@@ -370,7 +370,7 @@ export default function BlueprintModal({ open, onClose, overseer, gadget, metada
                             onClick={() => screenshotInputRef.current?.click()}
                             disabled={processingScreenshot || creating}
                           >
-                            <ImageSquare size={13} weight="bold" />
+                            <Image size={13} strokeWidth={2.5} />
                             {processingScreenshot ? 'Processing...' : newScreenshotUrl || (formMode === 'edit' && editingBlueprint?.screenshotUrl && !clearScreenshot) ? 'Change' : 'Upload'}
                           </WorkshopButton>
                         </div>
@@ -424,7 +424,7 @@ export default function BlueprintModal({ open, onClose, overseer, gadget, metada
                 <div className="border-t border-kumo-line px-4 py-4 sm:px-6">
                   {createError && (
                     <div className="mb-3 flex items-start gap-2 rounded-lg border border-l-2 border-l-kumo-brand border-y-kumo-line border-r-kumo-line bg-kumo-base px-3 py-2 text-[12px] leading-[18px] font-normal tracking-[-0.2px] text-kumo-default">
-                      <Warning size={14} weight="fill" className="mt-0.5 shrink-0 text-kumo-brand" />
+                      <TriangleAlert size={14} strokeWidth={2.5} className="mt-0.5 shrink-0 text-kumo-brand" />
                       <span>{createError}</span>
                     </div>
                   )}
@@ -660,11 +660,11 @@ function BlueprintRow({
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <div className="-ml-[7px] flex flex-wrap items-center gap-1">
-          <GhostButton onClick={onUpdateCode} icon={<ArrowsClockwise size={13} />}>
+          <GhostButton onClick={onUpdateCode} icon={<RefreshCw size={13} />}>
             Update code
           </GhostButton>
           {bp.dirty && (
-            <GhostButton onClick={onRetryPublish} icon={<ArrowsClockwise size={13} />}>
+            <GhostButton onClick={onRetryPublish} icon={<RefreshCw size={13} />}>
               Retry publish
             </GhostButton>
           )}
@@ -698,7 +698,7 @@ function BlueprintRow({
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-transparent text-kumo-subtle transition-colors hover:bg-kumo-danger-tint hover:text-kumo-danger"
             aria-label="Delete blueprint"
           >
-            <Trash size={13} />
+            <Trash2 size={13} />
           </button>
         </div>
       </div>

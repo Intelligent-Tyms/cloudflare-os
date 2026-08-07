@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Clock, MagnifyingGlass, Hexagon, DotsThreeVertical, ShareNetwork, Trash, Info, Star, Pencil, ArrowRight } from '@phosphor-icons/react'
+import { Clock, Search, Hexagon, EllipsisVertical, Share2, Trash2, Info, Star, Pencil, ArrowRight } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { DropdownMenu, Dialog, Button, useKumoToastManager } from '@cloudflare/kumo'
 import { RpcStub } from 'capnweb'
@@ -88,7 +88,7 @@ function AppRow({
       {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          {gadget.pinned && <Star size={12} weight="fill" className="text-kumo-brand flex-shrink-0" />}
+          {gadget.pinned && <Star size={12} fill="currentColor" strokeWidth={0} className="text-kumo-brand flex-shrink-0" />}
           {isRenaming ? (
             <input
               ref={renameInputRef}
@@ -129,7 +129,7 @@ function AppRow({
             <button
               className="p-1.5 text-kumo-subtle hover:text-kumo-default rounded-md hover:bg-kumo-fill transition-colors sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
             >
-              <DotsThreeVertical size={16} />
+              <EllipsisVertical size={16} />
             </button>
           }
         />
@@ -139,7 +139,7 @@ function AppRow({
             Rename
           </DropdownMenu.Item>
           <DropdownMenu.Item onClick={() => onTogglePin(gadget)} className={MENU_ITEM}>
-            <Star size={13} className="mr-2" weight={gadget.pinned ? 'fill' : 'regular'} />
+            <Star size={13} className="mr-2" {...(gadget.pinned ? { fill: 'currentColor', strokeWidth: 0 } : {})} />
             {gadget.pinned ? 'Unfavorite' : 'Favorite'}
           </DropdownMenu.Item>
           <DropdownMenu.Item onClick={() => onInfo(gadget)} className={MENU_ITEM}>
@@ -147,7 +147,7 @@ function AppRow({
             Information
           </DropdownMenu.Item>
           <DropdownMenu.Item onClick={() => onShare(gadget)} className={MENU_ITEM}>
-            <ShareNetwork size={13} className="mr-2" />
+            <Share2 size={13} className="mr-2" />
             Share
           </DropdownMenu.Item>
           <DropdownMenu.Separator />
@@ -156,7 +156,7 @@ function AppRow({
             onClick={() => onDelete(gadget)}
             className={MENU_ITEM_DANGER}
           >
-            <Trash size={13} className="mr-2" />
+            <Trash2 size={13} className="mr-2" />
             {gadget.owner ? 'Dismiss' : 'Delete'}
           </DropdownMenu.Item>
         </DropdownMenu.Content>
@@ -348,7 +348,7 @@ export default function GadgetList({ showHeader = true }: { showHeader?: boolean
       {!loading && gadgets.length > 0 && (
         <div className="mb-4 px-3">
           <div className="relative">
-            <MagnifyingGlass
+            <Search
               size={16}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-kumo-inactive"
             />
@@ -505,7 +505,7 @@ function HomeFeaturedBlueprintCard({
         />
         <div className="flex min-w-0 items-start gap-2 px-1 pb-1">
           <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br ${getBlueprintGradient(blueprint.id)}`}>
-            <Hexagon size={13} className="text-white/75" weight="bold" />
+            <Hexagon size={13} className="text-white/75" strokeWidth={2.5} />
           </div>
           <div className="min-w-0 flex-1">
             <p className="m-0 truncate text-[13px] leading-[18px] font-semibold tracking-[-0.25px] text-kumo-default">
@@ -592,7 +592,7 @@ function FeaturedBlueprintsGallery() {
             className="inline-flex items-center gap-1.5 text-xs font-medium text-kumo-brand hover:text-kumo-brand-hover transition-colors"
           >
             Browse all blueprints
-            <ArrowRight size={12} weight="bold" />
+            <ArrowRight size={12} strokeWidth={2.5} />
           </Link>
         </div>
       )}

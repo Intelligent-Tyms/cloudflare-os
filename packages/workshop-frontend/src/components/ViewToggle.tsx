@@ -1,4 +1,4 @@
-import { List, GridFour } from '@phosphor-icons/react'
+import { List, LayoutGrid } from 'lucide-react'
 
 // Shared grid/list segmented toggle. Used on Gatekeepers and Outputs so view-switching looks and
 // behaves identically across the app.
@@ -11,7 +11,7 @@ export default function ViewToggle({
 }) {
   const options = [
     { value: 'list' as const, Icon: List, label: 'List view' },
-    { value: 'grid' as const, Icon: GridFour, label: 'Grid view' },
+    { value: 'grid' as const, Icon: LayoutGrid, label: 'Grid view' },
   ]
   return (
     <div className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-kumo-line bg-kumo-base p-0.5">
@@ -28,7 +28,7 @@ export default function ViewToggle({
               : 'text-kumo-inactive hover:text-kumo-default'
           }`}
         >
-          <Icon size={16} weight={view === value ? 'bold' : 'regular'} />
+          <Icon size={16} strokeWidth={view === value ? 2.5 : 2} />
         </button>
       ))}
     </div>

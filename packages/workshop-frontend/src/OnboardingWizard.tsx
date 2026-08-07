@@ -17,13 +17,13 @@ import {
   ArrowRight,
   Check,
   Plus,
-  PlugsConnected,
-  Sparkle,
-  UsersThree,
+  Cable,
+  Sparkles,
+  Users,
   Key,
-  Plugs,
+  Unplug,
   Hexagon,
-} from '@phosphor-icons/react'
+} from 'lucide-react'
 import AddModelModal from './AddModelModal'
 import { persistSelectedModel } from './modelSelection'
 import { logoComponents } from './components/ConnectionLogos'
@@ -357,7 +357,7 @@ export default function OnboardingWizard({
           }`}
         >
           <SiteLogo size={22}>
-            <Hexagon size={22} className="text-kumo-brand" weight="bold" />
+            <Hexagon size={22} className="text-kumo-brand" strokeWidth={2.5} />
           </SiteLogo>
           <span className="text-base font-semibold tracking-tight text-kumo-default">
             {siteName}
@@ -545,7 +545,7 @@ export default function OnboardingWizard({
                           {selectedModelId === model.id && (
                             <Check
                               size={18}
-                              weight="bold"
+                              strokeWidth={2.5}
                               className="text-kumo-brand flex-shrink-0"
                             />
                           )}
@@ -568,7 +568,7 @@ export default function OnboardingWizard({
                       onClick={() => setAddModelOpen(true)}
                       className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-kumo-subtle border border-dashed border-kumo-line rounded-xl hover:border-kumo-fill hover:text-kumo-default hover:bg-kumo-tint transition-colors"
                     >
-                      <Plus size={14} weight="bold" />
+                      <Plus size={14} strokeWidth={2.5} />
                       Add new model...
                     </button>
                   </>
@@ -639,10 +639,10 @@ export default function OnboardingWizard({
                             </p>
                           </div>
                           {isConnected && (
-                            <PlugsConnected
+                            <Cable
                               size={14}
                               className="text-kumo-brand flex-shrink-0"
-                              weight="bold"
+                              strokeWidth={2.5}
                             />
                           )}
                           {isConnecting && (
@@ -688,7 +688,7 @@ export default function OnboardingWizard({
                   className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-150 text-kumo-inverse bg-kumo-brand hover:bg-kumo-brand-hover"
                 >
                   Next
-                  <ArrowRight size={14} weight="bold" />
+                  <ArrowRight size={14} strokeWidth={2.5} />
                 </button>
               ) : (
                 <button
@@ -711,7 +711,7 @@ export default function OnboardingWizard({
                   ) : (
                     <>
                       Let&apos;s build
-                      <ArrowRight size={14} weight="bold" />
+                      <ArrowRight size={14} strokeWidth={2.5} />
                     </>
                   )}
                 </button>
@@ -742,7 +742,7 @@ export default function OnboardingWizard({
 // ─── showcase step ──────────────────────────────────────────────────────────────
 
 interface ShowcaseFeature {
-  icon: typeof Sparkle
+  icon: typeof Sparkles
   iconColor: string
   iconBg: string
   title: string
@@ -751,7 +751,7 @@ interface ShowcaseFeature {
 
 const SHOWCASE_FEATURES: ShowcaseFeature[] = [
   {
-    icon: Sparkle,
+    icon: Sparkles,
     iconColor: 'text-media-100',
     iconBg: 'bg-media-200',
     title: 'Build gadgets or just chat',
@@ -759,7 +759,7 @@ const SHOWCASE_FEATURES: ShowcaseFeature[] = [
       'Create full web apps, or keep it simple with agent-only conversations. Your call.',
   },
   {
-    icon: UsersThree,
+    icon: Users,
     iconColor: 'text-compute-100',
     iconBg: 'bg-compute-200',
     title: 'Collaborate in real time',
@@ -775,7 +775,7 @@ const SHOWCASE_FEATURES: ShowcaseFeature[] = [
       'Plug in personal API tokens from any provider to use the models you love.',
   },
   {
-    icon: Plugs,
+    icon: Unplug,
     iconColor: 'text-storage-100',
     iconBg: 'bg-storage-200',
     title: 'AI meets your tools',
@@ -829,7 +829,7 @@ function ShowcaseStep({ active, siteName }: { active: boolean; siteName: string 
               <div
                 className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${feature.iconBg}`}
               >
-                <Icon size={18} className={feature.iconColor} weight="fill" />
+                <Icon size={18} className={feature.iconColor} strokeWidth={2.5} />
               </div>
               <div className="flex-1 min-w-0 pt-0.5">
                 <p className="text-sm font-medium text-kumo-default">

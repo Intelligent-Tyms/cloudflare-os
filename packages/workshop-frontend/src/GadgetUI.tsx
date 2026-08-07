@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Text, Loader, Banner } from '@cloudflare/kumo'
-import { Sparkle } from '@phosphor-icons/react'
+import { Sparkles } from 'lucide-react'
 import { RpcStub, RpcTarget, newMessagePortRpcSession } from 'capnweb'
 import { GadgetClient, ConsoleLogEvent } from '@gadgets/workshop-shared/api'
 
@@ -470,7 +470,7 @@ function GadgetUISession({ gadget, height, reloadTrigger, isVisible = true, chat
 
         <div className="relative flex max-w-sm flex-col items-center gap-3 px-6 text-center">
           <div className="themed-user-bubble-shadow flex h-12 w-12 items-center justify-center rounded-xl border border-kumo-line bg-kumo-elevated text-kumo-subtle">
-            <Sparkle size={22} weight="regular" />
+            <Sparkles size={22} />
           </div>
           <div className="space-y-1">
             <h2 className="text-[20px] leading-7 font-normal tracking-[-0.45px] text-kumo-default">

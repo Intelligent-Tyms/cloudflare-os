@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Clock, ArrowRight } from '@phosphor-icons/react'
+import { Clock, ArrowRight } from 'lucide-react'
 import { useAuthenticatedApi } from '../AuthContext'
 import { useState, useEffect } from 'react'
 import { GadgetMetadataWithTimestamps } from '@gadgets/workshop-shared/api'

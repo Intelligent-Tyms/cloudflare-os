@@ -2,17 +2,17 @@ import { useState, useEffect, useCallback, useMemo, useRef, type PointerEvent as
 import { useParams, useNavigate, useSearch, Link } from '@tanstack/react-router'
 import { useKumoToastManager } from '@cloudflare/kumo'
 import {
-  ShareNetwork,
+  Share2,
   Pencil,
   Check,
   X,
   Hexagon,
-  Blueprint,
-  Trash,
-  ArrowsOutSimple,
-  Pulse,
-  type Icon,
-} from '@phosphor-icons/react'
+  DraftingCompass as Blueprint,
+  Trash2,
+  Maximize2,
+  Activity as ActivityIcon,
+  type LucideIcon,
+} from 'lucide-react'
 import { RpcStub, RpcTarget } from 'capnweb'
 import { useAuthenticatedApi } from './AuthContext'
 import UserMenu from './components/UserMenu'
@@ -183,7 +183,7 @@ function PaneLabel({
   title,
   badge,
 }: {
-  icon?: Icon
+  icon?: LucideIcon
   output?: BlueprintOutput
   title: string
   badge?: string
@@ -194,8 +194,8 @@ function PaneLabel({
       className="inline-flex w-full min-w-0 max-w-[180px] items-center gap-1.5 overflow-hidden rounded-lg bg-kumo-tint px-2.5 py-1.5 text-[13px] font-medium tracking-[-0.15px] text-kumo-default"
     >
       {LabelIcon
-        ? <LabelIcon size={14} weight="bold" className="flex-shrink-0" />
-        : <FormatGlyph output={output} size="sm" className="flex-shrink-0" weight="regular" />}
+        ? <LabelIcon size={14} strokeWidth={2.5} className="flex-shrink-0" />
+        : <FormatGlyph output={output} size="sm" className="flex-shrink-0" />}
       <span className="truncate">{title}</span>
       {badge !== undefined && (
         <span className="rounded-full bg-kumo-fill px-1.5 py-0.5 text-[10px] font-medium leading-none text-kumo-subtle">
@@ -281,7 +281,7 @@ function PaneWorkpieceTabs({
                 : 'max-w-[150px] text-kumo-subtle hover:bg-kumo-tint/50 hover:text-kumo-default'
             }`}
           >
-            <FormatGlyph output={gadget.output} size="sm" className="flex-shrink-0" weight="regular" />
+            <FormatGlyph output={gadget.output} size="sm" className="flex-shrink-0" />
             <span className="truncate">{gadget.title}</span>
             {gadget.chatId !== undefined && (
               <span className="flex-shrink-0 rounded-full bg-kumo-fill px-1.5 py-0.5 text-[10px] font-medium leading-none text-kumo-subtle">
@@ -1335,7 +1335,7 @@ export default function GadgetEditor() {
             className="flex-shrink-0 hover:opacity-80 transition-opacity"
           >
             <SiteLogo size={22}>
-              <Hexagon size={22} className="text-kumo-brand" weight="bold" />
+              <Hexagon size={22} className="text-kumo-brand" strokeWidth={2.5} />
             </SiteLogo>
           </Link>
 
@@ -1424,7 +1424,7 @@ export default function GadgetEditor() {
             title="Share workspace"
             aria-label="Share workspace"
           >
-            <ShareNetwork size={15} />
+            <Share2 size={15} />
           </WorkshopIconButton>
 
           <WorkshopIconButton
@@ -1443,7 +1443,7 @@ export default function GadgetEditor() {
               title="Delete workspace"
               aria-label="Delete workspace"
             >
-              <Trash size={16} />
+              <Trash2 size={16} />
             </WorkshopIconButton>
           )}
 
@@ -1556,7 +1556,7 @@ export default function GadgetEditor() {
           >
             <div className="flex min-w-0 flex-1 items-center overflow-hidden">
               {paneShowsActivity ? (
-                <PaneLabel icon={Pulse} title="Activity" />
+                <PaneLabel icon={ActivityIcon} title="Activity" />
               ) : visibleGadgets.length > 1 ? (
                 <PaneWorkpieceTabs
                   gadgets={visibleGadgets}
@@ -1612,7 +1612,7 @@ export default function GadgetEditor() {
                   onClick={enterGadgetFullscreen}
                   disabled={activeTab !== 'app' || previewMode}
                 >
-                  <ArrowsOutSimple size={17} />
+                  <Maximize2 size={17} />
                 </WorkshopIconButton>
               )}
 

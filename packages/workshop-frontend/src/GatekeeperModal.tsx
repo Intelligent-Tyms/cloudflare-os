@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Dialog, useKumoToastManager, type PortalContainer } from '@cloudflare/kumo'
 import {
-  CaretDown,
-  CaretLeft,
-  CaretRight,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Database,
-  MagnifyingGlass,
-  Robot,
-  Sparkle,
+  Search,
+  Bot,
+  Sparkles,
   X,
-} from '@phosphor-icons/react'
+} from 'lucide-react'
 import { RpcStub, RpcTarget } from 'capnweb'
 import {
   AgentSpawnerConfig,
@@ -116,7 +116,7 @@ function platformConnectionTypes(siteName: string): ConnectionType[] {
     title: 'AI Model',
     vendor: siteName,
     description: 'Expose a selected model through this connection.',
-    icon: Sparkle,
+    icon: Sparkles,
     accent: '#f6edff',
     iconColor: '#7c3aed',
   },
@@ -127,7 +127,7 @@ function platformConnectionTypes(siteName: string): ConnectionType[] {
     title: 'Agent',
     vendor: siteName,
     description: 'Allow this connection to start new AI agent conversations with selected tools.',
-    icon: Robot,
+    icon: Bot,
     accent: '#f2f0ff',
     iconColor: '#7c3aed',
   },
@@ -829,7 +829,7 @@ export default function GatekeeperModal({
                 onClick={() => setSelectedConnectionId(null)}
                 className="mb-4 inline-flex cursor-pointer items-center gap-1.5 text-[12px] leading-4 font-medium tracking-[-0.2px] text-kumo-subtle transition-colors hover:text-kumo-default"
               >
-                <CaretLeft size={13} />
+                <ChevronLeft size={13} />
                 All connection types
               </button>
 
@@ -900,7 +900,7 @@ export default function GatekeeperModal({
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="shrink-0 border-b border-kumo-line bg-kumo-base px-5 py-4">
               <div className="relative">
-                <MagnifyingGlass size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-kumo-inactive" />
+                <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-kumo-inactive" />
                 <input
                   value={searchText}
                   onChange={(event) => setSearchText(event.target.value)}
@@ -998,12 +998,11 @@ function ConnectionTypeRow({
         ) : Icon ? (
           <Icon
             size={19}
-            weight="duotone"
             className={connection.iconColor ? undefined : 'text-kumo-strong'}
             style={connection.iconColor ? { color: connection.iconColor } : undefined}
           />
         ) : (
-          <Database size={19} weight="duotone" className="text-kumo-strong" />
+          <Database size={19} className="text-kumo-strong" />
         )}
       </div>
       <div className="min-w-0 flex-1">
@@ -1014,7 +1013,7 @@ function ConnectionTypeRow({
           {connection.vendor} · {connection.description}
         </p>
       </div>
-      <CaretRight size={14} className="shrink-0 text-kumo-inactive transition-transform group-hover:translate-x-0.5 group-hover:text-kumo-default" />
+      <ChevronRight size={14} className="shrink-0 text-kumo-inactive transition-transform group-hover:translate-x-0.5 group-hover:text-kumo-default" />
     </button>
   )
 }
@@ -1077,12 +1076,11 @@ function ConnectionGroupRow({
           ) : Icon ? (
             <Icon
               size={19}
-              weight="duotone"
               className={representative.iconColor ? undefined : 'text-kumo-strong'}
               style={representative.iconColor ? { color: representative.iconColor } : undefined}
             />
           ) : (
-            <Database size={19} weight="duotone" className="text-kumo-strong" />
+            <Database size={19} className="text-kumo-strong" />
           )}
         </div>
         <div className="min-w-0 flex-1">
@@ -1093,7 +1091,7 @@ function ConnectionGroupRow({
             {subtitle}
           </p>
         </div>
-        <CaretDown
+        <ChevronDown
           size={14}
           className={`shrink-0 text-kumo-inactive transition-transform group-hover:text-kumo-default ${expanded ? 'rotate-180' : ''}`}
         />
@@ -1112,9 +1110,9 @@ function ConnectionGroupRow({
                 {item.iconUrl ? (
                   <img src={item.iconUrl} alt="" className="h-full w-full object-cover" />
                 ) : item.icon ? (
-                  <item.icon size={14} weight="duotone" className="text-kumo-strong" />
+                  <item.icon size={14} className="text-kumo-strong" />
                 ) : (
-                  <Database size={14} weight="duotone" className="text-kumo-strong" />
+                  <Database size={14} className="text-kumo-strong" />
                 )}
               </div>
               <div className="min-w-0 flex-1">
@@ -1125,7 +1123,7 @@ function ConnectionGroupRow({
                   {item.description}
                 </p>
               </div>
-              <CaretRight size={13} className="shrink-0 text-kumo-inactive transition-transform group-hover:translate-x-0.5 group-hover:text-kumo-default" />
+              <ChevronRight size={13} className="shrink-0 text-kumo-inactive transition-transform group-hover:translate-x-0.5 group-hover:text-kumo-default" />
             </button>
           ))}
         </div>

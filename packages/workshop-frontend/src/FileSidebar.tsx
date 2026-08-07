@@ -1,6 +1,6 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { Dialog, DropdownMenu, useKumoToastManager } from '@cloudflare/kumo'
-import { DotsThree, DownloadSimple, Pencil, Plus, Trash, X } from '@phosphor-icons/react'
+import { Ellipsis, Download, Pencil, Plus, Trash2, X } from 'lucide-react'
 import DeleteConfirmationDialog from './components/DeleteConfirmationDialog'
 import { WorkshopButton, WorkshopIconButton, WorkshopInput } from './components/WorkshopControls'
 
@@ -126,7 +126,7 @@ export default function FileSidebar({
           title="New file"
           className="!h-6 !w-6 text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default"
         >
-          <Plus size={14} weight="bold" />
+          <Plus size={14} strokeWidth={2.5} />
         </WorkshopIconButton>
       </div>
 
@@ -398,7 +398,7 @@ function FileRow({
                 onClick={(event) => event.stopPropagation()}
                 className="!h-5 !w-5 text-kumo-inactive opacity-0 hover:bg-kumo-tint hover:text-kumo-default focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-[popup-open]:opacity-100"
               >
-                <DotsThree size={14} weight="bold" />
+                <Ellipsis size={14} strokeWidth={2.5} />
               </WorkshopIconButton>
             )}
           />
@@ -407,7 +407,7 @@ function FileRow({
             className="themed-floating-shadow !z-[1100] !min-w-[144px] rounded-lg border border-kumo-line bg-kumo-base p-1"
           >
             <DropdownMenu.Item
-              icon={<DownloadSimple size={12} className="mr-2" />}
+              icon={<Download size={12} className="mr-2" />}
               onClick={onDownload}
               className="!h-auto rounded-md !px-2.5 !py-1.5 text-[12px] leading-4 tracking-[-0.2px] text-kumo-default transition-colors data-highlighted:bg-kumo-tint"
             >
@@ -423,7 +423,7 @@ function FileRow({
                   Rename
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
-                  icon={<Trash size={12} className="mr-2" />}
+                  icon={<Trash2 size={12} className="mr-2" />}
                   variant="danger"
                   onClick={onDelete}
                   className="!h-auto rounded-md !px-2.5 !py-1.5 text-[12px] leading-4 tracking-[-0.2px] transition-colors data-highlighted:bg-kumo-danger-tint"

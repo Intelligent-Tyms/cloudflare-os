@@ -6,32 +6,32 @@
 
 import {
   FileText,
-  GridNine,
+  Grid3x3,
   Presentation,
   AppWindow,
-  FlowArrow,
+  Workflow,
   Kanban,
   ChartBar,
   Table,
   Notebook,
   ListChecks,
-  type Icon as PhosphorIcon,
-} from '@phosphor-icons/react'
+  type LucideIcon,
+} from 'lucide-react'
 import type { BlueprintOutput, OutputIcon } from '@gadgets/workshop-shared/api'
 
 // The glyph for each key in the shared `OUTPUT_ICONS` vocabulary.
 export const FORMAT_ICONS = {
   fileText: FileText,
-  gridNine: GridNine,
+  gridNine: Grid3x3,
   presentation: Presentation,
   appWindow: AppWindow,
-  flowArrow: FlowArrow,
+  flowArrow: Workflow,
   kanban: Kanban,
   chartBar: ChartBar,
   table: Table,
   notebook: Notebook,
   listChecks: ListChecks,
-} satisfies Record<OutputIcon, PhosphorIcon>
+} satisfies Record<OutputIcon, LucideIcon>
 
 // Which wireframe illustrates a format. Derived from the icon rather than picked separately, so
 // the two can't disagree; icons depicting the same artefact (a page vs. a notebook) share one.

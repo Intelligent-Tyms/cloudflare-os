@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Button } from '@cloudflare/kumo'
 import { Badge } from '@cloudflare/kumo'
 import { Text } from '@cloudflare/kumo'
-import { Shield, X, Check } from '@phosphor-icons/react'
+import { Shield, X, Check } from 'lucide-react'
 import { samplePermissions, type PermissionRequest } from '../../data/chat'
 import { logoComponents } from '../ConnectionLogos'
 

@@ -2,11 +2,11 @@ import { useState, useEffect, useMemo } from 'react'
 import { Dialog, Tooltip, useKumoToastManager } from '@cloudflare/kumo'
 import {
   Pencil,
-  Trash,
-  Blueprint,
-  Warning,
+  Trash2,
+  DraftingCompass as Blueprint,
+  TriangleAlert,
   X,
-} from '@phosphor-icons/react'
+} from 'lucide-react'
 import { RpcStub } from 'capnweb'
 import { Overseer, GadgetClient, GadgetBindingInfo, BoundHookInfo, AuthenticatedApi, WorkpieceId } from '@gadgets/workshop-shared/api'
 import GatekeeperModal from './GatekeeperModal'
@@ -335,7 +335,7 @@ export default function Connections({ overseer, gadget, chatId, authenticatedApi
                               onClick={() => setDeleteTarget({ name: gk.name, resourceTitle: gk.resourceTitle })}
                               aria-label="Delete connection"
                             >
-                              <Trash size={14} />
+                              <Trash2 size={14} />
                             </WorkshopIconButton>
                           </Tooltip>
                         </div>
@@ -426,7 +426,7 @@ export default function Connections({ overseer, gadget, chatId, authenticatedApi
                               onClick={() => setDeleteHookTarget({ id: hook.id, title: hook.description.title })}
                               aria-label="Delete hook"
                             >
-                              <Trash size={14} />
+                              <Trash2 size={14} />
                             </WorkshopIconButton>
                           </Tooltip>
                         </div>
@@ -583,7 +583,7 @@ function BlueprintAnnotationModal({
           <div className="border-t border-kumo-line px-4 py-3 sm:px-5">
             {saveError && (
               <div className="mb-3 flex items-start gap-2 rounded-lg border border-l-2 border-l-kumo-brand border-y-kumo-line border-r-kumo-line bg-kumo-base px-3 py-2 text-[12px] leading-[18px] font-normal tracking-[-0.2px] text-kumo-default">
-                <Warning size={14} weight="fill" className="mt-0.5 shrink-0 text-kumo-brand" />
+                <TriangleAlert size={14} strokeWidth={2.5} className="mt-0.5 shrink-0 text-kumo-brand" />
                 <span>{saveError}</span>
               </div>
             )}

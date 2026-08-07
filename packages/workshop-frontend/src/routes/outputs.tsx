@@ -2,20 +2,20 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Dialog, DropdownMenu, useKumoToastManager } from '@cloudflare/kumo'
 import {
-  MagnifyingGlass,
-  DotsThreeVertical,
-  Stack,
-  ArrowSquareOut,
-  Cube,
+  Search,
+  EllipsisVertical,
+  Layers,
+  ExternalLink,
+  Box,
   Clock,
   User,
-  ShareNetwork,
-  CaretDown,
+  Share2,
+  ChevronDown,
   Check,
-  PencilSimple,
-  Trash,
+  Pencil,
+  Trash2,
   X,
-} from '@phosphor-icons/react'
+} from 'lucide-react'
 import { OutputSummary } from '@gadgets/workshop-shared/api'
 import { useAuthenticatedApi } from '../AuthContext'
 import { useDocumentTitle } from '../useDocumentTitle'
@@ -90,25 +90,25 @@ function OutputMenu({
               aria-label="Output actions"
               className="cursor-pointer rounded-md p-1.5 text-kumo-subtle transition-colors hover:bg-kumo-fill hover:text-kumo-default focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
             >
-              <DotsThreeVertical size={16} />
+              <EllipsisVertical size={16} />
             </button>
           }
         />
         <DropdownMenu.Content className={MENU_CONTENT}>
           <DropdownMenu.Item onClick={onOpen} className={MENU_ITEM}>
-            <ArrowSquareOut size={13} className="mr-2" /> Open
+            <ExternalLink size={13} className="mr-2" /> Open
           </DropdownMenu.Item>
           <DropdownMenu.Item onClick={onOpenWorkspace} className={MENU_ITEM}>
-            <Cube size={13} className="mr-2" /> Open workspace
+            <Box size={13} className="mr-2" /> Open workspace
           </DropdownMenu.Item>
           {onRename && (
             <DropdownMenu.Item onClick={onRename} className={MENU_ITEM}>
-              <PencilSimple size={13} className="mr-2" /> Rename
+              <Pencil size={13} className="mr-2" /> Rename
             </DropdownMenu.Item>
           )}
           {onRemove && (
             <DropdownMenu.Item onClick={onRemove} className={`${MENU_ITEM} text-kumo-danger`}>
-              <Trash size={13} className="mr-2" /> Remove
+              <Trash2 size={13} className="mr-2" /> Remove
             </DropdownMenu.Item>
           )}
         </DropdownMenu.Content>
@@ -132,7 +132,7 @@ function OutputProvenance({ owner }: { owner?: OutputSummary['owner'] }) {
       className="flex w-52 items-center gap-1 truncate whitespace-nowrap"
       title={owner ? `In a workspace shared by ${owner.name}` : 'In a workspace you created'}
     >
-      {owner ? <ShareNetwork size={11} /> : <User size={11} />}
+      {owner ? <Share2 size={11} /> : <User size={11} />}
       <span className="truncate">{owner ? `Shared by ${owner.name}` : 'Created by you'}</span>
     </span>
   )
@@ -246,7 +246,7 @@ function FilterChip({
 // answer.
 type OwnerFilter = 'all' | 'mine' | 'shared'
 
-const SCOPE_ICON = { all: Stack, mine: User, shared: ShareNetwork } as const
+const SCOPE_ICON = { all: Layers, mine: User, shared: Share2 } as const
 
 function ScopeSelect({
   value,
@@ -282,7 +282,7 @@ function ScopeSelect({
           >
             <CurrentIcon size={14} className="shrink-0" />
             {current.label}
-            <CaretDown size={11} className="shrink-0 text-kumo-inactive" />
+            <ChevronDown size={11} className="shrink-0 text-kumo-inactive" />
           </button>
         }
       />
@@ -307,7 +307,7 @@ function ScopeSelect({
               </span>
               <Check
                 size={12}
-                weight="bold"
+                strokeWidth={2.5}
                 className={`ml-2 flex-shrink-0 ${
                   option.value === value ? 'text-kumo-subtle' : 'invisible'
                 }`}
@@ -618,7 +618,7 @@ function OutputsPage() {
             />
           )}
           <div className="relative sm:w-56">
-            <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-kumo-inactive" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-kumo-inactive" />
             <input
               type="text"
               value={search}
@@ -647,7 +647,7 @@ function OutputsPage() {
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-3 px-3 py-20 text-center">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-kumo-fill text-kumo-subtle">
-              <Stack size={18} />
+              <Layers size={18} />
             </div>
             <div>
               <p className="text-sm font-medium text-kumo-default">

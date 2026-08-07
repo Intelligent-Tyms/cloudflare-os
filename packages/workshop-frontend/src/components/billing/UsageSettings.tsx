@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CloudflareUsageInfo, CloudflareAccountOption } from '@gadgets/workshop-shared/api'
 import { Button, useKumoToastManager } from '@cloudflare/kumo'
-import { Lightning, CloudCheck, Warning } from '@phosphor-icons/react'
+import { Zap, CloudCog, TriangleAlert } from 'lucide-react'
 import CloudflareLogo from '../auth/CloudflareLogo'
 import { useAuthenticatedApi } from '../../AuthContext'
 import { useCloudflareLimitsEnabled } from '../../ServerConfigContext'
@@ -123,7 +123,7 @@ export default function UsageSettings() {
                 </p>
                 <div className="pt-1">
                   <Button variant="primary" size="sm" onClick={connect} loading={busy}>
-                    <Lightning size={14} weight="bold" className="mr-1" />
+                    <Zap size={14} strokeWidth={2.5} className="mr-1" />
                     Connect Cloudflare
                   </Button>
                 </div>
@@ -132,7 +132,7 @@ export default function UsageSettings() {
               // Connected, but multiple accounts — force the user to choose which one to bill.
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm text-kumo-default">
-                  <Warning size={18} weight="bold" className="text-kumo-warning" />
+                  <TriangleAlert size={18} strokeWidth={2.5} className="text-kumo-warning" />
                   <span>Choose which Cloudflare account to bill</span>
                 </div>
                 <p className="text-sm text-kumo-subtle">
@@ -166,7 +166,7 @@ export default function UsageSettings() {
             ) : (
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm text-kumo-default">
-                  <CloudCheck size={18} weight="bold" className="text-kumo-success" />
+                  <CloudCog size={18} strokeWidth={2.5} className="text-kumo-success" />
                   <span>
                     Connected
                     {usage.accountName && <> — {usage.accountName}</>}
@@ -187,7 +187,7 @@ export default function UsageSettings() {
                     size="sm"
                     onClick={() => window.open(buildAddCreditsUrl(usage.accountId), '_blank')}
                   >
-                    <Lightning size={14} weight="bold" className="mr-1" />
+                    <Zap size={14} strokeWidth={2.5} className="mr-1" />
                     Add credits
                   </Button>
                 </div>

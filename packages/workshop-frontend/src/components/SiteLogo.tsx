@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useServerConfig } from '../ServerConfigContext'
+import tymsMark from '../assets/tyms-mark.png'
 
 export default function SiteLogo({
   size,
@@ -14,7 +15,8 @@ export default function SiteLogo({
 }) {
   const serverConfig = useServerConfig()
   const configuredUrl = serverConfig?.siteLogo?.url
-  const src = srcOverride === undefined ? configuredUrl : srcOverride ?? undefined
+  // Tyms mark is the built-in default; an admin-uploaded logo still wins.
+  const src = srcOverride === undefined ? configuredUrl ?? tymsMark : srcOverride ?? tymsMark
   const [failed, setFailed] = useState(false)
 
   useEffect(() => setFailed(false), [src, serverConfig])

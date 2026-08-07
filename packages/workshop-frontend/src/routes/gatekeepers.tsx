@@ -2,14 +2,14 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useKumoToastManager } from '@cloudflare/kumo'
 import {
-  MagnifyingGlass,
-  ArrowsClockwise,
+  Search,
+  RefreshCw,
   Plus,
-  CaretRight,
+  ChevronRight,
   Hexagon,
   ShieldCheck,
-  Plugs,
-} from '@phosphor-icons/react'
+  Unplug,
+} from 'lucide-react'
 import ViewToggle from '../components/ViewToggle'
 import { RpcTarget } from 'capnweb'
 import { useAuthenticatedApi } from '../AuthContext'
@@ -146,15 +146,15 @@ function ConnectorCard({
         disabled={reconnectBusy}
         className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-kumo-line bg-kumo-base px-3 text-[12px] leading-4 font-medium tracking-[-0.2px] text-kumo-default transition-[background-color,border-color,opacity,transform] duration-150 ease-out hover:border-kumo-fill hover:bg-kumo-tint active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100"
       >
-        <ArrowsClockwise size={12} weight="bold" />
+        <RefreshCw size={12} strokeWidth={2.5} />
         {reconnectBusy ? 'Opening...' : 'Reconnect'}
       </button>
     ) : (
       <div className="grid h-7 w-7 place-items-center text-kumo-inactive transition-colors group-hover:text-kumo-default">
         {state === 'available' ? (
-          <Plus size={16} weight="bold" />
+          <Plus size={16} strokeWidth={2.5} />
         ) : (
-          <CaretRight size={14} weight="bold" />
+          <ChevronRight size={14} strokeWidth={2.5} />
         )}
       </div>
     )
@@ -403,12 +403,12 @@ function ConnectorsHeroDiagram({
           className="themed-card-hover-shadow grid h-[52px] w-[52px] place-items-center rounded-2xl border border-kumo-line bg-kumo-base text-kumo-brand transition-[border-color,box-shadow] hover:border-kumo-fill focus:outline-none focus-visible:ring-2 focus-visible:ring-kumo-ring focus-visible:ring-offset-2 focus-visible:ring-offset-kumo-base"
           aria-label="Gatekeeper keeps Gadget access limited to connected resources"
         >
-          <ShieldCheck size={21} weight="duotone" />
+          <ShieldCheck size={21} />
         </button>
         <div className="themed-floating-shadow-lg pointer-events-none absolute left-1/2 top-[-108px] z-30 w-[228px] origin-bottom -translate-x-1/2 translate-y-1 scale-[0.98] rounded-2xl border border-kumo-line bg-kumo-base p-3 text-left opacity-0 transition-[opacity,transform] delay-0 duration-150 ease-out group-hover:translate-y-0 group-hover:scale-100 group-hover:opacity-100 group-hover:delay-100 group-focus-within:translate-y-0 group-focus-within:scale-100 group-focus-within:opacity-100 group-focus-within:delay-100">
           <div className="flex items-start gap-2.5">
             <div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-kumo-tint text-kumo-brand">
-              <ShieldCheck size={16} weight="duotone" />
+              <ShieldCheck size={16} />
             </div>
             <div className="min-w-0">
               <p className="m-0 text-[12px] leading-4 font-semibold tracking-[-0.2px] text-kumo-default">
@@ -425,7 +425,7 @@ function ConnectorsHeroDiagram({
 
       <div className="absolute left-[268px] top-[58px] z-10 flex h-[52px] w-[172px] items-center gap-2 rounded-2xl border border-kumo-line bg-kumo-elevated pl-2 pr-4">
         <div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-kumo-base text-kumo-brand">
-          <Hexagon size={17} weight="bold" />
+          <Hexagon size={17} strokeWidth={2.5} />
         </div>
         <span className="relative -top-px min-w-0 truncate text-base leading-5 font-semibold tracking-tight text-kumo-default">
           {siteName}
@@ -755,7 +755,7 @@ function ConnectorsPage() {
 
         <div className="mb-6 flex items-center gap-3">
           <div className="relative flex-1">
-            <MagnifyingGlass
+            <Search
               size={16}
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-kumo-inactive"
             />
@@ -865,7 +865,7 @@ function ConnectorsPage() {
                   ? "We couldn't find anything matching your search."
                   : 'Gatekeepers will appear here as they become available in your workspace.'
               }
-              icon={Plugs}
+              icon={Unplug}
             />
           )}
 

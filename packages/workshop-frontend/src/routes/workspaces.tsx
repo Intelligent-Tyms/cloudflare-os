@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { Plus } from '@phosphor-icons/react'
+import { Plus } from 'lucide-react'
 import GadgetList from '../components/GadgetList'
 import { useDocumentTitle } from '../useDocumentTitle'
 
@@ -25,7 +25,7 @@ function WorkspacesPage() {
           to="/"
           className="press inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-kumo-brand px-3.5 text-[13px] font-medium tracking-[-0.25px] text-white transition-colors hover:bg-kumo-brand-hover"
         >
-          <Plus size={14} weight="bold" />
+          <Plus size={14} strokeWidth={2.5} />
           Create workspace
         </Link>
       </header>

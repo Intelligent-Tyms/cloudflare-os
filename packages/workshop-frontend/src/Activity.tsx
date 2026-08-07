@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Switch, useKumoToastManager } from '@cloudflare/kumo'
-import { CaretRight, Check, Eye, Lightning, ShieldCheck } from '@phosphor-icons/react'
+import { ChevronRight, Check, Eye, Zap, ShieldCheck } from 'lucide-react'
 import { RpcStub } from 'capnweb'
 import { ActionLogEntry, Overseer } from '@gadgets/workshop-shared/api'
 import { ActionKind } from '@gadgets/workshop-shared/gatekeeper'
@@ -103,9 +103,9 @@ function activityStatus(
 }
 
 function TypeIcon({ record, className }: { record: ActionLogEntry; className?: string }) {
-  const props = { size: 13, weight: 'bold' as const, className }
+  const props = { size: 13, strokeWidth: 2.5, className }
   if (record.type === 'observation') return <Eye {...props} />
-  if (record.type === 'bindHook') return <Lightning {...props} />
+  if (record.type === 'bindHook') return <Zap {...props} />
   return <ShieldCheck {...props} />
 }
 
@@ -195,7 +195,7 @@ export default function Activity({
         pendingActions.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
             <span className="grid h-9 w-9 place-items-center rounded-full bg-kumo-tint text-kumo-subtle">
-              <Check size={17} weight="bold" />
+              <Check size={17} strokeWidth={2.5} />
             </span>
             <p className="mt-3 text-[13px] font-medium leading-[18px] tracking-[-0.25px] text-kumo-default">
               Nothing to review
@@ -518,7 +518,7 @@ function ReviewRequest({
             <h3 className="m-0 truncate text-[13px] font-medium leading-[18px] tracking-[-0.25px] text-kumo-default">
               {record.description.title}
             </h3>
-            <CaretRight
+            <ChevronRight
               size={12}
               className={`flex-shrink-0 text-kumo-inactive transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
             />
@@ -599,7 +599,7 @@ function HistoryRow({
           <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${status.dotClass}`} />
           {status.label}
         </span>
-        <CaretRight
+        <ChevronRight
           size={12}
           className={`text-kumo-inactive transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
         />

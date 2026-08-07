@@ -33,7 +33,7 @@ export async function formatIconDataUrl(icon: OutputIcon): Promise<string | unde
   try {
     let { renderToStaticMarkup } = await import('react-dom/server')
     let markup = renderToStaticMarkup(
-      createElement(FORMAT_ICONS[icon], { size: 24, color, weight: 'regular' }),
+      createElement(FORMAT_ICONS[icon], { size: 24, color }),
     )
     // encodeURIComponent leaves no raw whitespace or quotes, which is what the mirror's `url()`
     // escaping requires.

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import {
-  Blueprint,
-  MagnifyingGlass,
+  DraftingCompass as Blueprint,
+  Search,
   Plus,
-  SquaresFour,
-} from '@phosphor-icons/react'
+  LayoutGrid,
+} from 'lucide-react'
 import { useKumoToastManager } from '@cloudflare/kumo'
 import { useAuthenticatedApi } from '../../AuthContext'
 import type { GadgetMetadataWithTimestamps, OutputFormatOffer } from '@gadgets/workshop-shared/api'
@@ -237,14 +237,14 @@ export default function CommandPalette({
       {
         id: 'nav-new',
         label: 'New workspace',
-        icon: <Plus size={15} weight="bold" />,
+        icon: <Plus size={15} strokeWidth={2.5} />,
         run: () => navigate({ to: '/' }),
       },
       ...formatCommands,
       {
         id: 'nav-workspaces',
         label: 'Workspaces',
-        icon: <SquaresFour size={15} />,
+        icon: <LayoutGrid size={15} />,
         run: () => navigate({ to: '/workspaces' }),
       },
       {
@@ -261,7 +261,7 @@ export default function CommandPalette({
         id: `ws-${g.id}`,
         label: g.title || 'Untitled workspace',
         hint: 'Workspace',
-        icon: <SquaresFour size={15} className="text-kumo-inactive" />,
+        icon: <LayoutGrid size={15} className="text-kumo-inactive" />,
         run: () => navigate({ to: '/workspace/$id', params: { id: g.id } }),
       }))
 
@@ -350,7 +350,7 @@ export default function CommandPalette({
       <div className="absolute inset-0 bg-black/20" aria-hidden="true" onMouseDown={onClose} />
       <div className="themed-floating-shadow-lg relative w-full max-w-xl overflow-hidden rounded-xl border border-kumo-line bg-kumo-base">
         <div className="flex items-center gap-2.5 border-b border-kumo-line px-3.5">
-          <MagnifyingGlass size={16} className="shrink-0 text-kumo-inactive" />
+          <Search size={16} className="shrink-0 text-kumo-inactive" />
           <input
             ref={inputRef}
             value={query}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouterState } from '@tanstack/react-router'
-import { List, X } from '@phosphor-icons/react'
+import { Menu, X } from 'lucide-react'
 import TopBarNotice from '../../TopBarNotice'
 import Sidebar from './Sidebar'
 import CommandPalette from './CommandPalette'
@@ -106,7 +106,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
             className="flex h-7 w-7 items-center justify-center rounded-md text-kumo-default transition-colors hover:bg-kumo-tint md:hidden"
           >
-            {mobileOpen ? <X size={16} /> : <List size={16} />}
+            {mobileOpen ? <X size={16} /> : <Menu size={16} />}
           </button>
           <TopBarNotice />
           <span aria-hidden="true" className="h-7 w-7 md:hidden" />

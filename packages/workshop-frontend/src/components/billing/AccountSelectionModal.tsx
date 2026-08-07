@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CloudflareUsageInfo, CloudflareAccountOption } from '@gadgets/workshop-shared/api'
 import { Dialog, Button, Loader, Radio, useKumoToastManager } from '@cloudflare/kumo'
-import { Warning } from '@phosphor-icons/react'
+import { TriangleAlert } from 'lucide-react'
 import { useOptionalAuthenticatedApi } from '../../AuthContext'
 import { useCloudflareLimitsEnabled } from '../../ServerConfigContext'
 
@@ -70,7 +70,7 @@ export default function AccountSelectionModal() {
     <Dialog.Root open role="alertdialog">
       <Dialog className="p-6 sm:w-[480px]" size="base">
         <Dialog.Title className="text-lg font-semibold mb-2 flex items-center gap-2">
-          <Warning size={22} weight="bold" className="text-kumo-warning" />
+          <TriangleAlert size={22} strokeWidth={2.5} className="text-kumo-warning" />
           Choose a Cloudflare account
         </Dialog.Title>
 

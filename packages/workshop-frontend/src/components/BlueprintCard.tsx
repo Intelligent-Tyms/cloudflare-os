@@ -1,10 +1,10 @@
 import { Link } from "@tanstack/react-router";
 import {
   Hexagon,
-  Robot,
-  Lightning,
+  Bot,
+  Zap,
   Star,
-} from "@phosphor-icons/react";
+} from "lucide-react";
 import {
   BlueprintBinding,
   BlueprintMetadata,
@@ -85,9 +85,9 @@ export function BindingBadge({
       />
     );
   } else if (badge.type === "aiModel") {
-    icon = <Robot size={11} />;
+    icon = <Bot size={11} />;
   } else if (badge.type === "agentSpawner") {
-    icon = <Lightning size={11} />;
+    icon = <Zap size={11} />;
   } else {
     icon = (
       <span className="text-[10px] font-semibold leading-none">
@@ -122,7 +122,8 @@ export function BlueprintCard({
       {featured && (
         <Star
           size={72}
-          weight="fill"
+          fill="currentColor"
+          strokeWidth={0}
           className="pointer-events-none absolute -right-4 -top-4 text-kumo-brand/10"
         />
       )}
@@ -137,7 +138,7 @@ export function BlueprintCard({
           <div
             className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br ${getGradient(id)}`}
           >
-            <Hexagon size={16} className="text-white/75" weight="bold" />
+            <Hexagon size={16} className="text-white/75" strokeWidth={2.5} />
           </div>
           <div className="min-w-0 flex-1">
             <p className="m-0 line-clamp-2 text-[15px] leading-5 font-medium tracking-[-0.25px] text-kumo-default">

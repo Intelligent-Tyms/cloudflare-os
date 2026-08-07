@@ -1,4 +1,4 @@
-import { PlugsConnected, type Icon } from '@phosphor-icons/react'
+import { Cable, type LucideIcon } from 'lucide-react'
 import { WorkshopButton } from './WorkshopControls'
 
 export function EmptyState({
@@ -6,13 +6,13 @@ export function EmptyState({
   description,
   actionLabel,
   onAction,
-  icon: EmptyIcon = PlugsConnected,
+  icon: EmptyIcon = Cable,
 }: {
   title: string
   description: string
   actionLabel?: string
   onAction?: () => void
-  icon?: Icon
+  icon?: LucideIcon
 }) {
   return (
     <div className="relative overflow-hidden rounded-xl border border-dashed border-kumo-line bg-kumo-base px-6 py-9 text-center">

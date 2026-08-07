@@ -1,5 +1,5 @@
 import { Link, useRouterState } from '@tanstack/react-router'
-import { Desktop, Moon, Plug, Sun } from '@phosphor-icons/react'
+import { Monitor, Moon, Plug, Sun } from 'lucide-react'
 import { Tooltip } from '@cloudflare/kumo'
 import UserMenu from '../UserMenu'
 import { useTheme } from '../../ThemeContext'
@@ -29,7 +29,7 @@ function ThemeModeButton() {
           className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-kumo-inactive transition-colors hover:bg-kumo-tint hover:text-kumo-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-ring focus-visible:ring-offset-2 focus-visible:ring-offset-kumo-elevated"
         >
           {themeMode === 'system' ? (
-            <Desktop size={15} />
+            <Monitor size={15} />
           ) : themeMode === 'dark' ? (
             <Moon size={15} />
           ) : (

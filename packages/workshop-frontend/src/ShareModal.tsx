@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { Checkbox, Dialog, DropdownMenu, useKumoToastManager } from '@cloudflare/kumo'
 import type { PortalContainer } from '@cloudflare/kumo'
-import { CaretDown, Check, Copy, Link, PencilSimple, ShieldCheck, ShieldWarning, Trash, UserPlus, X } from '@phosphor-icons/react'
+import { ChevronDown, Check, Copy, Link, Pencil, ShieldCheck, ShieldAlert, Trash2, UserPlus, X } from 'lucide-react'
 import { RpcStub } from 'capnweb'
 import {
   Overseer,
@@ -90,7 +90,7 @@ function RoleMenu({
             aria-label={ariaLabel}
           >
             {roleLabel(value)}
-            <CaretDown size={11} weight="bold" className="text-kumo-inactive transition-transform duration-150 ease-out group-data-[popup-open]:rotate-180" />
+            <ChevronDown size={11} strokeWidth={2.5} className="text-kumo-inactive transition-transform duration-150 ease-out group-data-[popup-open]:rotate-180" />
           </button>
         }
       />
@@ -113,7 +113,7 @@ function RoleMenu({
               </span>
             </span>
             <span className="ml-2 flex h-4 w-4 shrink-0 items-center justify-center">
-              {value === role && <Check size={13} weight="bold" className="text-kumo-brand" />}
+              {value === role && <Check size={13} strokeWidth={2.5} className="text-kumo-brand" />}
             </span>
           </DropdownMenu.Item>
         ))}
@@ -777,7 +777,7 @@ export default function ShareModal({ open, onClose, overseer, metadata, currentU
           {sharingProhibited ? (
             <div className="flex h-full flex-col items-center justify-center px-6 py-12 text-center">
               <div className="grid h-12 w-12 place-items-center rounded-2xl bg-kumo-warning-tint text-kumo-warning">
-                <ShieldWarning size={22} weight="duotone" />
+                <ShieldAlert size={22} />
               </div>
               <p className="mt-3 text-[14px] leading-5 font-medium tracking-[-0.3px] text-kumo-default">
                 This workspace can’t be shared
@@ -800,7 +800,7 @@ export default function ShareModal({ open, onClose, overseer, metadata, currentU
             data-bwignore="true"
           >
             <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-kumo-tint text-kumo-subtle">
-              <UserPlus size={15} weight="duotone" />
+              <UserPlus size={15} />
             </div>
             <input
               type="search"
@@ -842,7 +842,7 @@ export default function ShareModal({ open, onClose, overseer, metadata, currentU
           {invitedName && (
             <div className="themed-compact-shadow mt-2 flex flex-wrap items-center gap-3 rounded-2xl border border-kumo-line/80 bg-kumo-base px-3 py-2.5 share-fade-in">
               <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-kumo-tint text-kumo-subtle">
-                {invitedLinkCopied ? <Check size={15} weight="bold" /> : <UserPlus size={15} weight="duotone" />}
+                {invitedLinkCopied ? <Check size={15} strokeWidth={2.5} /> : <UserPlus size={15} />}
               </div>
               <div className="min-w-[160px] flex-1">
                 <div className="flex items-baseline gap-1.5">
@@ -856,7 +856,7 @@ export default function ShareModal({ open, onClose, overseer, metadata, currentU
                 <p className="truncate font-mono text-[11px] leading-4 text-kumo-subtle">{workspaceUrl}</p>
               </div>
               <WorkshopButton tone="primary" onClick={copyWorkspaceUrl} className="gap-1.5 !rounded-xl">
-                {invitedLinkCopied ? <Check size={13} weight="bold" /> : <Copy size={13} />}
+                {invitedLinkCopied ? <Check size={13} strokeWidth={2.5} /> : <Copy size={13} />}
                 {invitedLinkCopied ? 'Copied' : 'Copy link'}
               </WorkshopButton>
               <WorkshopIconButton
@@ -873,7 +873,7 @@ export default function ShareModal({ open, onClose, overseer, metadata, currentU
               newShareLink ? (
                 <div className="themed-compact-shadow flex flex-wrap items-center gap-3 rounded-2xl border border-kumo-line/80 bg-kumo-base px-3 py-2.5 share-fade-in">
                     <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-kumo-tint text-kumo-subtle">
-                      {newShareLinkCopied ? <Check size={15} weight="bold" /> : <Link size={15} />}
+                      {newShareLinkCopied ? <Check size={15} strokeWidth={2.5} /> : <Link size={15} />}
                     </div>
                     <div className="min-w-[160px] flex-1">
                       <div className="flex items-baseline gap-1.5">
@@ -887,7 +887,7 @@ export default function ShareModal({ open, onClose, overseer, metadata, currentU
                       <p className="truncate font-mono text-[11px] leading-4 text-kumo-subtle">{newShareLink}</p>
                     </div>
                     <WorkshopButton tone="primary" onClick={copyNewLink} className="w-[78px] gap-1.5 !rounded-xl">
-                      {newShareLinkCopied ? <Check size={13} weight="bold" /> : <Copy size={13} />}
+                      {newShareLinkCopied ? <Check size={13} strokeWidth={2.5} /> : <Copy size={13} />}
                       {newShareLinkCopied ? 'Copied' : 'Copy'}
                     </WorkshopButton>
                     <WorkshopIconButton
@@ -988,7 +988,7 @@ export default function ShareModal({ open, onClose, overseer, metadata, currentU
                             aria-label={`Remove ${profile.name}`}
                             disabled={confirmationBusy}
                           >
-                            <Trash size={13} />
+                            <Trash2 size={13} />
                           </WorkshopIconButton>
                         </>
                       )}
@@ -1078,7 +1078,7 @@ export default function ShareModal({ open, onClose, overseer, metadata, currentU
                               aria-label={`Copy ${sk.note || 'share link'}`}
                               disabled={confirmationBusy || copyingLinkId === sk.linkId || sharingProhibited}
                             >
-                              {copiedLinkId === sk.linkId ? <Check size={13} weight="bold" /> : <Copy size={13} />}
+                              {copiedLinkId === sk.linkId ? <Check size={13} strokeWidth={2.5} /> : <Copy size={13} />}
                             </WorkshopIconButton>
                             <WorkshopIconButton
                               className="!h-7 !w-7 opacity-35 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
@@ -1086,7 +1086,7 @@ export default function ShareModal({ open, onClose, overseer, metadata, currentU
                               aria-label={`Rename ${sk.note || 'share link'}`}
                               disabled={confirmationBusy}
                             >
-                              <PencilSimple size={13} />
+                              <Pencil size={13} />
                             </WorkshopIconButton>
                             <WorkshopIconButton
                               danger
@@ -1095,7 +1095,7 @@ export default function ShareModal({ open, onClose, overseer, metadata, currentU
                               aria-label={`Revoke ${sk.note || 'share link'}`}
                               disabled={confirmationBusy}
                             >
-                              <Trash size={13} />
+                              <Trash2 size={13} />
                             </WorkshopIconButton>
                           </>
                         )}

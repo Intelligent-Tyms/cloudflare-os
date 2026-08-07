@@ -1,4 +1,4 @@
-import type { Icon as PhosphorIcon } from '@phosphor-icons/react'
+import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 // Wraps a non-functional design mock: renders the (frosted, non-interactive) mock as `children`
@@ -10,7 +10,7 @@ export default function ComingSoonPreview({
   description,
   children,
 }: {
-  icon: PhosphorIcon
+  icon: LucideIcon
   title: string
   description: string
   children: ReactNode

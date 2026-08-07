@@ -1,6 +1,6 @@
 import { Badge } from '@cloudflare/kumo'
 import { Text } from '@cloudflare/kumo'
-import { Circle } from '@phosphor-icons/react'
+import { Circle } from 'lucide-react'
 import { sampleDataRows } from '../../data/chat'
 
 /**
@@ -40,7 +40,7 @@ export default function AppPreview() {
               {/* Fake summary */}
               <div className="space-y-1.5 mt-3">
                 <div className="flex items-start gap-2">
-                  <Circle size={5} className="text-kumo-subtle mt-1.5 flex-shrink-0" weight="fill" />
+                  <Circle size={5} className="text-kumo-subtle mt-1.5 flex-shrink-0" fill="currentColor" strokeWidth={0} />
                   <p className="text-sm text-kumo-subtle">
                     {row.channel === '#general'
                       ? 'Team discussed Q1 planning timeline and agreed on March 15 deadline for proposals'
@@ -50,7 +50,7 @@ export default function AppPreview() {
                   </p>
                 </div>
                 <div className="flex items-start gap-2">
-                  <Circle size={5} className="text-kumo-subtle mt-1.5 flex-shrink-0" weight="fill" />
+                  <Circle size={5} className="text-kumo-subtle mt-1.5 flex-shrink-0" fill="currentColor" strokeWidth={0} />
                   <p className="text-sm text-kumo-subtle">
                     {row.channel === '#general'
                       ? '3 action items assigned, 2 decisions made'

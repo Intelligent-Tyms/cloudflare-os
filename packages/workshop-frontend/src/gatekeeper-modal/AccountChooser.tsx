@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Plus, UserCircle } from '@phosphor-icons/react'
+import { Check, Plus, CircleUserRound } from 'lucide-react'
 import { AccountDescription, SupportedResource, VendorDescription } from '@gadgets/workshop-shared/gatekeeper'
 
 // Account info as consumed by the chooser. Matches the shape used by GatekeeperModal and the
@@ -23,7 +23,7 @@ export function AccountAvatar({ avatarUrl, logoUrl }: { avatarUrl: string | unde
     return <img src={avatarUrl} alt="" className="h-full w-full object-cover" onError={() => setFailed(true)} />
   }
   if (logoUrl) return <img src={logoUrl} alt="" className="h-4 w-4 object-contain" />
-  return <UserCircle size={17} className="text-kumo-subtle" />
+  return <CircleUserRound size={17} className="text-kumo-subtle" />
 }
 
 export function AccountChooser({
@@ -130,7 +130,7 @@ export function AccountChooser({
                   {granting ? 'Opening...' : 'Grant access'}
                 </button>
               ) : null}
-              {selected && <Check size={15} weight="bold" className="shrink-0 text-kumo-brand" />}
+              {selected && <Check size={15} strokeWidth={2.5} className="shrink-0 text-kumo-brand" />}
             </div>
           )
         })}

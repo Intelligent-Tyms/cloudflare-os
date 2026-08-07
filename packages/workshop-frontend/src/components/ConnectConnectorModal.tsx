@@ -1,5 +1,5 @@
 import { Dialog, Switch } from '@cloudflare/kumo'
-import { X, ShieldCheck } from '@phosphor-icons/react'
+import { X, ShieldCheck } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import {
   AccountDescription,
@@ -313,7 +313,6 @@ export default function ConnectConnectorModal({
                 <ShieldCheck
                   size={18}
                   className="mt-0.5 shrink-0 text-kumo-brand"
-                  weight="duotone"
                 />
                 <div className="text-[12px] leading-[17px] font-normal tracking-[-0.2px] text-kumo-default">
                   <span className="font-medium">

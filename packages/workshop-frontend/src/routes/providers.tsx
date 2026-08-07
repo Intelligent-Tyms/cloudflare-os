@@ -10,11 +10,11 @@ import {
 } from '@gadgets/workshop-shared/api'
 import {
   Plus,
-  Trash,
-  Lightning,
-  MagnifyingGlass,
-  DotsThreeVertical,
-} from '@phosphor-icons/react'
+  Trash2,
+  Zap,
+  Search,
+  EllipsisVertical,
+} from 'lucide-react'
 import AddModelModal from '../AddModelModal'
 import { useDocumentTitle } from '../useDocumentTitle'
 import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER } from '../components/menuStyles'
@@ -77,7 +77,7 @@ function ModelRow({
           )}
           {isQuick && (
             <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[rgba(255,72,1,0.10)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.4px] text-kumo-brand">
-              <Lightning size={9} weight="fill" />
+              <Zap size={9} fill="currentColor" strokeWidth={0} />
               quick
             </span>
           )}
@@ -96,18 +96,18 @@ function ModelRow({
                 aria-label="Provider actions"
                 className="cursor-pointer rounded-md p-1.5 text-kumo-subtle transition-colors hover:bg-kumo-fill hover:text-kumo-default focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
               >
-                <DotsThreeVertical size={16} />
+                <EllipsisVertical size={16} />
               </button>
             }
           />
           <DropdownMenu.Content className={MENU_CONTENT}>
             <DropdownMenu.Item onClick={onSetQuick} className={MENU_ITEM}>
-              <Lightning size={13} className="mr-2" weight={isQuick ? 'fill' : 'regular'} />
+              <Zap size={13} className="mr-2" fill={isQuick ? 'currentColor' : 'none'} />
               {isQuick ? 'Clear quick model' : 'Set as quick model'}
             </DropdownMenu.Item>
             {!isBuiltIn && (
               <DropdownMenu.Item variant="danger" onClick={onDelete} className={MENU_ITEM_DANGER}>
-                <Trash size={13} className="mr-2" />
+                <Trash2 size={13} className="mr-2" />
                 Delete provider
               </DropdownMenu.Item>
             )}
@@ -215,7 +215,7 @@ function ProvidersPage() {
           </p>
         </div>
         <button type="button" onClick={() => setSheetOpen(true)} className={PRIMARY_BTN}>
-          <Plus size={14} weight="bold" />
+          <Plus size={14} strokeWidth={2.5} />
           Add provider
         </button>
       </header>
@@ -224,7 +224,7 @@ function ProvidersPage() {
       {!loading && !loadError && models.length > 0 && (
         <div className="mb-3 px-3">
           <div className="relative">
-            <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-kumo-inactive" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-kumo-inactive" />
             <input
               type="text"
               value={search}
@@ -242,7 +242,7 @@ function ProvidersPage() {
           <div className="flex flex-col gap-2.5 px-3 pb-2">
             {gatewayMode && (
               <Notice>
-                <Lightning size={15} className="mt-px shrink-0 text-kumo-brand" />
+                <Zap size={15} className="mt-px shrink-0 text-kumo-brand" />
                 <span>
                   <strong className="font-medium text-kumo-default">AI Gateway mode:</strong> built-in
                   models are managed by your deployment. You can still add custom models with your own
@@ -253,7 +253,7 @@ function ProvidersPage() {
 
             {!gatewayMode && models.length > 0 && (
               <Notice>
-                <Lightning size={15} className="mt-px shrink-0 text-kumo-brand" />
+                <Zap size={15} className="mt-px shrink-0 text-kumo-brand" />
                 <span>
                   <strong className="font-medium text-kumo-default">Quick model:</strong>{' '}
                   {quickModel
@@ -283,7 +283,7 @@ function ProvidersPage() {
         ) : models.length === 0 ? (
           <div className="flex flex-col items-center gap-3 px-3 py-16 text-center">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-kumo-fill text-kumo-subtle">
-              <Lightning size={18} />
+              <Zap size={18} />
             </div>
             <div>
               <p className="text-sm font-medium text-kumo-default">No AI providers yet</p>
@@ -292,7 +292,7 @@ function ProvidersPage() {
               </p>
             </div>
             <button type="button" onClick={() => setSheetOpen(true)} className={PRIMARY_BTN}>
-              <Plus size={14} weight="bold" />
+              <Plus size={14} strokeWidth={2.5} />
               Add your first provider
             </button>
           </div>

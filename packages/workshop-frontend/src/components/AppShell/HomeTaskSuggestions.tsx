@@ -1,12 +1,12 @@
 import { useMemo } from 'react'
 import {
   AppWindow,
-  ChartLineUp,
+  ChartLine,
   FileText,
-  Lightning,
   Presentation,
-  type Icon,
-} from '@phosphor-icons/react'
+  Zap,
+  type LucideIcon,
+} from 'lucide-react'
 
 // A few example work tasks shown under the Home composer, so a new user immediately sees the kind
 // of thing they can ask for. Picking one drops a starter prompt into the composer (it does not
@@ -16,7 +16,7 @@ type TaskSuggestion = {
   label: string
   description: string
   prompt: string
-  icon: Icon
+  icon: LucideIcon
 }
 
 // Formats are advertised by example rather than by a row of "Start with Docs" buttons, so the
@@ -42,7 +42,7 @@ const SUGGESTIONS: TaskSuggestion[] = [
     id: 'insights',
     label: 'Find insights in my data',
     description: 'Turn a spreadsheet or CSV into trends and recommendations',
-    icon: ChartLineUp,
+    icon: ChartLine,
     prompt:
       'Turn a dataset I will share (a spreadsheet, CSV, or pasted table) into a narrative analysis: key trends, anomalies, the "so what", and concrete recommendations.',
   },
@@ -50,7 +50,7 @@ const SUGGESTIONS: TaskSuggestion[] = [
     id: 'workflow',
     label: 'Automate a workflow',
     description: 'Trigger an agent when a new email arrives',
-    icon: Lightning,
+    icon: Zap,
     prompt:
       'Create an agent workflow that runs automatically when a new email arrives: read the message, decide what to do, and take action or draft a reply. Ask me which inbox to watch and what it should handle.',
   },

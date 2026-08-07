@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Dialog, Button, Input } from '@cloudflare/kumo'
-import { X } from '@phosphor-icons/react'
+import { X } from 'lucide-react'
 import type { Connection, ConnectionResource } from '../../data/sample'
 import { logoComponents } from '../ConnectionLogos'
 

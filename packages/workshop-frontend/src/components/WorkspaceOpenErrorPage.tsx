@@ -1,4 +1,4 @@
-import { Lock, MagnifyingGlass, WarningCircle } from '@phosphor-icons/react'
+import { Lock, Search, CircleAlert } from 'lucide-react'
 import { useEffect, useId, useRef } from 'react'
 import {
   getOpenGadgetErrorCode,
@@ -18,13 +18,13 @@ const CONTENT = {
   'not-found': {
     title: 'Workspace not found',
     message: 'The link may be incorrect, or the workspace may have been deleted.',
-    Icon: MagnifyingGlass,
+    Icon: Search,
     retryable: false,
   },
   unexpected: {
     title: "We couldn't load this workspace",
     message: 'Try again. If the problem continues, return to your workspaces.',
-    Icon: WarningCircle,
+    Icon: CircleAlert,
     retryable: true,
   },
 } as const
@@ -66,7 +66,7 @@ export default function WorkspaceOpenErrorPage({ kind, onRetry, onGoToWorkspaces
         className="themed-compact-shadow w-full max-w-md rounded-2xl border border-kumo-line bg-kumo-base px-6 py-8 text-center"
       >
         <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg border border-kumo-line bg-kumo-tint text-kumo-subtle">
-          <Icon aria-hidden="true" size={20} weight="bold" />
+          <Icon aria-hidden="true" size={20} strokeWidth={2.5} />
         </div>
         <h1
           id={titleId}

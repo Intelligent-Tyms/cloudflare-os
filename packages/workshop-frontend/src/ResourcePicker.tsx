@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback, type MutableRefObject } from 'react'
 import { Tooltip, useKumoToastManager } from '@cloudflare/kumo'
-import { Plus, CaretRight, Warning } from '@phosphor-icons/react'
+import { Plus, ChevronRight, TriangleAlert } from 'lucide-react'
 import { RpcStub, RpcTarget } from 'capnweb'
 import { AuthenticatedApi, ConnectedAccountsSubscriber } from '@gadgets/workshop-shared/api'
 import { AccountDescription, SupportedResource, VendorDescription } from '@gadgets/workshop-shared/gatekeeper'
@@ -597,18 +597,18 @@ export default function ResourcePicker({
                         <div className="h-3 w-3 flex-shrink-0 animate-spin rounded-full border-2 border-kumo-brand border-t-transparent" />
                       ) : isExpired ? (
                         <span className="flex flex-shrink-0 items-center gap-1">
-                          <Warning size={12} className="text-kumo-warning" />
+                          <TriangleAlert size={12} className="text-kumo-warning" />
                           <span className="text-[11.5px] leading-4 text-kumo-warning">Expired — click to re-authenticate</span>
                         </span>
                       ) : needsAccess ? (
                         <span className="flex flex-shrink-0 items-center gap-1">
-                          <Warning size={12} className="text-kumo-warning" />
+                          <TriangleAlert size={12} className="text-kumo-warning" />
                           <span className="text-[11.5px] leading-4 text-kumo-warning">Grant access</span>
                         </span>
                       ) : isActive && !searchHasPlaceholders ? (
                         <TabHint />
                       ) : (
-                        <CaretRight size={12} className="flex-shrink-0 text-kumo-inactive" />
+                        <ChevronRight size={12} className="flex-shrink-0 text-kumo-inactive" />
                       )}
                     </div>
                   )
