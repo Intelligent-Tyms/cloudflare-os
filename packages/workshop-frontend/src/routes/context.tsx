@@ -22,14 +22,14 @@ interface ContextItem {
 }
 
 const TYPE_META: Record<Kind, { label: string; Icon: LucideIcon }> = {
-  collection: { label: 'Collection', Icon: BookOpen },
+  collection: { label: 'Folder', Icon: BookOpen },
   skill: { label: 'Skill', Icon: Sparkles },
 }
 
 const MOCK_ITEMS: ContextItem[] = [
-  { id: '1', name: 'Company Handbook', kind: 'collection', detail: '12 documents', updated: '2d ago' },
-  { id: '2', name: 'Brand Voice & Style', kind: 'collection', detail: '5 documents', updated: '1w ago' },
-  { id: '3', name: 'API Reference', kind: 'collection', detail: '28 documents', updated: '1w ago' },
+  { id: '1', name: 'Company Handbook', kind: 'collection', detail: '12 files', updated: '2d ago' },
+  { id: '2', name: 'Brand Voice & Style', kind: 'collection', detail: '5 files', updated: '1w ago' },
+  { id: '3', name: 'API Reference', kind: 'collection', detail: '28 files', updated: '1w ago' },
   { id: '4', name: 'Summarize meeting notes', kind: 'skill', detail: 'Reusable skill', updated: '3d ago' },
   { id: '5', name: 'Sales Playbook', kind: 'collection', detail: '9 documents', updated: '2w ago' },
   { id: '6', name: 'Draft a customer email', kind: 'skill', detail: 'Reusable skill', updated: '2w ago' },
@@ -56,21 +56,21 @@ function ContextRow({ item }: { item: ContextItem }) {
 }
 
 function ContextPage() {
-  useDocumentTitle('Context & Skills')
+  useDocumentTitle('Drive')
   const siteName = useSiteName()
   return (
     <div className="mx-auto flex h-full w-full max-w-4xl flex-col px-6 sm:px-10">
       <header className="px-3 pb-4 pt-10">
-        <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">Context &amp; Skills</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">Drive</h1>
         <p className="mt-1 text-[13px] leading-[18px] tracking-[-0.25px] text-kumo-subtle">
-          Curated collections of knowledge your agents read, plus reusable skills they can apply.
+          Folders of knowledge your agents read, plus reusable skills they can apply.
         </p>
       </header>
 
       <ComingSoonPreview
         icon={BookOpen}
-        title={`Context & Skills are coming soon to ${siteName}`}
-        description="A preview of how you'll author knowledge collections and skills for your agents to draw on."
+        title={`Drive is coming soon to ${siteName}`}
+        description="A preview of how you'll author folders of knowledge and skills for your agents to draw on."
       >
         <div className="chat-panel min-h-0 flex-1 overflow-y-auto pb-8 pt-1">
           <div className="flex flex-col gap-0.5">

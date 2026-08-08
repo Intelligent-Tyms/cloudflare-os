@@ -311,7 +311,7 @@ function CollectionProvenance({ source }: { source: EnabledCollectionInfo["sourc
       title={
         isPublic
           ? "Provided by your organization for everyone"
-          : "A collection you created"
+          : "A folder you created"
       }
     >
       {isPublic ? <Buildings size={11} /> : <User size={11} />}
@@ -657,7 +657,7 @@ function DeletePermanentlyDescription({
       {documents !== undefined ? (
         <>
           {" "}and all{" "}
-          <span className="font-medium text-kumo-danger">{pluralize(documents, "document")}</span>{" "}
+          <span className="font-medium text-kumo-danger">{pluralize(documents, "file")}</span>{" "}
           inside it
         </>
       ) : null}
@@ -686,7 +686,7 @@ const CONTENT_SOURCE_OPTIONS = [
   {
     value: "web" as const,
     Icon: PencilSimple,
-    title: "Editable documents",
+    title: "Editable files",
     description: "Create, edit, and delete files through the Cloudflare OS UI.",
   },
   {
@@ -750,10 +750,10 @@ function CreateCollectionView({
         icon,
         source,
       );
-      toasts.add({ title: "Collection created", variant: "success" });
+      toasts.add({ title: "Folder created", variant: "success" });
       onCreated(metadata.id);
     } catch {
-      toasts.add({ title: "Failed to create collection", variant: "error" });
+      toasts.add({ title: "Failed to create folder", variant: "error" });
       setCreating(false);
     }
   };
@@ -770,10 +770,10 @@ function CreateCollectionView({
           Context &amp; Skills
         </button>
         <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">
-          New collection
+          New folder
         </h1>
         <p className="mt-1 max-w-2xl text-[13px] leading-[18px] tracking-[-0.25px] text-kumo-subtle">
-          A collection of documents, skills, and other files your agents can use.
+          A folder of files and skills your agents can use.
         </p>
       </header>
 
@@ -796,7 +796,7 @@ function CreateCollectionView({
             {supportsGitCollections && (
               <div className="ctx-rise" style={{ animationDelay: "160ms" }}>
                 <FieldLabel>Type</FieldLabel>
-                <div role="radiogroup" aria-label="Collection type" className="grid gap-2">
+                <div role="radiogroup" aria-label="Folder type" className="grid gap-2">
                   {CONTENT_SOURCE_OPTIONS.map(({
                     value,
                     Icon,
@@ -913,7 +913,7 @@ function CreateCollectionView({
               disabled={!title.trim()}
               className="press !bg-kumo-brand text-white enabled:hover:!bg-kumo-brand-hover disabled:!bg-kumo-fill disabled:!text-kumo-inactive disabled:!opacity-100"
             >
-              Create collection
+              Create folder
             </WorkshopButton>
           </div>
         </div>
@@ -1016,10 +1016,10 @@ export default function ContextLibraryPage() {
       <header className="flex items-end justify-between gap-4 px-3 pb-3 pt-10">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">
-            Context &amp; Skills
+            Drive
           </h1>
           <p className="mt-1 max-w-2xl text-[13px] leading-[18px] tracking-[-0.25px] text-kumo-subtle">
-            Collections of documents, skills, and other files your agents can use.
+            Folders of files and skills your agents can use.
           </p>
         </div>
         {enabled.length > 0 && (
@@ -1029,7 +1029,7 @@ export default function ContextLibraryPage() {
             className="press inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-kumo-brand px-3.5 text-[13px] font-medium tracking-[-0.25px] text-white transition-colors hover:bg-kumo-brand-hover"
           >
             <Plus size={14} weight="bold" />
-            New collection
+            New folder
           </button>
         )}
       </header>
@@ -1045,7 +1045,7 @@ export default function ContextLibraryPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search collections…"
+              placeholder="Search folders…"
               className="h-9 w-full rounded-lg border border-kumo-line bg-kumo-base pl-9 pr-4 text-[13px] tracking-[-0.25px] text-kumo-default placeholder:text-kumo-inactive transition-[border-color,box-shadow] duration-150 ease-out focus:border-kumo-ring focus:outline-none focus:ring-[3px] focus:ring-kumo-ring/15"
             />
           </div>
@@ -1062,12 +1062,12 @@ export default function ContextLibraryPage() {
             </div>
             <div>
               <p className="text-sm font-medium text-kumo-default">
-                {search ? "No collections match" : "No collections yet"}
+                {search ? "No folders match" : "No folders yet"}
               </p>
               <p className="mx-auto mt-1 max-w-sm text-[13px] leading-[18px] text-kumo-subtle">
                 {search
                   ? "Try a different search term."
-                  : "Create a collection to give your agents context to work with."}
+                  : "Create a folder to give your agents context to work with."}
               </p>
             </div>
             {!search && (
@@ -1157,7 +1157,7 @@ function CollectionOverview({
                   {metadata.title}
                 </h1>
                 <p className="mt-1 text-[13px] leading-[18px] tracking-[-0.2px] text-kumo-subtle">
-                  Context collection
+                  Drive folder
                 </p>
               </div>
             </div>
@@ -1176,7 +1176,7 @@ function CollectionOverview({
                 <KebabMenu
                   trigger={
                     <WorkshopIconButton
-                      aria-label="Collection options"
+                      aria-label="Folder options"
                       title="Options"
                       className="!h-9 !w-9 data-[popup-open]:bg-kumo-tint data-[popup-open]:text-kumo-default"
                     >
@@ -1206,7 +1206,7 @@ function CollectionOverview({
                     onClick={onDelete}
                     className={`${MENU_ITEM_DANGER} text-kumo-danger`}
                   >
-                    Delete collection
+                    Delete folder
                   </DropdownMenu.Item>
                 </KebabMenu>
               </div>
@@ -1223,7 +1223,7 @@ function CollectionOverview({
             <MetaField label="Access">
               {isPublic ? "Everyone (required)" : "Private to you"}
             </MetaField>
-            <MetaField label="Documents">{metadata.documentCount}</MetaField>
+            <MetaField label="Files">{metadata.documentCount}</MetaField>
             <MetaField label={isSynced ? "Refreshed" : "Updated"} align="right">
               {metadata.content.source === "git"
                 ? formatRelativeTime(metadata.content.lastRefreshedAt)
@@ -1266,7 +1266,7 @@ function CollectionOverview({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-medium tracking-[-0.2px] text-kumo-default">
-                  No files in this collection
+                  No files in this folder
                 </p>
                 <p className="mt-1 max-w-xl text-[13px] leading-5 tracking-[-0.2px] text-kumo-subtle">
                   {isSynced
@@ -1275,7 +1275,7 @@ function CollectionOverview({
                       : "No Git content was cached before synchronization became unavailable."
                     : canWrite
                     ? "Use the + in the Files panel to create or upload skills or files. Agents use the names and descriptions to decide what to read."
-                    : "This collection is empty."}
+                    : "This folder is empty."}
                 </p>
               </div>
             </div>
@@ -1373,11 +1373,11 @@ function CollectionSettingsModal({
     setSaving(true);
     try {
       await context.updateContextCollection(collectionId, updates);
-      toasts.add({ title: "Collection updated", variant: "success" });
+      toasts.add({ title: "Folder updated", variant: "success" });
       onUpdated();
       onClose();
     } catch {
-      toasts.add({ title: "Failed to update collection", variant: "error" });
+      toasts.add({ title: "Failed to update folder", variant: "error" });
       setSaving(false);
     }
   };
@@ -1386,10 +1386,10 @@ function CollectionSettingsModal({
     setDeleting(true);
     try {
       await context.deleteContextCollection(collectionId);
-      toasts.add({ title: "Collection deleted", variant: "success" });
+      toasts.add({ title: "Folder deleted", variant: "success" });
       onDeleted();
     } catch {
-      toasts.add({ title: "Failed to delete collection", variant: "error" });
+      toasts.add({ title: "Failed to delete folder", variant: "error" });
       setDeleting(false);
     }
   };
@@ -1410,7 +1410,7 @@ function CollectionSettingsModal({
       >
         {mode === "edit" ? (
           <>
-            <ModalHeader title="Edit collection" />
+            <ModalHeader title="Edit folder" />
 
             <div className="space-y-5 px-4 py-5 sm:px-6">
               <div>
@@ -1439,7 +1439,7 @@ function CollectionSettingsModal({
                     className="w-full"
                   />
                   <p className="mt-1 text-[12px] leading-4 text-kumo-subtle">
-                    This branch to pull from when refreshing the collection.
+                    This branch to pull from when refreshing the folder.
                   </p>
                 </div>
               )}
@@ -1462,7 +1462,7 @@ function CollectionSettingsModal({
         ) : (
           <>
             <ModalHeader
-              title="Delete collection"
+              title="Delete folder"
               description={
                 <DeletePermanentlyDescription
                   name={metadata.title}
@@ -1499,7 +1499,7 @@ function CollectionSettingsModal({
                 disabled={!canDelete}
                 loading={deleting}
               >
-                Delete collection
+                Delete folder
               </WorkshopButton>
             </div>
           </>
@@ -1632,7 +1632,7 @@ function GitTokenManagementModal({
               <div>
                 <div className="font-medium text-kumo-default">Token created</div>
                 <p className="mt-0.5">
-                  Use these credentials to push content to your collection. The password is only shown once.
+                  Use these credentials to push content to your folder. The password is only shown once.
                 </p>
               </div>
               <div className="space-y-2">
@@ -2255,7 +2255,7 @@ function CollectionEditor({
     try {
       await context.syncContextCollectionArtifactSource(collectionId);
       await loadDocs();
-      toasts.add({ title: "Collection refreshed", variant: "success" });
+      toasts.add({ title: "Folder refreshed", variant: "success" });
     } catch (err) {
       toasts.add({ title: `Failed to refresh: ${(err as Error).message}`, variant: "error" });
     } finally {
@@ -2435,7 +2435,7 @@ function CollectionEditor({
       setPendingDelete(null);
     } catch {
       toasts.add({
-        title: isDir ? "Failed to delete folder" : "Failed to delete document",
+        title: isDir ? "Failed to delete folder" : "Failed to delete file",
         variant: "error",
       });
     } finally {
@@ -2518,12 +2518,12 @@ function CollectionEditor({
             className="press -ml-1 mb-4 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[13px] font-medium tracking-[-0.25px] text-kumo-subtle transition-colors hover:text-kumo-default"
           >
             <CaretLeft size={14} />
-            Context &amp; Skills
+            Drive
           </button>
           <div className="rounded-xl border border-kumo-line bg-kumo-base px-5 py-10 text-center shadow-[0_1px_2px_rgba(20,17,16,0.03)]">
             <BookOpen size={32} className="mx-auto mb-3 text-kumo-subtle" />
             <p className="m-0 text-[15px] leading-5 font-medium tracking-[-0.25px] text-kumo-default">
-              This collection is no longer available
+              This folder is no longer available
             </p>
             <p className="mt-1 text-[13px] leading-[18px] font-normal tracking-[-0.25px] text-kumo-subtle">
               It may have been deleted.
@@ -2577,7 +2577,7 @@ function CollectionEditor({
           size="sm"
         >
           <ModalHeader
-            title={pendingDelete?.isDir ? "Delete folder" : "Delete document"}
+            title={pendingDelete?.isDir ? "Delete folder" : "Delete file"}
             description={
               <DeletePermanentlyDescription
                 name={pendingDelete ? baseName(pendingDelete.path) : ""}
@@ -2604,7 +2604,7 @@ function CollectionEditor({
               onClick={performDeletePath}
               loading={deletingPath}
             >
-              {pendingDelete?.isDir ? "Delete folder" : "Delete document"}
+              {pendingDelete?.isDir ? "Delete folder" : "Delete file"}
             </WorkshopButton>
           </div>
         </Dialog>
@@ -2624,7 +2624,7 @@ function CollectionEditor({
             className="press -ml-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[13px] font-medium tracking-[-0.25px] text-kumo-subtle transition-colors hover:text-kumo-default"
           >
             <CaretLeft size={14} />
-            Context &amp; Skills
+            Drive
           </button>
         </div>
           {metadata && (
@@ -2633,7 +2633,7 @@ function CollectionEditor({
                   when nothing is selected. */}
               <button
                 onClick={() => setSelectedPath(null)}
-                title="Collection overview"
+                title="Folder overview"
                 aria-current={selectedPath ? undefined : "page"}
                 className={`flex w-full transform-none items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-kumo-ring/30 active:scale-100 ${
                   selectedPath ? "hover:bg-kumo-tint" : "bg-kumo-recessed"
@@ -2870,7 +2870,7 @@ function MarkdownPreview({
               {content}
             </ReactMarkdown>
           ) : (
-            <p className="italic text-kumo-inactive">This document is empty.</p>
+            <p className="italic text-kumo-inactive">This file is empty.</p>
           )}
         </div>
       </div>
@@ -2920,7 +2920,7 @@ function renderDocumentBody({
   if (!isText) {
     return (
       <div className="p-4 text-[13px] text-kumo-subtle">
-        Binary document ({contentType}, {Math.round((body.length * 3) / 4 / 1024)} KB). Use Replace to
+        Binary file ({contentType}, {Math.round((body.length * 3) / 4 / 1024)} KB). Use Replace to
         update it.
       </div>
     );
@@ -3028,7 +3028,7 @@ function DocumentEditor({
       if (cancelled) return;
       setLoading(false);
       toasts.add({
-        title: `Failed to load document: ${(err as Error).message}`,
+        title: `Failed to load file: ${(err as Error).message}`,
         variant: "error",
       });
     });
@@ -3196,7 +3196,7 @@ function DocumentEditor({
           <span className="mx-0.5 h-5 w-px shrink-0 bg-kumo-line" aria-hidden="true" />
           <button
             onClick={onRequestDelete}
-            title="Delete document"
+            title="Delete file"
             className="press flex h-8 w-8 items-center justify-center rounded-md text-kumo-subtle transition-colors hover:bg-kumo-tint hover:text-kumo-danger"
           >
             <Trash size={16} />
@@ -3216,7 +3216,7 @@ function DocumentEditor({
           {extractedDescription !== null && (
             <span
               className="ml-1 text-kumo-inactive"
-              title="Defined in this file; edit it in the document below."
+              title="Defined in this file; edit it in the file content below."
             >
               · from file
             </span>
@@ -3236,7 +3236,7 @@ function DocumentEditor({
               setDescription(nextDescription);
               setDirty(documentIsDirty(nextDescription, body));
             }}
-            placeholder="Describe what this document contains and when an agent should use it…"
+            placeholder="Describe what this file contains and when an agent should use it…"
             className="w-full bg-transparent text-[14px] leading-5 tracking-[-0.2px] text-kumo-default placeholder:text-kumo-inactive focus:outline-none"
           />
         ) : (

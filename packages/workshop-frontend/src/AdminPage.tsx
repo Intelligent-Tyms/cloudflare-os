@@ -796,7 +796,7 @@ export default function AdminPage() {
           <h2 className="text-lg font-semibold text-kumo-strong mb-1">Gatekeepers</h2>
           <p className="text-sm text-kumo-subtle mb-5">
             Turn connectors and resource types on or off for each service. Auto-provisioned
-            gatekeepers (like the Context Library) have three modes &mdash; disabled, optional, or
+            gatekeepers (like Drive) have three modes &mdash; disabled, optional, or
             enabled for everyone. Changes are soft: they don&rsquo;t revoke access a gadget already
             holds.
           </p>
