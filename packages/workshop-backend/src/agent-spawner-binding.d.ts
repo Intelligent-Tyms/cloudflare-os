@@ -2,7 +2,7 @@
 export interface AgentSpawnerBinding {
   // Spawn an agent to perform a task.
   //
-  // `title` is the title of the new agent chat which will appear in the Gadget's chat history.
+  // `title` is the title of the new agent chat which will appear in the App's chat history.
   //
   // `prompt` tells the agent what to do. This effectively creates a new AI agent chat (which the
   // user will be able to see in the conversation history) beginning with this prompt as the first

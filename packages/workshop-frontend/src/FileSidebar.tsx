@@ -188,7 +188,7 @@ export default function FileSidebar({
                 New file
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-[12px] leading-4 font-normal tracking-[-0.2px] text-kumo-subtle">
-                Create a new file in this gadget.
+                Create a new file in this app.
               </Dialog.Description>
             </div>
             <Dialog.Close
@@ -256,7 +256,7 @@ export default function FileSidebar({
           }
         }}
         title="Delete file?"
-        description={<>This removes <span className="font-mono text-kumo-default">{deletingFile}</span> from the gadget. You can&apos;t undo this.</>}
+        description={<>This removes <span className="font-mono text-kumo-default">{deletingFile}</span> from the app. You can&apos;t undo this.</>}
         onConfirm={confirmDelete}
       />
     </div>

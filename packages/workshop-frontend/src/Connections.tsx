@@ -136,7 +136,7 @@ export default function Connections({ overseer, gadget, chatId, authenticatedApi
     return [
       {
         target: gadgetInfo.id,
-        targetTitle: `${gadgetInfo.title} (this gadget)`,
+        targetTitle: `${gadgetInfo.title} (this app)`,
         name: 'GADGET',
       },
       ...bindings.map((b) => ({ target: b.target, targetTitle: b.resourceTitle, name: b.name })),
@@ -200,7 +200,7 @@ export default function Connections({ overseer, gadget, chatId, authenticatedApi
                 Connections
               </h2>
               <p className="mt-1 text-[13px] leading-[18px] font-normal tracking-[-0.25px] text-kumo-subtle">
-                External resources this gadget can use.
+                External resources this app can use.
               </p>
             </div>
             <WorkshopButton
@@ -219,7 +219,7 @@ export default function Connections({ overseer, gadget, chatId, authenticatedApi
           ) : bindings.length === 0 ? (
             <EmptyState
               title="No connected resources"
-              description="Connect Google Docs, GitHub, Google Sheets, and other services so this gadget can safely use external data."
+              description="Connect Google Docs, GitHub, Google Sheets, and other services so this app can safely use external data."
               actionLabel="Connect resource"
               onAction={() => setIsNewConnectionModalVisible(true)}
             />
@@ -244,7 +244,7 @@ export default function Connections({ overseer, gadget, chatId, authenticatedApi
                             Delete {gk.resourceTitle}?
                           </p>
                           <p className="truncate text-[12px] leading-4 font-normal tracking-[-0.2px] text-kumo-subtle">
-                            The binding <span className="font-mono">{gk.name}</span> will be removed from this gadget.
+                            The binding <span className="font-mono">{gk.name}</span> will be removed from this app.
                           </p>
                         </div>
                         <WorkshopButton
@@ -355,7 +355,7 @@ export default function Connections({ overseer, gadget, chatId, authenticatedApi
                 Hooks
               </h2>
               <p className="mt-1 text-[13px] leading-[18px] font-normal tracking-[-0.25px] text-kumo-subtle">
-                Callbacks that let connected resources wake up this gadget when events happen.
+                Callbacks that let connected resources wake up this app when events happen.
               </p>
             </div>
 

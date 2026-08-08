@@ -127,8 +127,8 @@ export function AgentSpawnerConfigForm({
       >
         {env.length === 0 ? (
           <p className="text-[12px] leading-4 font-normal tracking-[-0.2px] text-kumo-subtle">
-            Nothing is available to offer spawned agents here. Create the agent from a gadget's
-            Connections tab to give it access to that gadget and its resources.
+            Nothing is available to offer spawned agents here. Create the agent from an app's
+            Connections tab to give it access to that app and its resources.
           </p>
         ) : (
           <div className="grid gap-2">

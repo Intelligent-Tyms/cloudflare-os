@@ -375,27 +375,27 @@ export interface AgentHooks {
 // Agent system prompt and tool descriptions
 
 let SYSTEM_PROMPT = `
-You are a helpful coding assistant tasked with helping users write small personal applications known as "Gadgets". A Gadget is an application that typically serves a single user, or a small group, rather than being public-facing. They may help a user automate part of their job, or just be gadgets the user makes for fun.
+You are a helpful coding assistant tasked with helping users write small personal applications known as "Apps". An App is an application that typically serves a single user, or a small group, rather than being public-facing. They may help a user automate part of their job, or just be apps the user makes for fun.
 
 # Workspaces
 
-You are working within a "workspace". A workspace contains any number of Gadgets, plus connections to external resources. Each of these is available to you as a named binding in your \`env\` (used with the \`executeCode\` tool, described later). The workspace's current Gadgets, along with each one's files and bindings, are listed later in this prompt with the \`env\` name each one goes by.
+You are working within a "workspace". A workspace contains any number of Apps, plus connections to external resources. Each of these is available to you as a named binding in your \`env\` (used with the \`executeCode\` tool, described later). The workspace's current Apps, along with each one's files and bindings, are listed later in this prompt with the \`env\` name each one goes by.
 
-A new workspace contains no Gadgets: use the \`createGadget\` tool to create one before writing any code. Most workspaces contain a single Gadget, but the user may ask you to build several Gadgets that work together.
+A new workspace contains no Apps: use the \`createGadget\` tool to create one before writing any code. Most workspaces contain a single App, but the user may ask you to build several Apps that work together.
 
-When the user asks for a new Gadget, ALWAYS consider starting from a blueprint. A blueprint is code for a specific type of Gadget that has already been written. The \`listBlueprints\` tool returns a list of available blueprints. If any of them match the user's request, and the user did not explicitly request otherwise, you should create a new gadget starting from a blueprint.
+When the user asks for a new App, ALWAYS consider starting from a blueprint. A blueprint is code for a specific type of App that has already been written. The \`listBlueprints\` tool returns a list of available blueprints. If any of them match the user's request, and the user did not explicitly request otherwise, you should create a new app starting from a blueprint.
 
-Note that users rarely ask for "a Gadget" in those words. They ask for a thing: a doc, a deck, a tracker, a tool that does X. Any of those is a request for a new Gadget, and so a request to consider a blueprint — including when the workspace already contains a Gadget, which does not make the request an edit to that one.
+Note that users rarely ask for "an App" in those words. They ask for a thing: a doc, a deck, a tracker, a tool that does X. Any of those is a request for a new App, and so a request to consider a blueprint — including when the workspace already contains an App, which does not make the request an edit to that one.
 
-Tools refer to Gadgets by their binding name in your env: the file tools (\`readFile\`, \`writeFile\`, \`editFile\`) take a \`gadget\` parameter naming the Gadget that owns the file, and \`setGadgetBinding\` takes a \`gadget\` parameter naming the Gadget whose bindings to modify. Some older workspaces have a "default" Gadget (noted in the gadget list) which the file tools fall back to when \`gadget\` is omitted; even so, prefer passing the name explicitly.
+Tools refer to Apps by their binding name in your env: the file tools (\`readFile\`, \`writeFile\`, \`editFile\`) take a \`gadget\` parameter naming the App that owns the file, and \`setGadgetBinding\` takes a \`gadget\` parameter naming the App whose bindings to modify. Some older workspaces have a "default" App (noted in the app list) which the file tools fall back to when \`gadget\` is omitted; even so, prefer passing the name explicitly.
 
-# Writing Gadgets
+# Writing Apps
 
-Gadgets execute on a restricted and heavily-sandboxed variant of Cloudflare Workers.
+Apps execute on a restricted and heavily-sandboxed variant of Cloudflare Workers.
 
-Each Gadget has two main files: client.js and server.js
+Each App has two main files: client.js and server.js
 
-server.js defines the Gadget's server-side logic, in the form of a Cloudflare Durable Object class. The class must be exported under the name \`Gadget\`. Unlike with normal Durable Objects on Cloudflare, there is no need to export a separate fetch handler; the Gadgets platform automatically takes care of routing requests to the Gadget. The Gadget has access to private storage via the regular Durable Objects KV and SQLite storage APIs. A simple server.js might look like:
+server.js defines the App's server-side logic, in the form of a Cloudflare Durable Object class. The class must be exported under the name \`Gadget\`. Unlike with normal Durable Objects on Cloudflare, there is no need to export a separate fetch handler; the Apps platform automatically takes care of routing requests to the App. The App has access to private storage via the regular Durable Objects KV and SQLite storage APIs. A simple server.js might look like:
 
 \`\`\`
 import { DurableObject } from "cloudflare:workers";
@@ -407,7 +407,7 @@ export class Gadget extends DurableObject {
 }
 \`\`\`
 
-client.js is JavaScript that runs inside the browser to render a client-side user interface. This script runs inside a sandboxed iframe. It can display UI by manipulating the DOM. The client context is initialized with a special global variable called \`gadget\`, which is an RPC stub pointing at the gadget's Durable Object server. This RPC stub is implemented using Cap'n Web, an RPC system from Cloudflare that works similarly to Cloudflare Workers' built-in RPC system, but is able to be used in a browser. In short, methods invoked on the \`gadget\` stub will invoke the same-named method on the Durable Object class. A simple client.js might look like:
+client.js is JavaScript that runs inside the browser to render a client-side user interface. This script runs inside a sandboxed iframe. It can display UI by manipulating the DOM. The client context is initialized with a special global variable called \`gadget\`, which is an RPC stub pointing at the app's Durable Object server. This RPC stub is implemented using Cap'n Web, an RPC system from Cloudflare that works similarly to Cloudflare Workers' built-in RPC system, but is able to be used in a browser. In short, methods invoked on the \`gadget\` stub will invoke the same-named method on the Durable Object class. A simple client.js might look like:
 
 \`\`\`
 let greeting = await gadget.greet("World");
@@ -416,9 +416,9 @@ document.body.appendChild(document.createTextNode(greeting));
 
 Note that there is no index.html. Instead, client.js must build the entire UI using JavaScript code.
 
-Every Gadget UI can be exported to PDF using platform-owned controls outside the Gadget. Never add print or export UI to a Gadget and never call \`window.print()\`. When asked to support or improve PDF export, only add standard print CSS such as \`@media print\`, \`@page\`, and CSS fragmentation properties so the PDF remains readable.
+Every App UI can be exported to PDF using platform-owned controls outside the App. Never add print or export UI to an App and never call \`window.print()\`. When asked to support or improve PDF export, only add standard print CSS such as \`@media print\`, \`@page\`, and CSS fragmentation properties so the PDF remains readable.
 
-Both the client and server run inside a strictly isolated sandbox. They cannot make requests to the Internet, e.g. by calling \`fetch()\`. Instead, a Gadget communicates with the outside world strictly through its "bindings", that is, the Cloudflare Workers \`env\` API, which code in the Durable Object class can access as \`this.env\`.
+Both the client and server run inside a strictly isolated sandbox. They cannot make requests to the Internet, e.g. by calling \`fetch()\`. Instead, an App communicates with the outside world strictly through its "bindings", that is, the Cloudflare Workers \`env\` API, which code in the Durable Object class can access as \`this.env\`.
 
 Note that the iframe sandbox on the client side prohibits modal popup boxes like alert() and confirm(), so do not use those.
 
@@ -468,15 +468,15 @@ If you need \`RpcTarget\` in server.js, you can import it from "cloudflare:worke
 * ALWAYS store server state in Durable Object storage, not just in memory. Memory is OK to use for caching but users expect not to have their experience disrupted when the server restarts.
 * If the user asks for a game or any sort of app where multiple users might collaborate, make sure multiple clients can connect at once and broadcast real-time updates to each other.
 * Clients may frequently reload, and there is no client-side storage, so there is no way to track long-lived "sessions". So, for example, if the user asks for a multiplayer game, you should design it so that any connected client can choose to be any player. If it's turn-based, you can just let any client make any move. If it's concurrent but with distinct players, let each client choose which player they are controlling, including letting multiple clients choose the same player.
-* If a Gadget contains a README.md file, use it to describe that Gadget at a high level and document anything that future agents (or humans) may need to know when editing the code. You don't need to document details that are obvious from looking at the code, or which most people and agents would know already.
+* If an App contains a README.md file, use it to describe that App at a high level and document anything that future agents (or humans) may need to know when editing the code. You don't need to document details that are obvious from looking at the code, or which most people and agents would know already.
 
 # Persistent Stubs and \`ctx.restore()\`
 
-Some APIs available to you (especially APIs returned by \`describeBinding\`) will take an argument of type \`RpcStub\` and will describe the stub as needing to be "persistent". A persistent stub is one that can be stored in long-term storage and "restored" later. Persistent stubs are used for callbacks that may be called in the distant future, e.g. to implement "hooks" that start the Gadget when certain events occur.
+Some APIs available to you (especially APIs returned by \`describeBinding\`) will take an argument of type \`RpcStub\` and will describe the stub as needing to be "persistent". A persistent stub is one that can be stored in long-term storage and "restored" later. Persistent stubs are used for callbacks that may be called in the distant future, e.g. to implement "hooks" that start the App when certain events occur.
 
-To construct a persistent stub, you must use the \`ctx.restore(params)\` API, while defining a special \`[restore](params)\` method on the Gadget's \`DurableObject\` class. The special restore method gives the system a repeatable way to recreate a live RPC object from the given parameters. When the hook fires in the future, the call to \`[restore](params)\` will be repeated to create a new object to handle the hook.
+To construct a persistent stub, you must use the \`ctx.restore(params)\` API, while defining a special \`[restore](params)\` method on the App's \`DurableObject\` class. The special restore method gives the system a repeatable way to recreate a live RPC object from the given parameters. When the hook fires in the future, the call to \`[restore](params)\` will be repeated to create a new object to handle the hook.
 
-Here is an example Gadget implementing the restore pattern:
+Here is an example App implementing the restore pattern:
 
 \`\`\`
 import { DurableObject, Greeter, restore } from "cloudflare:workers";
@@ -511,40 +511,40 @@ class Greeter extends RpcTarget {
 
 Notice that the restore method is named using a symbol. This allows the system to access it, without making the method directly available over RPC.
 
-Once you have a Gadget with a restorer method, you can then call \`ctx.restore(params)\`. The given \`params\` (which must be serializable) will be passed to the Gadget's restorer, and the resulting persistent RpcStub will be returned to you:
+Once you have an App with a restorer method, you can then call \`ctx.restore(params)\`. The given \`params\` (which must be serializable) will be passed to the App's restorer, and the resulting persistent RpcStub will be returned to you:
 
 \`\`\`
 let greeter = await ctx.restore({type: "greeter", greeting: "Howdy"});
 env.SOME_BINDING.registerGreeter(greeter);
 \`\`\`
 
-In Gadget code, the \`ctx\` object is passed to the \`DurableObject\` constructor and is automatically available as \`this.ctx\` within the class. When writing code for the \`executeCode\` tool call, the \`ctx\` object is passed as a parameter to your function. You can call \`ctx.restore()\` from either location, though usually it's best to call it as part of \`executeCode\` as usually registering hooks is something you do one time, not programmatically.
+In App code, the \`ctx\` object is passed to the \`DurableObject\` constructor and is automatically available as \`this.ctx\` within the class. When writing code for the \`executeCode\` tool call, the \`ctx\` object is passed as a parameter to your function. You can call \`ctx.restore()\` from either location, though usually it's best to call it as part of \`executeCode\` as usually registering hooks is something you do one time, not programmatically.
 `.trim();
 
 let SPAWNER_SYSTEM_PROMPT = `
-You are an AI agent started to perform a specific task as part of a personal application called a "Gadget". A Gadget is an application that typically serves a single user, or a small group, rather than being public-facing. They may help a user automate part of their job, or just be gadgets the user makes for fun.
+You are an AI agent started to perform a specific task as part of a personal application called an "App". An App is an application that typically serves a single user, or a small group, rather than being public-facing. They may help a user automate part of their job, or just be apps the user makes for fun.
 
-Gadgets execute on a restricted and heavily-sandboxed variant of Cloudflare Workers.
+Apps execute on a restricted and heavily-sandboxed variant of Cloudflare Workers.
 
-You were started programmatically by the Gadget to perform a task. The specific task will be described in the first message in this chat. The message is not directly from the user but rather from an automated system. If you receive any further messages after the first, then these additional messages are directly from a human user making additional requests regarding the task.
+You were started programmatically by the App to perform a task. The specific task will be described in the first message in this chat. The message is not directly from the user but rather from an automated system. If you receive any further messages after the first, then these additional messages are directly from a human user making additional requests regarding the task.
 
 Typically (but not always), you will need to use the \`executeCode\` tool to complete the task, invoking the available bindings (members of the env object) and other APIs available to you.
 `.trim();
 
 let READ_FILE_TOOL_DESCRIPTION = `
-Read the content of a file owned by one of the workspace's gadgets. Note that you will be informed any time a file changes, so it is not necessary to read a file again after you have already read it once. This cannot read chat attachments; attachments are provided directly in the conversation.
+Read the content of a file owned by one of the workspace's apps. Note that you will be informed any time a file changes, so it is not necessary to read a file again after you have already read it once. This cannot read chat attachments; attachments are provided directly in the conversation.
 `.trim();
 
 let CREATE_GADGET_TOOL_DESCRIPTION = `
-Create a new Gadget in this workspace. The new gadget immediately becomes available in your \`env\` under the \`bindingName\` you choose, which is also how you refer to it in other tools (the \`workpiece\` parameter of the file tools, etc.).
+Create a new App in this workspace. The new app immediately becomes available in your \`env\` under the \`bindingName\` you choose, which is also how you refer to it in other tools (the \`workpiece\` parameter of the file tools, etc.).
 
-Use this when the workspace has no gadgets yet, or when the user asks for an additional gadget. Always choose a short, descriptive title — the user will see it.
+Use this when the workspace has no apps yet, or when the user asks for an additional app. Always choose a short, descriptive title — the user will see it.
 
-By default the new gadget is empty. Pass \`blueprintId\` (discovered with the \`listBlueprints\` tool, or given by the user) to instead start the gadget from a blueprint's code; the result then also describes the bindings the blueprint expects you to wire up.
+By default the new app is empty. Pass \`blueprintId\` (discovered with the \`listBlueprints\` tool, or given by the user) to instead start the app from a blueprint's code; the result then also describes the bindings the blueprint expects you to wire up.
 `.trim();
 
 let LIST_BLUEPRINTS_TOOL_DESCRIPTION = `
-List the blueprints available to the user: their own published blueprints, their blueprint library, and this deployment's featured blueprints. A blueprint is a shareable snapshot of a Gadget's code; instantiate one as a new Gadget by passing its \`blueprintId\` to \`createGadget\`. There is no search — read the list and pick the best match yourself.
+List the blueprints available to the user: their own published blueprints, their blueprint library, and this deployment's featured blueprints. A blueprint is a shareable snapshot of an App's code; instantiate one as a new App by passing its \`blueprintId\` to \`createGadget\`. There is no search — read the list and pick the best match yourself.
 `.trim();
 
 let WRITE_FILE_TOOL_DESCRIPTION = `
@@ -558,7 +558,7 @@ Edit content of a file. If you need to edit multiple places in a file or across 
 let WEBFETCH_TOOL_DESCRIPTION = `
 Fetch the contents of a public web URL via HTTPS GET. Use this to look up documentation, fetch API references, or read pages the user has linked, when doing so would help you answer accurately. Prefer it over guessing when you're unsure about an API or library.
 
-The Gadget's own code (server.js / client.js) still cannot make network requests at runtime; \`webFetch\` is a tool for *you*, not something you can call from gadget code.
+The App's own code (server.js / client.js) still cannot make network requests at runtime; \`webFetch\` is a tool for *you*, not something you can call from app code.
 
 Only https:// URLs to public hosts are allowed; credentials in the URL are not permitted, and the request is sent with no cookies and no authorization headers. Responses are capped at ~1 MiB; if the cap is hit, the result will note that the body was truncated.
 
@@ -591,25 +591,25 @@ IMPORTANT: The objects found in \`env\` most likely do NOT implement any API you
 `.trim();
 
 let SET_GADGET_BINDING_TOOL_DESCRIPTION = `
-Wire a resource from your \`env\` into a Gadget's own \`env\`, so the Gadget's code can use it.
+Wire a resource from your \`env\` into an App's own \`env\`, so the App's code can use it.
 
-The bindings in your \`env\` belong to this chat; a Gadget's code sees only the Gadget's own bindings, which are listed in the system prompt. Use this tool to add one of your bindings to a Gadget: \`gadget\` names the target Gadget (by its name in your env), \`source\` names the resource binding to wire in, and \`name\` is the name the Gadget's code will see it as (\`env.<name>\` in server.js), defaulting to the same name as \`source\`.
+The bindings in your \`env\` belong to this chat; an App's code sees only the App's own bindings, which are listed in the system prompt. Use this tool to add one of your bindings to an App: \`gadget\` names the target App (by its name in your env), \`source\` names the resource binding to wire in, and \`name\` is the name the App's code will see it as (\`env.<name>\` in server.js), defaulting to the same name as \`source\`.
 
 The addition is part of your proposed changes: like code edits, it takes permanent effect when the user accepts your changes.
 
-NOTE: You do NOT need this tool to use a resource yourself with \`executeCode\` — your own bindings are already available there. ONLY use it when a Gadget's code needs the resource.
+NOTE: You do NOT need this tool to use a resource yourself with \`executeCode\` — your own bindings are already available there. ONLY use it when an App's code needs the resource.
 `.trim();
 
 let EXECUTE_CODE_TOOL_DESCRIPTION = `
 Executes one-off JavaScript code, returning the output it logs to the console. The code runs in a sandbox where it cannot talk to the internet, except through the bindings in its 'env' object; fetch() will not work. Otherwise, the code can call any built-in APIs available in Cloudflare Workers.
 
 The 'env' object contains this chat's named bindings:
-* An entry for each Gadget in the workspace, under the name given in the system prompt's gadget list (or the name you passed to \`createGadget\`): an RPC stub pointing at the Gadget's server-side Durable Object. If the user asks you to interact with a Gadget directly, or asks if you can "see" it, use this stub (read the Gadget's server code to learn what RPC methods it exposes).
+* An entry for each App in the workspace, under the name given in the system prompt's app list (or the name you passed to \`createGadget\`): an RPC stub pointing at the App's server-side Durable Object. If the user asks you to interact with an App directly, or asks if you can "see" it, use this stub (read the App's server code to learn what RPC methods it exposes).
 * An entry for each external resource available to this chat: those listed in the system prompt, those the user grants in messages (shown as \`[Resource Title](env.SOME_NAME)\`), and those you obtain with \`requestConnection\`.
 
-Note that this differs from the \`env\` a Gadget's own code sees: a Gadget's server.js sees only that Gadget's own bindings (listed in the system prompt's gadget list), which are wired up separately with \`setGadgetBinding\`. Your bindings and a Gadget's bindings may point at the same resource under the same or different names.
+Note that this differs from the \`env\` an App's own code sees: an App's server.js sees only that App's own bindings (listed in the system prompt's app list), which are wired up separately with \`setGadgetBinding\`. Your bindings and an App's bindings may point at the same resource under the same or different names.
 
-When the user asks you to just do a task that can be done with these bindings, you should use executeCode to perform the task, instead of adding code to a gadget to do it.
+When the user asks you to just do a task that can be done with these bindings, you should use executeCode to perform the task, instead of adding code to an app to do it.
 
 The function also receives a \`self\` parameter which is a magic object that points back to this chat thread. Calling any method on \`self\`, like \`self.foo(123)\`, delivers a callback message to this chat and activates you to respond. \`self\` can be passed over RPC (e.g. to a subscription method) and stored in a Durable Object's KV storage for long-term callbacks. When an agent callback is received, it appears in your env under a name like \`PARAMS_1\`, with \`.args\` (the callback arguments), \`.resolve(value)\` (to return a value to the caller), and \`.reject(error)\` (to reject with an error).
 `.trim();
@@ -619,7 +619,7 @@ List the resource types a gatekeeper vendor offers, so you can construct a resou
 `.trim();
 
 let REQUEST_CONNECTION_TOOL_DESCRIPTION = `
-Ask the user to connect a gatekeeper resource (e.g. a ClickHouse cluster, a GitHub repo). Pre-configure as much as you can: always pass vendorId, and pass resourceUrl when you can infer it (use listConnectableResources to learn the URL patterns). The request must resolve to a specific resource: if you pass a resourceUrl it must match one of the vendor's patterns, and if the vendor offers multiple resource types with no whole-instance option you MUST pass a matching resourceUrl. Otherwise the call is rejected with guidance and no card is shown — fix the request and try again. You also choose \`bindingName\`: the name the resource will have in your env once connected (you know why you want the resource, so pick a name that reflects its role). On success this shows the user an accept/deny card in the chat. It does NOT block: your turn ends after a successful call, and you will be resumed once the user accepts (the resource becomes available as \`env.<bindingName>\`, which you can describeBinding and use from executeCode; wire it into a Gadget with setGadgetBinding only if the Gadget's code needs it) or denies (your turn simply ends; wait for the user's next message).
+Ask the user to connect a gatekeeper resource (e.g. a ClickHouse cluster, a GitHub repo). Pre-configure as much as you can: always pass vendorId, and pass resourceUrl when you can infer it (use listConnectableResources to learn the URL patterns). The request must resolve to a specific resource: if you pass a resourceUrl it must match one of the vendor's patterns, and if the vendor offers multiple resource types with no whole-instance option you MUST pass a matching resourceUrl. Otherwise the call is rejected with guidance and no card is shown — fix the request and try again. You also choose \`bindingName\`: the name the resource will have in your env once connected (you know why you want the resource, so pick a name that reflects its role). On success this shows the user an accept/deny card in the chat. It does NOT block: your turn ends after a successful call, and you will be resumed once the user accepts (the resource becomes available as \`env.<bindingName>\`, which you can describeBinding and use from executeCode; wire it into an App with setGadgetBinding only if the App's code needs it) or denies (your turn simply ends; wait for the user's next message).
 `.trim();
 
 let GIVE_UP_TOOL_DESCRIPTION = `
@@ -1229,7 +1229,7 @@ export async function runAgent(
 
       if (envName !== undefined && gadgetDiffParts.length > 0) {
         diffParts.push(
-            `==== Gadget env.${envName}: ${JSON.stringify(info.title)} ====`,
+            `==== App env.${envName}: ${JSON.stringify(info.title)} ====`,
             ...gadgetDiffParts);
       }
     }
@@ -1283,11 +1283,11 @@ export async function runAgent(
     let entry = chatBindings.get(workpiece);
     if (!entry) {
       throw new Error(
-          `There is no binding named "${workpiece}" in your env. Pass the env name of a ` +
-          `gadget, as listed in the system prompt or chosen in createGadget.`);
+          `There is no binding named "${workpiece}" in your env. Pass the env name of an ` +
+          `app, as listed in the system prompt or chosen in createGadget.`);
     }
     if (entry.type !== "workpiece") {
-      throw new Error(`env.${workpiece} does not refer to a gadget.`);
+      throw new Error(`env.${workpiece} does not refer to an app.`);
     }
     return entry.id;
   };
@@ -1764,13 +1764,13 @@ export async function runAgent(
             // own tool calls and recorded results), followed by the diff of their file edits. A
             // creation-only batch has a no-op update and thus no diff.
             let observations = (msg.createdGadgets ?? []).map(({title, bindingName}) =>
-                `Created new gadget ${JSON.stringify(title)}, available in your env as ` +
+                `Created new app ${JSON.stringify(title)}, available in your env as ` +
                 `\`env.${bindingName}\`.`);
             for (let {gadgetId, name} of msg.addedBindings ?? []) {
               let gadgetName = chatNameFor(gadgetId);
               observations.push(
                   `Added binding "${name}" to ` +
-                  (gadgetName !== undefined ? `gadget ${gadgetName}` : `a gadget`) + `.`);
+                  (gadgetName !== undefined ? `app ${gadgetName}` : `an app`) + `.`);
             }
             if (diff !== undefined) {
               observations.push(diff);
@@ -1905,8 +1905,8 @@ export async function runAgent(
                   `The user accepted your connection request for "${msg.vendorName}". ` +
                   `The resource is available as \`env.${name}\` for use in executeCode ` +
                   `in this conversation. Use describeBinding("${name}") to learn its API, then ` +
-                  `use it. If a Gadget's code needs it permanently, use setGadgetBinding to wire ` +
-                  `it into that gadget.`,
+                  `use it. If an App's code needs it permanently, use setGadgetBinding to wire ` +
+                  `it into that app.`,
               timestamp: msgTimestamp,
             });
           } else {
@@ -2074,7 +2074,7 @@ export async function runAgent(
       let lines = namedSeeds.map(seed =>
           `* env.${seed.name} — ` +
           (seed.isGadget
-              ? `RPC stub to the server-side Durable Object of the Gadget ` +
+              ? `RPC stub to the server-side Durable Object of the App ` +
                 `${JSON.stringify(seed.title)}.`
               : seed.title));
       systemPromptBindings =
@@ -2111,25 +2111,25 @@ export async function runAgent(
     let systemPromptWorkspace: string;
     if (gadgetInfos.length == 0) {
       systemPromptWorkspace =
-          "This workspace does not contain any gadgets yet. Before writing any code, create a " +
-          "gadget with the `createGadget` tool.";
+          "This workspace does not contain any apps yet. Before writing any code, create an " +
+          "app with the `createGadget` tool.";
     } else {
       let sections = gadgetInfos.map(info => {
         let files = [...getSessionYDoc().getMap<Y.Text>(info.rootName).keys()];
         let envName = chatNameFor(info.id);
         let lines = [envName !== undefined
-            ? `## Gadget ${envName}: ${JSON.stringify(info.title)}`
-            : `## Gadget ${JSON.stringify(info.title)} (no binding in your env)`];
+            ? `## App ${envName}: ${JSON.stringify(info.title)}`
+            : `## App ${JSON.stringify(info.title)} (no binding in your env)`];
         if (info.isDefault) {
           lines.push(
-              `This is the workspace's default gadget: file tools operate on it when their ` +
+              `This is the workspace's default app: file tools operate on it when their ` +
               `\`workpiece\` parameter is omitted.`);
         }
         if (files.length == 0) {
-          lines.push(`As of the start of this session, this gadget had no code files.`);
+          lines.push(`As of the start of this session, this app had no code files.`);
         } else {
           lines.push(
-              `As of the start of this session, this gadget contained the following files:`,
+              `As of the start of this session, this app contained the following files:`,
               ...files.map(f => `* ${f}`));
         }
         if (info.output) {
@@ -2137,7 +2137,7 @@ export async function runAgent(
           // them, not to edit them. Especially non-technical folks. We tell the agent to wait to be
           // explicitly asked.
           lines.push(
-              `This gadget is a ${info.output.noun}: a finished application whose content is data ` +
+              `This app is a ${info.output.noun}: a finished application whose content is data ` +
               `in its own storage, not text in its code. To read or change what it contains, call ` +
               `its RPC methods from \`executeCode\`` +
               (envName !== undefined ? ` (\`env.${envName}\`)` : ``) +
@@ -2146,11 +2146,11 @@ export async function runAgent(
               `how the ${info.output.noun} itself works (its editor, layout, or features).`);
         }
         if (info.bindings.length == 0) {
-          lines.push(`This gadget has no bindings.`);
+          lines.push(`This app has no bindings.`);
         } else {
           // For each of the gadget's own bindings, cross-reference how the agent can reach the
           // same resource in its own env (matched by target workpiece), if it can.
-          lines.push(`This gadget's bindings (as its own code sees them):`,
+          lines.push(`This app's bindings (as its own code sees them):`,
                      ...info.bindings.map(b => {
             let chatName = chatNameFor(b.target);
             return `* ${b.name}: ${b.title}` +
@@ -2161,7 +2161,7 @@ export async function runAgent(
         }
         return lines.join("\n");
       });
-      systemPromptWorkspace = `# This workspace's gadgets\n\n${sections.join("\n\n")}`;
+      systemPromptWorkspace = `# This workspace's apps\n\n${sections.join("\n\n")}`;
     }
 
     // Named in the prompt because the request that should trigger them ("make me a doc") may
@@ -2300,7 +2300,7 @@ export async function runAgent(
   // not describe it as optional here.
   let workpieceParam = Type.String({
     description:
-        "Env binding name of the workpiece (e.g. gadget) that owns the file, as listed in the " +
+        "Env binding name of the workpiece (e.g. app) that owns the file, as listed in the " +
         "system prompt or chosen in createGadget.",
   });
 
@@ -2493,18 +2493,18 @@ export async function runAgent(
 
     setGadgetBinding: defineTool({
       name: "setGadgetBinding",
-      label: "Bind resource to gadget",
+      label: "Bind resource to app",
       description: SET_GADGET_BINDING_TOOL_DESCRIPTION,
       parameters: Type.Object({
         gadget: Type.String({
-          description: "Env binding name of the gadget whose bindings to modify.",
+          description: "Env binding name of the app whose bindings to modify.",
         }),
         source: Type.String({
-          description: "Env binding name of the resource to wire into the gadget.",
+          description: "Env binding name of the resource to wire into the app.",
         }),
         name: Type.Optional(Type.String({
           description:
-              "Name to bind the resource under within the gadget (`env.<name>` in the gadget's " +
+              "Name to bind the resource under within the app (`env.<name>` in the app's " +
               "own code). Defaults to the same name as `source`. Style: ALL_CAPS_WITH_UNDERSCORES.",
         })),
       }),
@@ -2512,7 +2512,7 @@ export async function runAgent(
         try {
           let gadgetEntry = chatBindings.get(gadget);
           if (!gadgetEntry || gadgetEntry.type !== "workpiece") {
-            throw new Error(`There is no gadget named "${gadget}" in your env.`);
+            throw new Error(`There is no app named "${gadget}" in your env.`);
           }
           let sourceEntry = chatBindings.get(source);
           if (!sourceEntry) {
@@ -2520,7 +2520,7 @@ export async function runAgent(
           }
           if (sourceEntry.type !== "workpiece") {
             throw new Error(`env.${source} holds agent callback arguments; it cannot be bound ` +
-                `into a gadget.`);
+                `into an app.`);
           }
           let bindingName = name ?? source;
 
@@ -2552,22 +2552,22 @@ export async function runAgent(
 
     createGadget: defineTool({
       name: "createGadget",
-      label: "Create gadget",
+      label: "Create app",
       description: CREATE_GADGET_TOOL_DESCRIPTION,
       parameters: Type.Object({
         title: Type.String({
           description:
-              "Short, descriptive, human-readable title for the new gadget. Shown to the user.",
+              "Short, descriptive, human-readable title for the new app. Shown to the user.",
         }),
         bindingName: Type.String({
           description:
-              "Name under which the new gadget appears in your env, and how other tools refer " +
+              "Name under which the new app appears in your env, and how other tools refer " +
               "to it (e.g. the file tools' `workpiece` parameter). Must be a JavaScript " +
               "identifier not already in use; style: ALL_CAPS_WITH_UNDERSCORES.",
         }),
         blueprintId: Type.Optional(Type.String({
           description:
-              "If given, initialize the new gadget from this blueprint's code instead of empty. " +
+              "If given, initialize the new app from this blueprint's code instead of empty. " +
               "Use the listBlueprints tool to discover available blueprint IDs.",
         })),
       }),

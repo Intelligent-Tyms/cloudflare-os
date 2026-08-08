@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RpcStub } from 'capnweb'
 import {
   createOpenGadgetError,
+  DEFAULT_SITE_NAME,
   OPEN_GADGET_ERROR_CODES,
   type AuthenticatedApi,
   type GadgetMetadata,
@@ -132,12 +133,12 @@ describe('useWorkspaceOpen', () => {
     root = createRoot(container)
     await act(async () => root!.render(<WorkspaceProbe authenticatedApi={api(firstOverseer)} />))
     expect(container.textContent).toContain('Quarterly planning')
-    expect(document.title).toBe('Quarterly planning - Cloudflare OS')
+    expect(document.title).toBe(`Quarterly planning - ${DEFAULT_SITE_NAME}`)
 
     await act(async () => root!.render(<WorkspaceProbe authenticatedApi={api(deniedOverseer)} />))
     expect(container.textContent).toContain("You don't have access to this workspace")
     expect(container.textContent).not.toContain('Quarterly planning')
-    expect(document.title).toBe('Cloudflare OS')
+    expect(document.title).toBe(DEFAULT_SITE_NAME)
     expect(firstSubscriptionDispose).toHaveBeenCalledOnce()
     expect(deniedOverseerDispose).toHaveBeenCalledOnce()
   })

@@ -52,12 +52,12 @@ function formatRelativeTime(date: Date): string {
 
 const ROLE_LABELS: Record<CollaboratorRole, string> = {
   build: 'Workspace',
-  use: 'Gadget only',
+  use: 'App only',
 }
 
 const ROLE_DESCRIPTIONS: Record<CollaboratorRole, string> = {
-  build: 'Edit gadgets, use chat, and manage access.',
-  use: 'Use gadgets without agent chat or editing.',
+  build: 'Edit apps, use chat, and manage access.',
+  use: 'Use apps without agent chat or editing.',
 }
 
 function roleLabel(role: CollaboratorRole | undefined): string {
@@ -786,7 +786,7 @@ export default function ShareModal({ open, onClose, overseer, metadata, currentU
                 It has observed sensitive data that can only be accessed by you, the owner.
               </p>
               <p className="mt-2 max-w-[320px] text-balance text-[12px] leading-[18px] tracking-[-0.1px] text-kumo-subtle">
-                To share something similar, create a blueprint from a gadget in this workspace, then use it to create a new workspace.
+                To share something similar, create a blueprint from an app in this workspace, then use it to create a new workspace.
               </p>
             </div>
           ) : (

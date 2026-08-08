@@ -580,7 +580,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
       let metadata = await overseer.getMetadata()
       window.location.href = `/workspace/${metadata.id}`
     } catch (err: any) {
-      setError(err.message || 'Failed to create gadget from blueprint.')
+      setError(err.message || 'Failed to create app from blueprint.')
     } finally {
       overseer.then(stub => stub[Symbol.dispose]()).catch(() => {})
       setCreating(false)
@@ -597,7 +597,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
         () => rpcStub.downloadBlueprint(id),
         makeBlueprintFilename(blueprint.metadata.title, blueprint.metadata.version),
         {
-          description: 'Gadget Blueprint',
+          description: 'App Blueprint',
           contentType: 'application/octet-stream',
           extension: BLUEPRINT_ARCHIVE_EXTENSION,
         },
@@ -770,13 +770,13 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
   let remainingCount = bindingEntries.length - readyCount
   let primaryActionLabel: string
   if (!isAuthenticated) {
-    primaryActionLabel = 'Log in to create a gadget'
+    primaryActionLabel = 'Log in to create an app'
   } else if (unresolvedBindingName !== null) {
     primaryActionLabel = remainingCount > 0
       ? `Configure ${remainingCount} remaining ${remainingCount === 1 ? 'connection' : 'connections'}`
       : 'Configure connections'
   } else {
-    primaryActionLabel = 'Create Gadget'
+    primaryActionLabel = 'Create App'
   }
   let createDisabled = creating
   let canDeleteOwnedBlueprint = isOwnBlueprint && !loadingOwnBlueprintState
@@ -972,7 +972,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
               </div>
               <div className="mb-3 px-1 text-[13px] leading-[18px] font-normal tracking-[-0.25px] text-kumo-subtle">
                 {readyCount === bindingEntries.length
-                  ? 'Everything is ready. You can change any connection before creating the Gadget.'
+                  ? 'Everything is ready. You can change any connection before creating the App.'
                   : `${readyCount} of ${bindingEntries.length} ready. Suggestions are used automatically when they match one of your connected accounts.`}
               </div>
               <div className="overflow-hidden rounded-2xl border border-kumo-line bg-kumo-base">
@@ -995,7 +995,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
                 No connections required
               </p>
               <p className="mt-1 text-[13px] leading-[18px] font-normal tracking-[-0.25px] text-kumo-subtle">
-                This blueprint can create a Gadget without configuring external resources.
+                This blueprint can create an App without configuring external resources.
               </p>
             </section>
           )}
@@ -1028,7 +1028,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
                   <Dialog.Description className="mt-1 text-[13px] leading-[18px] font-normal tracking-[-0.25px] text-kumo-subtle">
                     {activeBinding.type === 'gatekeeper' && activeBinding.description
                       ? activeBinding.description
-                      : 'Choose the resource or model this new Gadget should use.'}
+                      : 'Choose the resource or model this new App should use.'}
                   </Dialog.Description>
                 </div>
                 <Dialog.Close
@@ -1093,7 +1093,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
           </Dialog.Title>
           <Dialog.Description className="mt-2 text-kumo-subtle">
             Delete "{blueprint?.metadata.title}"? {canDeleteOwnedBlueprint
-              ? 'This blueprint link will stop working, but gadgets already created from it won’t be affected.'
+              ? 'This blueprint link will stop working, but apps already created from it won’t be affected.'
               : 'This blueprint was uploaded manually and cannot be recovered.'}
           </Dialog.Description>
           <div className="mt-6 flex justify-end gap-2">

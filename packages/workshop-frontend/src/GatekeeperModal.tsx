@@ -809,7 +809,7 @@ export default function GatekeeperModal({
             <Dialog.Description className="mt-1 text-[13px] leading-[18px] font-normal tracking-[-0.25px] text-kumo-subtle">
               {selectedConnection
                 ? selectedConnection.description
-                : 'Choose what this gadget should be able to use.'}
+                : 'Choose what this app should be able to use.'}
             </Dialog.Description>
           </div>
           <Dialog.Close

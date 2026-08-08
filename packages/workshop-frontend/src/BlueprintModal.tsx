@@ -291,7 +291,7 @@ export default function BlueprintModal({ open, onClose, overseer, gadget, metada
                   ? 'Describe what people get when they start from this blueprint.'
                   : formMode === 'edit'
                     ? 'Update the details, screenshot, and connection guidance for this blueprint.'
-                    : 'Turn this gadget into a reusable starting point.'}
+                    : 'Turn this app into a reusable starting point.'}
               </Dialog.Description>
               </div>
             </div>
@@ -474,7 +474,7 @@ export default function BlueprintModal({ open, onClose, overseer, gadget, metada
                     Create blueprint
                   </span>
                   <span className="mt-0.5 block text-[13px] leading-[18px] font-normal tracking-[-0.25px] text-kumo-subtle">
-                    Publish this gadget as a reusable template.
+                    Publish this app as a reusable template.
                   </span>
                 </span>
                 <Plus size={16} className="text-kumo-subtle" />
@@ -595,7 +595,7 @@ function BlueprintRow({
               Delete "{bp.title}"?
             </p>
             <p className="m-0 mt-0.5 text-[12px] leading-4 font-normal tracking-[-0.2px] text-kumo-subtle">
-              People who started a gadget from this blueprint won't be affected, but the link will stop working.
+              People who started an app from this blueprint won't be affected, but the link will stop working.
             </p>
           </div>
           <button

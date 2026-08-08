@@ -1471,7 +1471,7 @@ class OverseerImpl implements AgentHooks {
     if (gadgetId !== undefined) return gadgetId;
     let def = this.defaultGadgetId;
     if (def === undefined) {
-      throw new Error("This workspace has no default gadget; a gadget must be named explicitly.");
+      throw new Error("This workspace has no default app; an app must be named explicitly.");
     }
     return def;
   }
@@ -1483,9 +1483,9 @@ class OverseerImpl implements AgentHooks {
     let record = this.storage.gadgets.get(id);
     if (!record) {
       if (this.defaultGadgetId === id) {
-        throw new Error("This workspace's original gadget has been deleted.");
+        throw new Error("This workspace's original app has been deleted.");
       }
-      throw new Error(`No such gadget: ${id}`);
+      throw new Error(`No such app: ${id}`);
     }
     return record;
   }
@@ -1514,8 +1514,8 @@ class OverseerImpl implements AgentHooks {
       : {workpieceId: WorkpieceId, rootName: string} {
     if (workpieceId === undefined && this.defaultGadgetId === undefined) {
       throw new Error(
-          "No workpiece was specified, and this workspace has no default gadget. Pass the " +
-          "`workpiece` parameter naming the gadget to operate on, or create one with " +
+          "No workpiece was specified, and this workspace has no default app. Pass the " +
+          "`workpiece` parameter naming the app to operate on, or create one with " +
           "createGadget first.");
     }
     let id = this.resolveGadgetId(workpieceId);
@@ -1523,11 +1523,11 @@ class OverseerImpl implements AgentHooks {
       if (!this.storage.gadgets.get(id) && this.storage.gatekeepers.get(id)) {
         // A name resolving here almost certainly came from the chat binding map, so tell the
         // agent what's wrong in binding terms rather than "no such gadget: <number>".
-        throw new Error("That binding refers to an external resource, not a gadget.");
+        throw new Error("That binding refers to an external resource, not an app.");
       }
       let record = this.getGadgetRecord(id);
       if (forChatId !== undefined && record.pending && record.pending.chatId !== forChatId) {
-        throw new Error(`No such gadget: ${id}`);
+        throw new Error(`No such app: ${id}`);
       }
     }
     return {workpieceId: id, rootName: this.gadgetRootName(id)};
@@ -1546,7 +1546,7 @@ class OverseerImpl implements AgentHooks {
                output?: BlueprintOutput): GadgetRecord {
     title = title.trim();
     if (!title) {
-      throw new Error("A gadget requires a non-empty title.");
+      throw new Error("An app requires a non-empty title.");
     }
     validateBindingName(bindingName);
     // Pre-check the unique index for a friendly error (the index would throw on put() anyway,
@@ -1554,11 +1554,11 @@ class OverseerImpl implements AgentHooks {
     let conflict = this.storage.gadgets.byBindingName.get(bindingName);
     if (conflict) {
       if (conflict.pending && conflict.pending.chatId !== chatId) {
-        throw new Error(`The gadget name "${bindingName}" is claimed by a gadget still pending ` +
+        throw new Error(`The app name "${bindingName}" is claimed by an app still pending ` +
             `in another chat. Accept or revert that chat's changes first, or choose a different ` +
             `name.`);
       }
-      throw new Error(`There is already a gadget named "${bindingName}".`);
+      throw new Error(`There is already an app named "${bindingName}".`);
     }
     let record: GadgetRecord = {
       id: this.allocateWorkpieceId(),
@@ -1732,7 +1732,7 @@ class OverseerImpl implements AgentHooks {
     }
     if (!this.storage.gatekeepers.get(target)) {
       if (this.storage.gadgets.get(target)) {
-        throw new Error(`Gadget-to-gadget bindings are not supported yet.`);
+        throw new Error(`App-to-app bindings are not supported yet.`);
       }
       throw new Error(`No such gatekeeper: ${target}`);
     }
@@ -2104,7 +2104,7 @@ class OverseerImpl implements AgentHooks {
     for (let [gadgetId, runningChatId] of this.#runningChatIds) {
       if (runningChatId === chatId) {
         this.ctx.facets.abort(this.gadgetFacetName(gadgetId), new Error(
-            "Gadget restarted because the proposed changes changed."));
+            "App restarted because the proposed changes changed."));
       }
     }
   }
@@ -2353,8 +2353,8 @@ class OverseerImpl implements AgentHooks {
     if (newChat !== oldChat) {
       this.ctx.facets.abort(facetName, new Error(
           newChat === null
-            ? "Gadget restarted to switch back to main version."
-            : "Gadget restarted to test proposed changes."));
+            ? "App restarted to switch back to main version."
+            : "App restarted to test proposed changes."));
       this.#runningChatIds.set(gadgetId, newChat);
     }
 
@@ -3153,7 +3153,7 @@ class OverseerImpl implements AgentHooks {
     let ids = affectedGadgetIds ?? [...this.storage.gadgets.list()].map(gadget => gadget.id);
     for (let id of ids) {
       this.ctx.facets.abort(this.gadgetFacetName(id),
-          new Error("Gadget restarted due to code update."));
+          new Error("App restarted due to code update."));
     }
     this.bumpLastActive();
     return codeVersion;
@@ -3182,7 +3182,7 @@ class OverseerImpl implements AgentHooks {
   async scheduleRevocationRestart(): Promise<void> {
     await this.ctx.storage.sync();
     await scheduler.wait(100);
-    this.ctx.abort("Gadget restarted to revoke access for a removed collaborator.");
+    this.ctx.abort("App restarted to revoke access for a removed collaborator.");
   }
 
   // Last timestamp generated by getChatTimestamp(), if it has been called during this session.
@@ -3343,7 +3343,7 @@ class OverseerImpl implements AgentHooks {
       let gadget = this.storage.gadgets.get(capsule.gatekeeperId);
       if (gadget) {
         if (gadget.pending && gadget.pending.chatId !== chatId) {
-          throw new Error(`Chat message references gadget ${capsule.gatekeeperId}, which is ` +
+          throw new Error(`Chat message references app ${capsule.gatekeeperId}, which is ` +
               `still pending in another chat.`);
         }
       } else if (!this.storage.gatekeepers.get(capsule.gatekeeperId)) {
@@ -3692,8 +3692,8 @@ class OverseerImpl implements AgentHooks {
       return `Binding: ${envName}\n` +
           `\n` +
           `This binding is an RPC stub that points at the main Durable Object instance of the ` +
-          `Gadget ${JSON.stringify(gadget.title)}. Calling a method on the stub invokes the ` +
-          `same-named method on the class exported by the Gadget's server.js (read that file to ` +
+          `App ${JSON.stringify(gadget.title)}. Calling a method on the stub invokes the ` +
+          `same-named method on the class exported by the App's server.js (read that file to ` +
           `learn the API it offers).`;
     }
     let gatekeeper = this.storage.gatekeepers.get(id);
@@ -4932,7 +4932,7 @@ class OverseerImpl implements AgentHooks {
         }
         if (this.storage.gadgets.get(target)) {
           throw new Error(`Cannot create a blueprint: agent spawner binding "${bindingName}" ` +
-              `gives its agents access to another gadget ("${envName}"), which blueprints ` +
+              `gives its agents access to another app ("${envName}"), which blueprints ` +
               `cannot express yet.`);
         }
         let targetGk = this.storage.gatekeepers.get(target);
@@ -5741,8 +5741,8 @@ class OverseerImpl implements AgentHooks {
         `This deployment offers these as ready-made outputs, and users ask for them by name. When ` +
         `the user asks for something one of them produces, instantiate that blueprint with ` +
         `\`createGadget\` rather than writing an equivalent from scratch -- including when the ` +
-        `workspace already contains Gadgets, since the user is asking for a new output alongside ` +
-        `them rather than for an existing one to be repurposed. If the Gadget they are talking ` +
+        `workspace already contains Apps, since the user is asking for a new output alongside ` +
+        `them rather than for an existing one to be repurposed. If the App they are talking ` +
         `about already *is* one of these, work on that one instead: asking to change an existing ` +
         `output is not a request for a second one.\n\n` +
         formats.map(format =>
@@ -5794,30 +5794,30 @@ class OverseerImpl implements AgentHooks {
     let output = deploymentOutputForBlueprint(await readAdminConfig(this.env), blueprintId,
         sanitizeBlueprintOutput(kvRecord.metadata.output));
 
-    let lines = [`Created the new gadget from blueprint ` +
+    let lines = [`Created the new app from blueprint ` +
         `${JSON.stringify(kvRecord.metadata.title)} (blueprintId ${blueprintId}).`];
     if (output) {
-      lines.push(`It produces a ${output.noun}; the new gadget is labelled as one throughout the ` +
+      lines.push(`It produces a ${output.noun}; the new app is labelled as one throughout the ` +
           `UI.`);
     }
 
     let filenames = Object.keys(files);
     lines.push("", filenames.length > 0
-        ? `Files copied into the new gadget: ${filenames.join(", ")}. Use readFile to inspect ` +
+        ? `Files copied into the new app: ${filenames.join(", ")}. Use readFile to inspect ` +
           `them before editing.`
-        : `The blueprint contained no files, so the new gadget is empty.`);
+        : `The blueprint contained no files, so the new app is empty.`);
 
     let bindings = Object.entries(kvRecord.metadata.bindings);
     if (bindings.length === 0) {
       lines.push("", `The blueprint requires no bindings.`);
     } else {
       lines.push("",
-          `The blueprint's code expects the following bindings, which the new gadget does not ` +
+          `The blueprint's code expects the following bindings, which the new app does not ` +
           `have yet. Wire up each one under the exact binding name given. For external ` +
-          `resources, use setGadgetBinding on the new gadget (first requesting a connection via ` +
+          `resources, use setGadgetBinding on the new app (first requesting a connection via ` +
           `requestConnection if your env doesn't already hold a suitable resource). AI-model ` +
           `and agent-spawner bindings cannot be created from chat; ask the user to add those ` +
-          `from the gadget's Connections panel.`);
+          `from the app's Connections panel.`);
       for (let [name, binding] of bindings) {
         let details: string;
         switch (binding.type) {
@@ -7495,7 +7495,7 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
       let gadget = this.impl.storage.gadgets.get(target);
       if (gadget) {
         if (gadget.pending) {
-          throw new Error(`Agent spawner env entry "${name}" references gadget ${target}, ` +
+          throw new Error(`Agent spawner env entry "${name}" references app ${target}, ` +
               `which is still pending in a chat.`);
         }
       } else if (!this.impl.storage.gatekeepers.get(target)) {
@@ -8789,7 +8789,7 @@ class UseOverseerInterface extends RpcTarget implements Overseer {
 
   // Throws "Unauthorized" for any method not available to "use" collaborators.
   #deny(): never {
-    throw new Error("Unauthorized: this collaborator only has permission to use the gadget's UI.");
+    throw new Error("Unauthorized: this collaborator only has permission to use the app's UI.");
   }
 
   // --- Allowed methods ---
@@ -8856,7 +8856,7 @@ class UseOverseerInterface extends RpcTarget implements Overseer {
 
   async getGadget(id: WorkpieceId): Promise<RpcStub<GadgetClient>> {
     if (this.impl.getGadgetRecord(id).pending) {  // also validates it exists
-      throw new Error(`No such gadget: ${id}`);
+      throw new Error(`No such app: ${id}`);
     }
     // @ts-expect-error An RpcTarget implementing the interface works in place of a stub, but the
     //     type system doesn't know this.
@@ -9053,9 +9053,9 @@ class GadgetClientImpl extends RpcTarget implements GadgetClient {
 
   async exportPdf(chatId?: number): Promise<ReadableStream<Uint8Array>> {
     let browser = this.impl.env.BROWSER;
-    if (!browser) throw new Error("Gadget export is not configured for this deployment.");
+    if (!browser) throw new Error("App export is not configured for this deployment.");
     let bundle = await this.getUiBundle(chatId);
-    if (!bundle) throw new Error("This Gadget does not have a UI to export.");
+    if (!bundle) throw new Error("This App does not have a UI to export.");
     let gadget = await this.impl.getGadgetFacet(this.id, chatId);
     let title = this.impl.getGadgetRecord(this.id).title;
     return renderGadgetPdf(browser, bundle.jsCode, title, gadget);
@@ -9181,7 +9181,7 @@ class GadgetClientImpl extends RpcTarget implements GadgetClient {
     if (gadget.pending) {
       // A provisional gadget's files live only in its chat's proposed changes; snapshotting its
       // (empty) mainline code would produce a useless blueprint.
-      throw new Error("This gadget is a provisional creation in a chat. Accept the chat's " +
+      throw new Error("This app is a provisional creation in a chat. Accept the chat's " +
           "changes before creating a blueprint from it.");
     }
 
@@ -9262,7 +9262,7 @@ class UseGadgetClientInterface extends RpcTarget implements GadgetClient {
   }
 
   #deny(): never {
-    throw new Error("Unauthorized: this collaborator only has permission to use the gadget's UI.");
+    throw new Error("Unauthorized: this collaborator only has permission to use the app's UI.");
   }
 
   // --- Allowed methods ---
@@ -9301,9 +9301,9 @@ class UseGadgetClientInterface extends RpcTarget implements GadgetClient {
   async exportPdf(chatId?: number): Promise<ReadableStream<Uint8Array>> {
     if (chatId !== undefined) this.#deny();
     let browser = this.impl.env.BROWSER;
-    if (!browser) throw new Error("Gadget export is not configured for this deployment.");
+    if (!browser) throw new Error("App export is not configured for this deployment.");
     let bundle = await this.getUiBundle();
-    if (!bundle) throw new Error("This Gadget does not have a UI to export.");
+    if (!bundle) throw new Error("This App does not have a UI to export.");
     let gadget = await this.impl.getGadgetFacet(this.id);
     let title = this.impl.getGadgetRecord(this.id).title;
     return renderGadgetPdf(browser, bundle.jsCode, title, gadget);
@@ -9451,7 +9451,7 @@ export class AgentSpawnerGatekeeper
       url: `http://agent-spawner.local/`,
 
       title: this.ctx.props.config.displayName,
-      snippet: "Allows the gadget to spawn AI agents to perform tasks on given resources.",
+      snippet: "Allows the app to spawn AI agents to perform tasks on given resources.",
 
       suggestedBindingName: "AGENT_SPAWNER",
 

@@ -797,7 +797,7 @@ export default function AdminPage() {
           <p className="text-sm text-kumo-subtle mb-5">
             Turn connectors and resource types on or off for each service. Auto-provisioned
             gatekeepers (like Drive) have three modes &mdash; disabled, optional, or
-            enabled for everyone. Changes are soft: they don&rsquo;t revoke access a gadget already
+            enabled for everyone. Changes are soft: they don&rsquo;t revoke access an app already
             holds.
           </p>
 

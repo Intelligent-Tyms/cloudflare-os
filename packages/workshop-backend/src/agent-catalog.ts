@@ -90,6 +90,6 @@ export function formatAlwaysAvailableResourcesPrompt(resources: Array<{
   return `The following resources are always available as bindings in your env for use with the ` +
     `executeCode tool (you don't need to request them):\n${lines.join("\n")}\n` +
     `When one is relevant, use describeBinding with the binding's name to learn its API before ` +
-    `using it. If a Gadget's persistent code needs one, wire it into that gadget with ` +
+    `using it. If an App's persistent code needs one, wire it into that app with ` +
     `setGadgetBinding.`;
 }

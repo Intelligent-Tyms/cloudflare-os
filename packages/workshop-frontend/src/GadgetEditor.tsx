@@ -403,7 +403,7 @@ function NoGadgetPlaceholder({ height }: { height: string }) {
     <div className="flex items-center justify-center px-6 text-center" style={{ height }}>
       <div className="max-w-[360px]">
         <p className="m-0 text-[15px] leading-[22px] font-semibold tracking-[-0.3px] text-kumo-default">
-          No gadgets yet
+          No apps yet
         </p>
         <p className="mt-1.5 mb-0 text-[13px] leading-[19px] tracking-[-0.25px] text-kumo-subtle">
           Ask the agent in chat to build something, and it will appear here.
@@ -1180,7 +1180,7 @@ export default function GadgetEditor() {
     try {
       await target.setTitle(title)
     } catch {
-      toasts.add({ title: 'Failed to rename gadget', variant: 'error' })
+      toasts.add({ title: 'Failed to rename app', variant: 'error' })
     } finally {
       target[Symbol.dispose]()
     }
@@ -1617,7 +1617,7 @@ export default function GadgetEditor() {
               )}
 
               <WorkshopIconButton
-                aria-label={paneShowsActivity ? 'Close activity' : 'Close gadget pane'}
+                aria-label={paneShowsActivity ? 'Close activity' : 'Close app pane'}
                 title="Close"
                 onClick={closeWorkspacePane}
               >
@@ -1642,7 +1642,7 @@ export default function GadgetEditor() {
               tabIndex={isGadgetFullscreen ? -1 : undefined}
               role={isGadgetFullscreen ? 'dialog' : undefined}
               aria-modal={isGadgetFullscreen ? true : undefined}
-              aria-label={isGadgetFullscreen ? 'Gadget full screen' : undefined}
+              aria-label={isGadgetFullscreen ? 'App full screen' : undefined}
               className={
                 activeTab !== 'app' || previewMode
                   ? 'hidden'

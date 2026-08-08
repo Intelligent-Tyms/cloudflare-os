@@ -655,7 +655,7 @@ function getToolCallSummary(
     case "createGadget": {
 
       const output = outputOf?.(tc);
-      return { verb: `Created ${output?.noun ?? "gadget"}`, target: tc.input.title };
+      return { verb: `Created ${output?.noun ?? "app"}`, target: tc.input.title };
     }
     case "executeCode": {
       // Prefer the first non-empty line as a preview. `code` may be absent while the tool call's
@@ -759,7 +759,7 @@ function describeToolCallCount(toolName: AiToolCall["toolName"], count: number):
     case "saveCapsuleAsBinding":
       return `Saved ${pluralize(count, "resource")}`;
     case "createGadget":
-      return `Created ${pluralize(count, "gadget")}`;
+      return `Created ${pluralize(count, "app")}`;
     case "observeUserChanges":
       return `Observed ${pluralize(count, "change set")}`;
     case "giveUp":
@@ -827,7 +827,7 @@ function getProvisionalToolLabel(toolName: AiToolCall["toolName"] | null | undef
     case "saveCapsuleAsBinding":
       return "Saving resource";
     case "createGadget":
-      return "Creating gadget";
+      return "Creating app";
     case "executeCode":
       return "Running code";
     case "webFetch":
@@ -855,7 +855,7 @@ function getProvisionalToolVerb(toolName: AiToolCall["toolName"]): string {
     case "setBindingHook": return "Connecting";
     case "setGadgetBinding": return "Wiring up";
     case "saveCapsuleAsBinding": return "Saving";
-    case "createGadget": return "Creating gadget";
+    case "createGadget": return "Creating app";
     case "executeCode": return "Running code";
     case "webFetch": return "Fetching";
     case "observeUserChanges": return "Observing user changes";
@@ -881,7 +881,7 @@ function describeProvisionalToolCount(toolName: AiToolCall["toolName"], count: n
     case "setBindingHook": return `Connecting ${pluralize(count, "binding")}`;
     case "setGadgetBinding": return `Wiring up ${pluralize(count, "binding")}`;
     case "saveCapsuleAsBinding": return `Saving ${pluralize(count, "resource")}`;
-    case "createGadget": return `Creating ${pluralize(count, "gadget")}`;
+    case "createGadget": return `Creating ${pluralize(count, "app")}`;
     case "observeUserChanges": return `Observing ${pluralize(count, "change set")}`;
     case "giveUp": return "Stopping";
     case "listBlueprints": return "Listing blueprints";
@@ -3545,7 +3545,7 @@ function appendWorkParts(target: WorkMessageParts, source: WorkMessageParts) {
 function describeCreatedGadgetDeletion(titles: string[] | undefined): string {
   if (!titles || titles.length === 0) return "";
   const names = titles.map((t) => `“${t}”`).join(", ");
-  return ` (deletes ${titles.length === 1 ? "gadget" : "gadgets"} ${names})`;
+  return ` (deletes ${titles.length === 1 ? "app" : "apps"} ${names})`;
 }
 
 // Label for the per-turn discard-changes button.
@@ -3607,7 +3607,7 @@ function DiscardPendingChangesPopover({
             Discard all pending changes?
           </Popover.Title>
           <p className="mt-0.5 text-[11.5px] leading-4 tracking-[-0.15px] text-kumo-subtle">
-            Return to the last accepted version. Any gadgets created by these changes will be
+            Return to the last accepted version. Any apps created by these changes will be
             permanently deleted. Pending changes can&apos;t be restored.
           </p>
           <p className="mt-2 border-t border-kumo-line pt-2 text-[11px] leading-[15px] tracking-[-0.1px] text-kumo-inactive">
@@ -6917,7 +6917,7 @@ function ChatInterface({
                         // than as saved edits.
                         const createdGadgets = entry.message.createdGadgets ?? [];
                         const label = createdGadgets.length > 0
-                          ? `${actor} created ${createdGadgets.length === 1 ? "gadget" : "gadgets"} ${
+                          ? `${actor} created ${createdGadgets.length === 1 ? "app" : "apps"} ${
                               createdGadgets.map((g) => `“${g.title}”`).join(", ")}`
                           : `${actor} saved edits`;
                         const discardLabel = getSavedEditsDiscardLabel(
@@ -7242,7 +7242,7 @@ function ChatInterface({
                                   content={
                                     isMerge
                                       ? `Accepted draft changes${ts ? ` through ${formatFullTimestamp(ts)}` : ""}.`
-                                      : `Returned to the gadget state before the prompt sent ${ts ? `at ${ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "earlier"}.`
+                                      : `Returned to the app state before the prompt sent ${ts ? `at ${ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "earlier"}.`
                                   }
                                   asChild
                                 >
@@ -7268,12 +7268,12 @@ function ChatInterface({
 
                         {msg.type === "useGadget" && (
                           <div className="max-w-[860px] text-[14px] leading-5 tracking-[-0.25px] text-kumo-subtle">
-                            <Tooltip content={`Used the gadget at ${formatFullTimestamp(msg.timestamp)}`} asChild>
+                            <Tooltip content={`Used the app at ${formatFullTimestamp(msg.timestamp)}`} asChild>
                               <span className="inline-flex items-center gap-3 px-1.5 py-1">
                                 <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center text-kumo-inactive" aria-hidden="true">
                                   <Plug size={16} />
                                 </span>
-                                <span>Used the gadget</span>
+                                <span>Used the app</span>
                               </span>
                             </Tooltip>
                           </div>
@@ -7382,7 +7382,7 @@ function ChatInterface({
                         : "Draft changes in progress";
                       const description = isUserAuthored
                         ? "Your edits are still a live draft."
-                        : `${latestAuthor?.name ?? "The agent"} is editing changes for this gadget.`;
+                        : `${latestAuthor?.name ?? "The agent"} is editing changes for this app.`;
                       const lastDraftEntry =
                         currentDraftState.entries[
                           currentDraftState.entries.length - 1
@@ -7420,7 +7420,7 @@ function ChatInterface({
                                   Discard
                                 </button>
                               </Tooltip>
-                              <Tooltip content="Save these edits as a draft version. They won't affect the gadget until you accept changes." asChild>
+                              <Tooltip content="Save these edits as a draft version. They won't affect the app until you accept changes." asChild>
                                 <button
                                   type="button"
                                   disabled={isAgentActive}
@@ -7645,7 +7645,7 @@ function ChatInterface({
                             ? "Wait for the agent to finish before accepting changes."
                             : isDiscardingChanges
                               ? "Wait for pending changes to finish discarding."
-                              : "Keep this draft and make it the gadget's current version."} asChild>
+                              : "Keep this draft and make it the app's current version."} asChild>
                             <WorkshopButton
                               disabled={changesActionsDisabled}
                               onClick={() =>

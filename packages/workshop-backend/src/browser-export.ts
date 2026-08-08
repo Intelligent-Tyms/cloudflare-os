@@ -82,7 +82,7 @@ export class BrowserRpcTransport implements RpcTransport {
   send(message: string): Promise<void> {
     if (this.#pendingSendCount >= MAX_PENDING_RPC_SENDS ||
         message.length > MAX_PENDING_RPC_SEND_CHARS - this.#pendingSendChars) {
-      let error = new Error("The Gadget export RPC send queue overflowed.");
+      let error = new Error("The App export RPC send queue overflowed.");
       this.abort(error);
       return Promise.reject(error);
     }
@@ -107,7 +107,7 @@ export class BrowserRpcTransport implements RpcTransport {
       this.page.evaluate(() => globalThis.__workshopExportReceiveFromBrowser()),
     );
     if (typeof message !== "string") {
-      throw new Error("The Gadget export RPC message from the browser was not a string.");
+      throw new Error("The App export RPC message from the browser was not a string.");
     }
     return message;
   }
@@ -161,7 +161,7 @@ export function limitStream(
     transform(chunk, controller) {
       total += chunk.byteLength;
       if (total > maxBytes) {
-        controller.error(new Error(`Gadget exports may not exceed ${maxBytes} bytes.`));
+        controller.error(new Error(`App exports may not exceed ${maxBytes} bytes.`));
         return;
       }
       controller.enqueue(chunk);
