@@ -908,7 +908,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   async addBlueprintToLibrary(id: string): Promise<void> {
     let kvRecord = await readBlueprintKvRecord(this.env, id);
     if (!kvRecord) {
-      throw new Error("Blueprint not found.");
+      throw new Error("Template not found.");
     }
 
     let existing = this.storage.libraryBlueprints.get(id);
@@ -948,7 +948,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
 
   async deleteOwnedBlueprint(id: string): Promise<void> {
     if (isReservedBlueprintKey(id)) {
-      throw new Error("Blueprint not found.");
+      throw new Error("Template not found.");
     }
 
     let publishedRecord = this.storage.blueprints.get(id);
@@ -957,12 +957,12 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     let kvRecord = await readBlueprintKvRecord(this.env, id);
 
     if (!publishedRecord && !uploadedRecord && !kvRecord) {
-      throw new Error("Blueprint not found.");
+      throw new Error("Template not found.");
     }
 
     if (kvRecord) {
       if (kvRecord.ownerId !== this.ctx.id.toString()) {
-        throw new Error("You don't own this blueprint.");
+        throw new Error("You don't own this template.");
       }
 
       // Delete all R2 objects with the blueprint ID prefix.
@@ -1000,7 +1000,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   async setBlueprintFeatured(id: string, featured: boolean): Promise<void> {
     let record = this.storage.blueprints.get(id);
     if (!record) {
-      throw new Error("No such blueprint.");
+      throw new Error("No such template.");
     }
 
     record.featured = featured;

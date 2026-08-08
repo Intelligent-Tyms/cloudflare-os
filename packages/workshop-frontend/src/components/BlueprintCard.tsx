@@ -130,7 +130,7 @@ export function BlueprintCard({
       <Link
         to="/blueprint/$id"
         params={{ id }}
-        aria-label={`Open blueprint ${metadata.title}`}
+        aria-label={`Open template ${metadata.title}`}
         className="absolute inset-0 z-10 rounded-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kumo-brand"
       />
       <div className="pointer-events-none relative z-20 flex flex-1 flex-col p-4">

@@ -687,7 +687,7 @@ function getToolCallSummary(
     case "observeUserChanges":
       return { verb: "Observed user changes" };
     case "listBlueprints":
-      return { verb: "Listed blueprints" };
+      return { verb: "Listed templates" };
     case "listConnectableResources":
       return { verb: "Listed connectable resources", target: tc.input.vendorId };
     case "requestConnection":
@@ -765,7 +765,7 @@ function describeToolCallCount(toolName: AiToolCall["toolName"], count: number):
     case "giveUp":
       return count === 1 ? "Stopped" : `Stopped ${count} times`;
     case "listBlueprints":
-      return `Listed blueprints`;
+      return `Listed templates`;
     case "listConnectableResources":
       return `Listed connectable resources`;
     case "requestConnection":
@@ -860,7 +860,7 @@ function getProvisionalToolVerb(toolName: AiToolCall["toolName"]): string {
     case "webFetch": return "Fetching";
     case "observeUserChanges": return "Observing user changes";
     case "giveUp": return "Stopping";
-    case "listBlueprints": return "Listing blueprints";
+    case "listBlueprints": return "Listing templates";
     case "listConnectableResources": return "Listing connectable resources";
     case "requestConnection": return "Requesting a connection";
   }
@@ -884,7 +884,7 @@ function describeProvisionalToolCount(toolName: AiToolCall["toolName"], count: n
     case "createGadget": return `Creating ${pluralize(count, "app")}`;
     case "observeUserChanges": return `Observing ${pluralize(count, "change set")}`;
     case "giveUp": return "Stopping";
-    case "listBlueprints": return "Listing blueprints";
+    case "listBlueprints": return "Listing templates";
     case "listConnectableResources": return "Listing connectable resources";
     case "requestConnection": return `Requesting ${pluralize(count, "connection")}`;
   }

@@ -129,7 +129,7 @@ export default function Sidebar({
             />
             <SidebarItem
               to="/blueprints"
-              label="Blueprints"
+              label="App store"
               icon={<DraftingCompass size={14} />}
               collapsed={collapsed}
             />

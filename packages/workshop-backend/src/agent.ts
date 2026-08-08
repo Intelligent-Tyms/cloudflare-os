@@ -383,9 +383,9 @@ You are working within a "workspace". A workspace contains any number of Apps, p
 
 A new workspace contains no Apps: use the \`createGadget\` tool to create one before writing any code. Most workspaces contain a single App, but the user may ask you to build several Apps that work together.
 
-When the user asks for a new App, ALWAYS consider starting from a blueprint. A blueprint is code for a specific type of App that has already been written. The \`listBlueprints\` tool returns a list of available blueprints. If any of them match the user's request, and the user did not explicitly request otherwise, you should create a new app starting from a blueprint.
+When the user asks for a new App, ALWAYS consider starting from a template. A template is code for a specific type of App that has already been written. The \`listBlueprints\` tool returns a list of available templates. If any of them match the user's request, and the user did not explicitly request otherwise, you should create a new app starting from a template.
 
-Note that users rarely ask for "an App" in those words. They ask for a thing: a doc, a deck, a tracker, a tool that does X. Any of those is a request for a new App, and so a request to consider a blueprint — including when the workspace already contains an App, which does not make the request an edit to that one.
+Note that users rarely ask for "an App" in those words. They ask for a thing: a doc, a deck, a tracker, a tool that does X. Any of those is a request for a new App, and so a request to consider a template — including when the workspace already contains an App, which does not make the request an edit to that one.
 
 Tools refer to Apps by their binding name in your env: the file tools (\`readFile\`, \`writeFile\`, \`editFile\`) take a \`gadget\` parameter naming the App that owns the file, and \`setGadgetBinding\` takes a \`gadget\` parameter naming the App whose bindings to modify. Some older workspaces have a "default" App (noted in the app list) which the file tools fall back to when \`gadget\` is omitted; even so, prefer passing the name explicitly.
 
@@ -540,11 +540,11 @@ Create a new App in this workspace. The new app immediately becomes available in
 
 Use this when the workspace has no apps yet, or when the user asks for an additional app. Always choose a short, descriptive title — the user will see it.
 
-By default the new app is empty. Pass \`blueprintId\` (discovered with the \`listBlueprints\` tool, or given by the user) to instead start the app from a blueprint's code; the result then also describes the bindings the blueprint expects you to wire up.
+By default the new app is empty. Pass \`blueprintId\` (discovered with the \`listBlueprints\` tool, or given by the user) to instead start the app from a template's code; the result then also describes the bindings the template expects you to wire up.
 `.trim();
 
 let LIST_BLUEPRINTS_TOOL_DESCRIPTION = `
-List the blueprints available to the user: their own published blueprints, their blueprint library, and this deployment's featured blueprints. A blueprint is a shareable snapshot of an App's code; instantiate one as a new App by passing its \`blueprintId\` to \`createGadget\`. There is no search — read the list and pick the best match yourself.
+List the templates available to the user: their own published templates, their template library, and this deployment's featured templates. A template is a shareable snapshot of an App's code; instantiate one as a new App by passing its \`blueprintId\` to \`createGadget\`. There is no search — read the list and pick the best match yourself.
 `.trim();
 
 let WRITE_FILE_TOOL_DESCRIPTION = `
@@ -2567,8 +2567,8 @@ export async function runAgent(
         }),
         blueprintId: Type.Optional(Type.String({
           description:
-              "If given, initialize the new app from this blueprint's code instead of empty. " +
-              "Use the listBlueprints tool to discover available blueprint IDs.",
+              "If given, initialize the new app from this template's code instead of empty. " +
+              "Use the listBlueprints tool to discover available template IDs.",
         })),
       }),
       execute: async (toolCallId, {title, bindingName, blueprintId}) => {
@@ -2662,7 +2662,7 @@ export async function runAgent(
 
     listBlueprints: defineTool({
       name: "listBlueprints",
-      label: "List blueprints",
+      label: "List templates",
       description: LIST_BLUEPRINTS_TOOL_DESCRIPTION,
       parameters: Type.Object({}),
       execute: async (toolCallId) => {

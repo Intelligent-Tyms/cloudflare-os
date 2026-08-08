@@ -425,11 +425,11 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
   ): Promise<RpcStub<Overseer>> {
     // 1. Read blueprint from KV.
     let kvRecord = await readBlueprintKvRecord(this.env, blueprintId);
-    if (!kvRecord) throw new Error("Blueprint not found.");
+    if (!kvRecord) throw new Error("Template not found.");
 
     // 2. Read gzip-compressed Yjs doc from R2 and decompress.
     let codeBytes = await readBlueprintContent(this.env, blueprintId, kvRecord.metadata.version);
-    if (!codeBytes) throw new Error("Blueprint content not found in R2.");
+    if (!codeBytes) throw new Error("Template content not found in R2.");
 
     // 3. Create new Overseer DO (same as newGadget()).
     let id = this.overseers.newUniqueId().toString();
@@ -766,10 +766,10 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
 
   async downloadBlueprint(id: string): Promise<ReadableStream<Uint8Array>> {
     let kvRecord = await readBlueprintKvRecord(this.env, id);
-    if (!kvRecord) throw new Error("Blueprint not found.");
+    if (!kvRecord) throw new Error("Template not found.");
 
     let r2Object = await this.env.BLUEPRINT_CONTENT.get(`${id}/${kvRecord.metadata.version}`);
-    if (!r2Object) throw new Error("Blueprint content not found in R2.");
+    if (!r2Object) throw new Error("Template content not found in R2.");
 
     let metadata = { ...kvRecord.metadata };
     delete metadata.screenshot;

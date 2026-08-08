@@ -260,7 +260,7 @@ export async function parseBlueprintArchive(archive: ReadableStream<Uint8Array>)
 
   let metadataSize = view.getUint32(12);
   if (metadataSize === 0) {
-    throw new Error("App archive is missing blueprint metadata.");
+    throw new Error("App archive is missing template metadata.");
   }
   if (metadataSize > MAX_BLUEPRINT_METADATA_BYTES) {
     throw new Error("App archive metadata size is out of range.");

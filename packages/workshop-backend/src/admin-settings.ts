@@ -189,12 +189,12 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
     featureable: boolean;
   }> {
     if (isReservedBlueprintKey(blueprintId)) {
-      throw new Error('Blueprint not found.');
+      throw new Error('Template not found.');
     }
 
     let raw = await this.env.BLUEPRINTS.get(blueprintId);
     if (!raw) {
-      throw new Error('Blueprint not found.');
+      throw new Error('Template not found.');
     }
 
     let kvRecord = parseBlueprintKvRecord(raw);
@@ -233,7 +233,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
   async setBlueprintFeatured(blueprintId: string, featured: boolean): Promise<void> {
     let { owner, publicInfo, featureable } = await this.#getOwnerBlueprint(blueprintId);
     if (!featureable || !owner) {
-      throw new Error('Blueprint not featureable.');
+      throw new Error('Template not featureable.');
     }
 
     await owner.setBlueprintFeatured(blueprintId, featured);
@@ -353,7 +353,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
   async promoteFormat(blueprintId: string): Promise<void> {
     let record = await readBlueprintKvRecord(this.env, blueprintId);
     if (!record) {
-      throw new Error("Blueprint not found.");
+      throw new Error("Template not found.");
     }
     await this.#mutateFormats(formats => {
       // Idempotent so retrying after a KV mirror failure reaches #mutateFormats()'s repair write.

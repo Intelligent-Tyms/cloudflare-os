@@ -379,10 +379,10 @@ function describeBindingKind(binding: BlueprintBinding): string {
 const MAX_BLUEPRINT_SCREENSHOT_BYTES = 1024 * 1024;
 function validateBlueprintScreenshotUpload(screenshot: BlueprintScreenshotUpload): BlueprintScreenshotUpload {
   if (screenshot.mimeType !== "image/jpeg" && screenshot.mimeType !== "image/png") {
-    throw new Error("Blueprint screenshot must be a JPEG or PNG image.");
+    throw new Error("Template screenshot must be a JPEG or PNG image.");
   }
   if (screenshot.content.byteLength > MAX_BLUEPRINT_SCREENSHOT_BYTES) {
-    throw new Error("Blueprint screenshot must be under 1 MB.");
+    throw new Error("Template screenshot must be under 1 MB.");
   }
   return screenshot;
 }
@@ -4875,7 +4875,7 @@ class OverseerImpl implements AgentHooks {
 
       if (!spec) {
         throw new Error(
-          `Binding "${bindingName}" has no creation spec (created before blueprint support).`
+          `Binding "${bindingName}" has no creation spec (created before template support).`
         );
       }
 
@@ -4931,13 +4931,13 @@ class OverseerImpl implements AgentHooks {
           continue;
         }
         if (this.storage.gadgets.get(target)) {
-          throw new Error(`Cannot create a blueprint: agent spawner binding "${bindingName}" ` +
-              `gives its agents access to another app ("${envName}"), which blueprints ` +
+          throw new Error(`Cannot create a template: agent spawner binding "${bindingName}" ` +
+              `gives its agents access to another app ("${envName}"), which templates ` +
               `cannot express yet.`);
         }
         let targetGk = this.storage.gatekeepers.get(target);
         if (!targetGk) {
-          throw new Error(`Cannot create a blueprint: agent spawner binding "${bindingName}" ` +
+          throw new Error(`Cannot create a template: agent spawner binding "${bindingName}" ` +
               `gives its agents access to a resource ("${envName}") that no longer exists. ` +
               `Remove it from the spawner's configuration first.`);
         }
@@ -4966,8 +4966,8 @@ class OverseerImpl implements AgentHooks {
           edgeNameByTarget.set(target, synthName);
           env[envName] = {type: "binding", name: synthName};
         } else {
-          throw new Error(`Cannot create a blueprint: agent spawner binding "${bindingName}" ` +
-              `gives its agents access to a resource ("${envName}") of a kind that blueprints ` +
+          throw new Error(`Cannot create a template: agent spawner binding "${bindingName}" ` +
+              `gives its agents access to a resource ("${envName}") of a kind that templates ` +
               `cannot express.`);
         }
       }
@@ -5720,9 +5720,9 @@ class OverseerImpl implements AgentHooks {
     }
 
     if (sections.length === 0) {
-      return "No blueprints are available to this user.";
+      return "No templates are available to this user.";
     }
-    let preamble = `Blueprints available to instantiate (pass the blueprintId to createGadget)`;
+    let preamble = `Templates available to instantiate (pass the blueprintId to createGadget)`;
     if (formats.length > 0) {
       preamble += `. The standard formats are listed first: when the user asks for something one ` +
           `of them produces, instantiate it rather than building an equivalent from scratch`;
@@ -5739,7 +5739,7 @@ class OverseerImpl implements AgentHooks {
     // No worked examples: the nouns are the deployment's, listed below, and may be plural.
     return `# Standard output formats\n\n` +
         `This deployment offers these as ready-made outputs, and users ask for them by name. When ` +
-        `the user asks for something one of them produces, instantiate that blueprint with ` +
+        `the user asks for something one of them produces, instantiate that template with ` +
         `\`createGadget\` rather than writing an equivalent from scratch -- including when the ` +
         `workspace already contains Apps, since the user is asking for a new output alongside ` +
         `them rather than for an existing one to be repurposed. If the App they are talking ` +
@@ -5771,12 +5771,12 @@ class OverseerImpl implements AgentHooks {
       : Promise<{files: Record<string, string>, notes: string, output?: BlueprintOutput}> {
     let kvRecord = await readBlueprintKvRecord(this.env, blueprintId);
     if (!kvRecord) {
-      throw new Error(`No such blueprint: ${blueprintId}. Use listBlueprints to see available ` +
-          `blueprints.`);
+      throw new Error(`No such template: ${blueprintId}. Use listBlueprints to see available ` +
+          `templates.`);
     }
     let code = await readBlueprintContent(this.env, blueprintId, kvRecord.metadata.version);
     if (!code) {
-      throw new Error(`The content of blueprint ${blueprintId} is missing; it cannot be ` +
+      throw new Error(`The content of template ${blueprintId} is missing; it cannot be ` +
           `instantiated.`);
     }
 
@@ -5794,7 +5794,7 @@ class OverseerImpl implements AgentHooks {
     let output = deploymentOutputForBlueprint(await readAdminConfig(this.env), blueprintId,
         sanitizeBlueprintOutput(kvRecord.metadata.output));
 
-    let lines = [`Created the new app from blueprint ` +
+    let lines = [`Created the new app from template ` +
         `${JSON.stringify(kvRecord.metadata.title)} (blueprintId ${blueprintId}).`];
     if (output) {
       lines.push(`It produces a ${output.noun}; the new app is labelled as one throughout the ` +
@@ -5805,14 +5805,14 @@ class OverseerImpl implements AgentHooks {
     lines.push("", filenames.length > 0
         ? `Files copied into the new app: ${filenames.join(", ")}. Use readFile to inspect ` +
           `them before editing.`
-        : `The blueprint contained no files, so the new app is empty.`);
+        : `The template contained no files, so the new app is empty.`);
 
     let bindings = Object.entries(kvRecord.metadata.bindings);
     if (bindings.length === 0) {
-      lines.push("", `The blueprint requires no bindings.`);
+      lines.push("", `The template requires no bindings.`);
     } else {
       lines.push("",
-          `The blueprint's code expects the following bindings, which the new app does not ` +
+          `The template's code expects the following bindings, which the new app does not ` +
           `have yet. Wire up each one under the exact binding name given. For external ` +
           `resources, use setGadgetBinding on the new app (first requesting a connection via ` +
           `requestConnection if your env doesn't already hold a suitable resource). AI-model ` +
@@ -5825,7 +5825,7 @@ class OverseerImpl implements AgentHooks {
             details = `external resource via the "${binding.gatekeeperName}" gatekeeper; ` +
                 `resource URL pattern ${JSON.stringify(binding.typeUrlPattern)}` +
                 (binding.resourceUrl
-                    ? `; the blueprint author suggests ${JSON.stringify(binding.resourceUrl)}`
+                    ? `; the template author suggests ${JSON.stringify(binding.resourceUrl)}`
                     : ``);
             break;
           case "aiModel":
@@ -8536,7 +8536,7 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
     screenshot?: BlueprintScreenshotUpload | null;
   }): Promise<void> {
     let record = this.impl.storage.blueprints.get(blueprintId);
-    if (!record) throw new Error("No such blueprint.");
+    if (!record) throw new Error("No such template.");
 
     if (options.title === undefined && options.description === undefined && !options.updateCode && !options.updateBindings && options.screenshot === undefined) {
       throw new Error("At least one update option must be provided.");
@@ -8573,7 +8573,7 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
 
   async deleteBlueprint(blueprintId: string): Promise<void> {
     let record = this.impl.storage.blueprints.get(blueprintId);
-    if (!record) throw new Error("No such blueprint.");
+    if (!record) throw new Error("No such template.");
 
     try {
       await this.impl.deleteBlueprintPropagation(record);
@@ -8587,7 +8587,7 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
 
   async retryBlueprintPublish(blueprintId: string): Promise<void> {
     let record = this.impl.storage.blueprints.get(blueprintId);
-    if (!record) throw new Error("No such blueprint.");
+    if (!record) throw new Error("No such template.");
     if (!record.dirty) return;  // nothing to retry
 
     // Reconstruct the code snapshot at the original codeVersion, not the current code.
@@ -9182,7 +9182,7 @@ class GadgetClientImpl extends RpcTarget implements GadgetClient {
       // A provisional gadget's files live only in its chat's proposed changes; snapshotting its
       // (empty) mainline code would produce a useless blueprint.
       throw new Error("This app is a provisional creation in a chat. Accept the chat's " +
-          "changes before creating a blueprint from it.");
+          "changes before creating a template from it.");
     }
 
     // Generate 128-bit random ID as hex.
@@ -9384,7 +9384,7 @@ class GatekeeperClientImpl<Session extends RpcCompatible<Session>>
   async getCreationSpec(): Promise<GatekeeperCreationSpec> {
     let record = this.#getRecord();
     if (!record.creationSpec) {
-      throw new Error("This gatekeeper has no creation spec (created before blueprint support).");
+      throw new Error("This gatekeeper has no creation spec (created before template support).");
     }
     return record.creationSpec;
   }

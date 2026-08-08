@@ -614,7 +614,7 @@ export default function AdminPage() {
             value={bannerTextDraft}
             onValueChange={setBannerTextDraft}
             rows={1}
-            placeholder={'e.g. \uD83C\uDF89 New: blueprints now support imports \u2014 [learn more](https://example.com).'}
+            placeholder={'e.g. \uD83C\uDF89 New: templates now support imports \u2014 [learn more](https://example.com).'}
             maxLength={MAX_ANNOUNCEMENT_LENGTH}
             error={
               bannerTextDraft.length > MAX_ANNOUNCEMENT_LENGTH
