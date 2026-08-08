@@ -472,7 +472,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
       });
     } else {
       if (mode === "optional") {
-        throw new Error(`"${vendorId}" is not an auto-provisioning gatekeeper; use 'enabled' or 'disabled'.`);
+        throw new Error(`"${vendorId}" is not an auto-provisioning connector; use 'enabled' or 'disabled'.`);
       }
       await this.#mutateAdminConfig(config => {
         let disabled = new Set(config.disabledGatekeepers);
@@ -591,7 +591,7 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
 
   setGatekeeperMode(vendorId: string, mode: AmbientGatekeeperMode): Promise<void> {
     if (!isAmbientGatekeeperMode(mode)) {
-      throw new Error(`Invalid gatekeeper mode: ${mode}`);
+      throw new Error(`Invalid connector mode: ${mode}`);
     }
     return this.admin.setGatekeeperMode(vendorId, mode);
   }

@@ -165,7 +165,7 @@ export default function ConnectConnectorModal({
           ? accountDescription?.uniqueName
             ? `${accountDisplayName} / ${accountDescription.uniqueName}`
             : accountDisplayName
-          : 'Credentials expired; reconnect from the Gatekeepers page'}
+          : 'Credentials expired; reconnect from the Connectors page'}
       </span>
     </div>
   ) : (
@@ -251,7 +251,7 @@ export default function ConnectConnectorModal({
                   ? isManage
                     ? 'Resources'
                     : 'Resources to enable'
-                  : 'What this gatekeeper can do'}
+                  : 'What this connector can do'}
               </h3>
               <ul className="space-y-2">
                 {supportedResources.map((resource) => {
@@ -316,11 +316,11 @@ export default function ConnectConnectorModal({
                 />
                 <div className="text-[12px] leading-[17px] font-normal tracking-[-0.2px] text-kumo-default">
                   <span className="font-medium">
-                    Gatekeeper sits between {vendorDescription.displayName} and your Apps.
+                    The connector sits between {vendorDescription.displayName} and your Apps.
                   </span>{' '}
                   <span className="text-kumo-subtle">
                     Each App only sees the resources you connect. If the workspace is shared,
-                    Gatekeeper verifies other users have the required permissions before they can
+                    the connector verifies other users have the required permissions before they can
                     access those resources.
                   </span>
                 </div>

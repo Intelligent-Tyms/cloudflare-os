@@ -229,7 +229,7 @@ function unavailableGatekeeperVendorInfo(id: string): GatekeeperVendorInfo {
       displayName: id,
       url: "",
       tagline: "Temporarily unavailable",
-      description: "This gatekeeper could not be loaded.",
+      description: "This connector could not be loaded.",
     },
     supportedResources: [],
   };
@@ -1113,7 +1113,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
       throw new Error("No such service: " + vendorId);
     }
     if ((await readAdminConfig(this.env)).disabledGatekeepers.includes(vendorId.toLowerCase())) {
-      throw new Error(`The "${vendorId}" gatekeeper is disabled on this deployment.`);
+      throw new Error(`The "${vendorId}" connector is disabled on this deployment.`);
     }
 
     let accountId = this.storage.nextAccountId.get();
@@ -1215,12 +1215,12 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     if (!vendor) throw new Error("No such service: " + vendorId);
 
     if (ambientGatekeeperMode(await readAdminConfig(this.env), vendorId) === "disabled") {
-      throw new Error(`The "${vendorId}" gatekeeper is disabled on this deployment.`);
+      throw new Error(`The "${vendorId}" connector is disabled on this deployment.`);
     }
 
     let description = await vendor.describe();
     if (!description.autoProvisionsAccount) {
-      throw new Error(`The "${vendorId}" gatekeeper can't be added this way.`);
+      throw new Error(`The "${vendorId}" connector can't be added this way.`);
     }
 
     if (this.#hasAccountForVendor(vendorId)) return;  // already added
@@ -1632,7 +1632,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     let vendorId = account.vendorId.toLowerCase();
     if (config.disabledGatekeepers.includes(vendorId)) {
       throw new Error(
-          `The "${account.vendorId}" gatekeeper is disabled on this deployment by an administrator.`);
+          `The "${account.vendorId}" connector is disabled on this deployment by an administrator.`);
     }
 
     // Blocking here prevents minting a new capability to a disabled resource even if the request

@@ -52,7 +52,7 @@ describe("OverseerDurableObject.startHook", () => {
     let config = { ...DEFAULT_ADMIN_CONFIG, disabledGatekeepers: ["email"] };
     let overseer = makeOverseer(async () => serializeAdminConfig(config));
 
-    await expect(overseer.startHook(1)).rejects.toThrow("Gatekeeper is disabled.");
+    await expect(overseer.startHook(1)).rejects.toThrow("Connector is disabled.");
   });
 
   it("rejects delivery for an administratively disabled ambient vendor", async () => {
@@ -63,7 +63,7 @@ describe("OverseerDurableObject.startHook", () => {
     let overseer = makeOverseer(
         async () => serializeAdminConfig(config), { enabled: true, vendorId: "scheduler" });
 
-    await expect(overseer.startHook(1)).rejects.toThrow("Gatekeeper is disabled.");
+    await expect(overseer.startHook(1)).rejects.toThrow("Connector is disabled.");
   });
 
   it("enforces vendor policy for legacy hooks without a denormalized vendor ID", async () => {
@@ -71,7 +71,7 @@ describe("OverseerDurableObject.startHook", () => {
     let overseer = makeOverseer(
         async () => serializeAdminConfig(config), { enabled: true }, "email");
 
-    await expect(overseer.startHook(1)).rejects.toThrow("Gatekeeper is disabled.");
+    await expect(overseer.startHook(1)).rejects.toThrow("Connector is disabled.");
   });
 
   it("rejects delivery when admin-config KV access fails", async () => {

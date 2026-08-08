@@ -639,14 +639,14 @@ export class LanguageModelGatekeeper
   }
 
   applyAction(action: number): Promise<void> {
-    throw new Error("This gatekeeper implements no actions.");
+    throw new Error("This connector implements no actions.");
   }
   rejectAction(action: number): Promise<void | {restart?: boolean}> {
-    throw new Error("This gatekeeper implements no actions.");
+    throw new Error("This connector implements no actions.");
   }
   revertAction(action: number):
       Promise<void | {message?: string, canRetry?: boolean, restart?: boolean}> {
-    throw new Error("This gatekeeper implements no actions.");
+    throw new Error("This connector implements no actions.");
   }
 
   async addObserver(_id: string, _user: Fetcher): Promise<void> {
