@@ -1597,7 +1597,7 @@ export default function GadgetEditor() {
               {!paneShowsActivity && (
                 <GadgetExportMenu
                   gadget={selectedGadgetStub}
-                  gadgetTitle={selectedGadgetSummary?.title ?? 'Gadget'}
+                  gadgetTitle={selectedGadgetSummary?.title ?? 'App'}
                   chatId={previewChatId}
                   disabled={activeTab !== 'app' || previewMode}
                 />

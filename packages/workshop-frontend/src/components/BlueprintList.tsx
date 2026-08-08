@@ -274,7 +274,7 @@ export default function BlueprintList() {
               type="button"
               onClick={() => uploadInputRef.current?.click()}
               disabled={uploading}
-              title="Upload a .gadget archive"
+              title="Upload a template archive (.gadget file)"
               className={ACTION_BUTTON}
             >
               <Upload size={14} strokeWidth={2.5} />
@@ -324,7 +324,7 @@ export default function BlueprintList() {
                   className={ACTION_BUTTON}
                 >
                   <Upload size={14} strokeWidth={2.5} />
-                  {uploading ? 'Uploading…' : 'Upload .gadget'}
+                  {uploading ? 'Uploading…' : 'Upload template'}
                 </button>
               </div>
             </div>
