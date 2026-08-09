@@ -108,20 +108,6 @@ export default function SignupPage({ rpcStub }: SignupPageProps) {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-kumo-base px-4 relative overflow-hidden">
-      {/* Dot grid — fades from top to bottom */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle, var(--color-kumo-line) 1px, transparent 1px)",
-          backgroundSize: "24px 24px",
-          maskImage:
-            "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 70%)",
-          WebkitMaskImage:
-            "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 70%)",
-        }}
-      />
-
       <div className="w-full max-w-sm relative">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">

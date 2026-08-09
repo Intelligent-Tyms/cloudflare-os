@@ -335,16 +335,7 @@ export default function OnboardingWizard({
 
   return (
     <>
-    <div className="fixed inset-0 bg-kumo-base dotted-bg flex items-center justify-center overflow-y-auto py-8">
-      {/* Soft radial glow at the top for depth */}
-      <div
-        className="absolute inset-x-0 top-0 h-[50vh] pointer-events-none"
-        style={{
-          background:
-            'radial-gradient(ellipse 60% 60% at 50% 0%, color-mix(in srgb, var(--color-kumo-brand) 8%, transparent) 0%, transparent 70%)',
-        }}
-      />
-
+    <div className="fixed inset-0 bg-kumo-base flex items-center justify-center overflow-y-auto py-8">
       <div
         className={`relative w-full max-w-lg mx-4 transition-all duration-500 ease-out ${
           mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
