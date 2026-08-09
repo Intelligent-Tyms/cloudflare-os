@@ -206,6 +206,11 @@ function makeUserStorage(storage: DurableObjectStorage) {
       nextAccountId: 0,
       pinnedBlueprints: <string[]>[],
 
+      // Redeemed central-handoff token ids (jti -> exp millis), making handoff tokens
+      // single-use. Expired entries are pruned on each redemption; the ~60s token TTL keeps
+      // this to a handful of live entries.
+      usedHandoffJtis: <Record<string, number>>{},
+
       // Per-user free-tier daily LLM-call counter (only used when ENABLE_CLOUDFLARE_LIMITS is on).
       // Stores the current UTC day and the calls made that day; a stale `day` implicitly resets the
       // count. Folds the former standalone RateLimitDO into the user object.
@@ -407,6 +412,27 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
       });
     }
     return this.#newSessionToken();
+  }
+
+  // Log in via a central-login handoff token (see PublicApi.loginWithHandoffToken). The caller has
+  // already verified the token's signature, audience, and expiry; this method enforces single-use:
+  // the jti is recorded here (the DO is single-threaded, so check-and-record is atomic) and a
+  // replay throws. Otherwise identical to loginOrCreateViaGatekeeper — the DO is keyed by the
+  // verified email.
+  async loginOrCreateViaHandoff(email: string, allowCreate: boolean, jti: string,
+      expiresAt: number): Promise<string | null> {
+    let now = Date.now();
+    let live: Record<string, number> = {};
+    for (let [id, exp] of Object.entries(this.storage.usedHandoffJtis.get())) {
+      if (exp > now) live[id] = exp;
+    }
+    if (live[jti] !== undefined) {
+      throw new Error("handoff token already used");
+    }
+    live[jti] = expiresAt;
+    this.storage.usedHandoffJtis.put(live);
+
+    return this.loginOrCreateViaGatekeeper(email, allowCreate);
   }
 
   // Whether this account has a password set (false for gatekeeper sign-in accounts).

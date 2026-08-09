@@ -58,6 +58,14 @@ export interface PublicApi extends RpcTarget {
   // Authenticates the user using an auth token (typically stored in localStorage).
   authenticate(token: string): Promise<AuthenticatedApi>;
 
+  // Redeem a central-login handoff token (a short-lived signed JWT minted by the deployment's
+  // central identity service; see ServerConfig.centralLoginUrl). Verifies the signature and
+  // audience, then resolves/creates the email-keyed account and returns a session token to store
+  // in localStorage and pass to `authenticate()`. Tokens are single-use: replays throw.
+  //
+  // Returns null if signups are disabled and no account exists for the email.
+  loginWithHandoffToken(token: string): Promise<string | null>;
+
   // Like authenticate() but the server is expected to be sitting behind Cloudflare Access, and the
   // client is expected to have already authenticated with Access (before they could load the
   // application in their browser at all). The credentials from the Cloudflare Access session will
@@ -856,6 +864,12 @@ export type ServerConfig = {
   // (DISABLE_PASSWORD_AUTH) to be OAuth-only. Forced true if no auth vendor is configured, to avoid
   // locking everyone out.
   passwordAuthEnabled: boolean;
+
+  // URL of the deployment's central sign-in page (multi-tenant installations), already carrying
+  // any tenant identity in its query string. When set, the login page offers/redirects to central
+  // sign-in and the client completes it by redeeming `?handoff=` via loginWithHandoffToken().
+  // Undefined for standalone deployments.
+  centralLoginUrl?: string;
 
   // Whether the optional Cloudflare free-tier limits + top-up flow is enabled. When false (the
   // default, e.g. self-hosted), usage is unlimited and the credits UI is hidden.

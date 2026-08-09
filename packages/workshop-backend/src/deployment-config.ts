@@ -4,7 +4,7 @@
 
 import { AuthVendorInfo, ServerConfig } from "@gadgets/workshop-shared/api";
 import { createWorkshopLogger } from "./observability";
-import { getAuthGatekeeperAllowlist, isPasswordAuthEnabled } from "./auth/config.js";
+import { getAuthGatekeeperAllowlist, isPasswordAuthEnabled, hasCentralLogin } from "./auth/config.js";
 import { isCloudflareLimitsEnabled } from "./ai-gateway-billing/config.js";
 import { getAuthVendorBinding } from "./auth/auth-vendors.js";
 import { readAdminConfig } from "./admin-config.js";
@@ -48,6 +48,7 @@ export async function getServerConfig(env: Cloudflare.Env): Promise<ServerConfig
   return {
     authVendors,
     passwordAuthEnabled: isPasswordAuthEnabled(env),
+    centralLoginUrl: hasCentralLogin(env) ? env.CENTRAL_LOGIN_URL : undefined,
     cloudflareLimitsEnabled: isCloudflareLimitsEnabled(env),
     signupsEnabled: config.signupsEnabled,
     siteName: config.siteName,

@@ -4,7 +4,7 @@ import type { JWTPayload } from "jose";
 import { PublicApi, AuthenticatedApi, Overseer, GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiModelConfig, AiGatewayInfo, AiModelProvider, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, ObserverConfigCallback, BlueprintLibrarySummary, BlueprintPublicInfo, BlueprintUserSummary, BlueprintBindingAssignment, AgentSpawnerConfig, WorkpieceId, BLUEPRINT_SCREENSHOT_PATH_PREFIX, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ServerConfig, CloudflareUsageInfo, CloudflareAccountOption, LoginAttempt, GatekeeperAppInfo, AdminApi, GatekeeperVendorInfo, OutputFormatOffer, ListOutputsResult, createOpenGadgetError, getOpenGadgetErrorCode, OPEN_GADGET_ERROR_CODES } from '@gadgets/workshop-shared/api';
 import type { UiFeatureFlags } from "@gadgets/workshop-shared/feature-flags";
 import { getServerConfig } from "./deployment-config.js";
-import { isPasswordAuthEnabled, getAuthGatekeeperAllowlist } from "./auth/config.js";
+import { isPasswordAuthEnabled, getAuthGatekeeperAllowlist, hasCentralLogin } from "./auth/config.js";
 import { getAuthVendorBinding } from "./auth/auth-vendors.js";
 import { getUsageInfo } from "./ai-gateway-billing/limits/usage-checker.js";
 import { listConnectedAccounts, selectAccount } from "./ai-gateway-billing/cloudflare/connection-service.js";
@@ -25,6 +25,7 @@ import { RpcStub as NativeRpcStub } from "cloudflare:workers";
 import { recordAnalytics } from "./analytics";
 import { handleClientErrorRequest } from "./client-errors.js";
 import { verifyCfAccessJwt } from "./access.js";
+import { importSPKI, jwtVerify } from "jose";
 import { resolveUiFeatureFlags } from "./feature-flags";
 import { serveSiteLogo, SITE_LOGO_PATH } from "./site-logo.js";
 import { createWorkshopLogger } from "./observability";
@@ -676,6 +677,40 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
       source: "session_token",
     });
     return new AuthenticatedApiImpl(this.ctx, this.env, stub, this.abortSession);
+  }
+
+  // Redeem a central-login handoff token: verify the fleet signature, audience, and expiry, then
+  // resolve/create the email-keyed account (same identity scheme as gatekeeper and Access sign-in).
+  // Single-use enforcement (jti) lives in the user DO. Mirrors LoginConnectCallbackImpl.complete().
+  async loginWithHandoffToken(token: string): Promise<string | null> {
+    if (!hasCentralLogin(this.env)) {
+      throw new Error("Central login is not enabled on this deployment.");
+    }
+    let key = await importSPKI(
+        `-----BEGIN PUBLIC KEY-----\n${this.env.HANDOFF_PUBLIC_KEY}\n-----END PUBLIC KEY-----`,
+        "EdDSA");
+    let { payload } = await jwtVerify(token, key, {
+      audience: this.env.HANDOFF_AUDIENCE,
+      clockTolerance: 5,
+    });
+    if (typeof payload.sub !== "string" || !payload.sub.includes("@") ||
+        typeof payload.jti !== "string" || typeof payload.exp !== "number") {
+      throw new Error("Invalid handoff token.");
+    }
+
+    let email = payload.sub.toLowerCase();
+    let userId = this.users.idFromName(email);
+    let stub = this.users.get(userId);
+    let signupsEnabled = (await readAdminConfig(this.env)).signupsEnabled;
+    let secret = await stub.loginOrCreateViaHandoff(email, signupsEnabled, payload.jti, payload.exp * 1000);
+    if (!secret) return null;
+
+    recordAnalytics(this.ctx, this.env, {
+      event_name: "user_authenticated",
+      user_id: userId.toString(),
+      source: "central_handoff",
+    });
+    return `${email}:${secret}`;
   }
 
   async authenticateFromCfAccess(): Promise<AuthenticatedApi> {

@@ -64,9 +64,18 @@ declare global {
       AUTH_GATEKEEPERS?: string;
 
       // Set to "true" to disable username/password login + signup (gatekeeper sign-in only). Only
-      // takes effect when at least one auth gatekeeper is allowlisted (otherwise password auth stays
-      // on to avoid locking everyone out).
+      // takes effect when at least one auth gatekeeper is allowlisted or central login is
+      // configured (otherwise password auth stays on to avoid locking everyone out).
       DISABLE_PASSWORD_AUTH?: string;
+
+      // Central login (multi-tenant installations): the deployment delegates sign-in to a central
+      // identity service. CENTRAL_LOGIN_URL is the sign-in page users are sent to (already carrying
+      // any tenant identity in its query string); HANDOFF_PUBLIC_KEY (SPKI base64, Ed25519) verifies
+      // the handoff JWTs it mints; HANDOFF_AUDIENCE is this deployment's expected `aud` claim.
+      // All three unset = no central login.
+      CENTRAL_LOGIN_URL?: string;
+      HANDOFF_PUBLIC_KEY?: string;
+      HANDOFF_AUDIENCE?: string;
 
       // Enables the Cloudflare free-tier limits + top-up flow when set to "true".
       ENABLE_CLOUDFLARE_LIMITS?: string;

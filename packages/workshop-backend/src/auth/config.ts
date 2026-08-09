@@ -20,10 +20,19 @@ export function hasAuthGatekeepers(env: Cloudflare.Env): boolean {
   return getAuthGatekeeperAllowlist(env).length > 0;
 }
 
+// Whether the deployment delegates sign-in to a central identity service (multi-tenant
+// installations). When set, the login page offers/redirects to CENTRAL_LOGIN_URL and completes
+// sign-in via a handoff token (PublicApi.loginWithHandoffToken).
+export function hasCentralLogin(env: Cloudflare.Env): boolean {
+  const e = env as { CENTRAL_LOGIN_URL?: string; HANDOFF_PUBLIC_KEY?: string };
+  return Boolean(e.CENTRAL_LOGIN_URL && e.HANDOFF_PUBLIC_KEY);
+}
+
 // Whether username/password login + signup is available. Enabled by default. An installation can
-// set DISABLE_PASSWORD_AUTH=true to be OAuth-only — but that only takes effect when at least one
-// auth gatekeeper is allowlisted, otherwise we'd lock everyone out, so password auth stays on.
+// set DISABLE_PASSWORD_AUTH=true to be OAuth-only — but that only takes effect when some other way
+// to sign in exists (an allowlisted auth gatekeeper, or central login), otherwise we'd lock
+// everyone out, so password auth stays on.
 export function isPasswordAuthEnabled(env: Cloudflare.Env): boolean {
   if (env.DISABLE_PASSWORD_AUTH !== "true") return true;
-  return !hasAuthGatekeepers(env);
+  return !hasAuthGatekeepers(env) && !hasCentralLogin(env);
 }

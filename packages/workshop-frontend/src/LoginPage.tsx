@@ -85,6 +85,34 @@ export default function LoginPage({ rpcStub, onLoginSuccess }: LoginPageProps) {
   const authVendors = serverConfig.authVendors ?? []
   const passwordAuthEnabled = serverConfig.passwordAuthEnabled
 
+  // Central login: sign-in lives on the deployment's central identity service, which sends the
+  // user back to /login?handoff=… to complete. Replaces the local password form.
+  if (serverConfig.centralLoginUrl) {
+    const centralLoginUrl = serverConfig.centralLoginUrl
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-kumo-base px-4">
+        <div className="w-full max-w-sm">
+          <div className="flex flex-col items-center mb-8">
+            <SiteLogo size={40} className="mb-3">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-kumo-brand mb-3">
+                <Hexagon size={20} className="text-white" strokeWidth={2.5} />
+              </div>
+            </SiteLogo>
+            <h1 className="text-xl font-semibold text-kumo-default">{siteName}</h1>
+            <p className="text-sm text-kumo-subtle mt-1">Sign in to your account</p>
+          </div>
+          <Button
+            variant="primary"
+            className="w-full justify-center"
+            onClick={() => { window.location.href = centralLoginUrl }}
+          >
+            Sign in
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-kumo-base px-4 relative overflow-hidden">
       {/* Dot grid — fades from top to bottom */}
