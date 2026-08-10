@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_ADMIN_CONFIG, defaultOutputFormatId, parseAdminConfig, reorderFormats, resolveFormatOutput, sanitizeOutputOverrides, serializeAdminConfig } from "../src/admin-config.js";
+import { DEFAULT_ADMIN_CONFIG, defaultOutputFormatId, formatOrganizationProfile, parseAdminConfig, reorderFormats, resolveFormatOutput, sanitizeOutputOverrides, serializeAdminConfig } from "../src/admin-config.js";
 
 describe("parseAdminConfig", () => {
   it("backfills fields missing from a config persisted before they existed", () => {
@@ -115,5 +115,26 @@ describe("admin config site logo", () => {
     let config = parseAdminConfig('{"siteLogoConfigured":true}');
     expect(config.siteLogoConfigured).toBe(true);
     expect(parseAdminConfig(serializeAdminConfig(config))).toEqual(config);
+  });
+});
+
+describe("formatOrganizationProfile", () => {
+  it("returns \"\" when unset or whitespace-only", () => {
+    expect(formatOrganizationProfile("")).toBe("");
+    expect(formatOrganizationProfile("   \n ")).toBe("");
+  });
+
+  it("wraps the trimmed profile in a tagged, framed section", () => {
+    let text = formatOrganizationProfile("  We call workspaces \"books\".  ");
+    expect(text).toMatch(/^# About this organization\n/);
+    expect(text).toContain("<organization_profile>\nWe call workspaces \"books\".\n</organization_profile>");
+    // The admin-authored text appears only inside the tags, never in the framing.
+    expect(text.slice(0, text.indexOf("<organization_profile>"))).not.toContain("books");
+  });
+
+  it("parses the stored field with a safe default", () => {
+    expect(parseAdminConfig("{}").organizationProfile).toBe("");
+    expect(parseAdminConfig('{"organizationProfile":42}').organizationProfile).toBe("");
+    expect(parseAdminConfig('{"organizationProfile":"Tyms"}').organizationProfile).toBe("Tyms");
   });
 });

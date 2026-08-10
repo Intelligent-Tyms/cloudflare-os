@@ -24,6 +24,10 @@ export type AdminConfig = {
   siteLogoConfigured: boolean;
   // Extra instructions appended to the agent system prompt.
   instanceInstructions: string;
+  // Organization context appended to the agent system prompt after the instructions: what the
+  // org does, its terminology, key facts. Kept short — deep org knowledge belongs in Drive
+  // folders the agent reads on demand.
+  organizationProfile: string;
   // Centered top-bar notice. Markdown.
   announcement: string;
   // Full-width banner (text + accent color).
@@ -70,6 +74,7 @@ export const DEFAULT_ADMIN_CONFIG: AdminConfig = {
   siteName: "",
   siteLogoConfigured: false,
   instanceInstructions: "",
+  organizationProfile: "",
   announcement: "",
   banner: { text: "", color: DEFAULT_BANNER_COLOR },
   accentColor: "",
@@ -269,6 +274,7 @@ export function parseAdminConfig(raw: string | null): AdminConfig {
       siteName: typeof p.siteName === "string" ? p.siteName : "",
       siteLogoConfigured: typeof p.siteLogoConfigured === "boolean" ? p.siteLogoConfigured : false,
       instanceInstructions: typeof p.instanceInstructions === "string" ? p.instanceInstructions : "",
+      organizationProfile: typeof p.organizationProfile === "string" ? p.organizationProfile : "",
       announcement: typeof p.announcement === "string" ? p.announcement : "",
       banner: {
         text: typeof p.banner?.text === "string" ? p.banner.text : "",
@@ -319,4 +325,18 @@ export function formatInstanceInstructions(instructions: string): string {
       `The administrator of this deployment has provided the following additional instructions. ` +
       `Follow them unless they conflict with the user's safety or the instructions above.\n\n` +
       `<deployment_instructions>\n${trimmed}\n</deployment_instructions>`;
+}
+
+// Wrap the admin-authored organization profile in a clearly-delimited block for the system
+// prompt, or "" when unset. Rendered after the deployment instructions, and (unlike the per-user
+// assistant profile) also into spawned agents' prompts: organization context applies to every
+// agent this deployment runs. Callers separate it from the preceding prompt with a blank line.
+export function formatOrganizationProfile(profile: string): string {
+  let trimmed = profile.trim();
+  if (!trimmed) return "";
+  return `# About this organization\n\n` +
+      `The administrator has provided the following context about the organization this ` +
+      `deployment serves. Use its terminology, and keep this context in mind where it is ` +
+      `relevant to the task.\n\n` +
+      `<organization_profile>\n${trimmed}\n</organization_profile>`;
 }

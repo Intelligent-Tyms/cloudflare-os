@@ -5555,6 +5555,17 @@ class OverseerImpl implements AgentHooks {
     }
   }
 
+  async getOrganizationProfile(): Promise<string> {
+    try {
+      return (await readAdminConfig(this.env)).organizationProfile;
+    } catch (err) {
+      this.logger.warn("failed to read organization profile", {
+        event: "organization.profile.read.failed", error: err,
+      });
+      return "";
+    }
+  }
+
   // Short-TTL cache of assistant profiles keyed by initiator id (a shared workspace sees one
   // entry per collaborator). The system prompt reads the turn initiator's profile on every turn
   // — caching avoids waking the user DO each time, while the short TTL lets profile edits take
