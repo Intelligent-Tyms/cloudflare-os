@@ -1,9 +1,23 @@
 import { useNavigate } from '@tanstack/react-router'
 import { DropdownMenu } from '@cloudflare/kumo'
-import { ChevronsUpDown } from 'lucide-react'
+import { ChevronsUpDown, LogOut, Plug, ShieldCheck, SunMoon, User, Zap } from 'lucide-react'
 import { useAuthenticatedApi } from '../AuthContext'
 import { useAvatar } from '../useAvatar'
 import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER, MENU_POSITIONER_STYLE } from './menuStyles'
+
+// Menu rows follow the standard leading-icon pattern: a fixed-size 15px icon in the muted color
+// (label stays the readable one), consistent gap, so labels left-align on a shared axis. The
+// sign-out icon inherits the danger variant's text color via currentColor.
+function ItemContent({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <span className="flex items-center gap-2.5">
+      <span className="grid w-[15px] shrink-0 place-items-center text-kumo-inactive [&>svg]:h-[15px] [&>svg]:w-[15px]">
+        {icon}
+      </span>
+      {children}
+    </span>
+  )
+}
 
 // Profile row pinned at the bottom of the sidebar: avatar, name, and email with a disclosure
 // chevron (the Slack/Notion account-switcher pattern). The dropdown is the single home for
@@ -62,37 +76,39 @@ export default function UserMenu({ collapsed = false }: { collapsed?: boolean })
           )
         }
       />
-      <DropdownMenu.Content className={MENU_CONTENT} style={MENU_POSITIONER_STYLE}>
+      {/* w-[244px] ≈ the expanded trigger row's width (260px sidebar minus its padding), so the
+          menu reads as an extension of the profile row rather than a floating strip. */}
+      <DropdownMenu.Content className={`${MENU_CONTENT} w-[244px]`} style={MENU_POSITIONER_STYLE}>
         <DropdownMenu.Item
           onClick={() => navigate({ to: '/profile' })}
           className={MENU_ITEM}
         >
-          Profile
+          <ItemContent icon={<User />}>Profile</ItemContent>
         </DropdownMenu.Item>
         <DropdownMenu.Item
           onClick={() => navigate({ to: '/gatekeepers' })}
           className={MENU_ITEM}
         >
-          Connectors
+          <ItemContent icon={<Plug />}>Connectors</ItemContent>
         </DropdownMenu.Item>
         <DropdownMenu.Item
           onClick={() => navigate({ to: '/theme' })}
           className={MENU_ITEM}
         >
-          Theme
+          <ItemContent icon={<SunMoon />}>Theme</ItemContent>
         </DropdownMenu.Item>
         <DropdownMenu.Item
           onClick={() => navigate({ to: '/providers' })}
           className={MENU_ITEM}
         >
-          Providers
+          <ItemContent icon={<Zap />}>Providers</ItemContent>
         </DropdownMenu.Item>
         {isAdmin && (
           <DropdownMenu.Item
             onClick={() => navigate({ to: '/admin' })}
             className={MENU_ITEM}
           >
-            Admin
+            <ItemContent icon={<ShieldCheck />}>Admin</ItemContent>
           </DropdownMenu.Item>
         )}
         <DropdownMenu.Separator />
@@ -101,7 +117,10 @@ export default function UserMenu({ collapsed = false }: { collapsed?: boolean })
           onClick={logout}
           className={MENU_ITEM_DANGER}
         >
-          Sign out
+          <span className="flex items-center gap-2.5">
+            <LogOut size={15} className="shrink-0" />
+            Sign out
+          </span>
         </DropdownMenu.Item>
       </DropdownMenu.Content>
     </DropdownMenu>
