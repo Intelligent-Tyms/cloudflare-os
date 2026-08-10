@@ -1,7 +1,19 @@
-import { useState, useEffect, useRef, type ChangeEvent } from 'react'
+import { useState, useEffect, useRef, type ChangeEvent, type ReactNode } from 'react'
 import { RpcStub } from 'capnweb'
-import { Switch, Textarea, Input, Button, Tabs, useKumoToastManager } from '@cloudflare/kumo'
-import { Hexagon, ShieldAlert, UserPlus } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { Switch, Textarea, Input, Button, useKumoToastManager } from '@cloudflare/kumo'
+import {
+  ArrowLeft,
+  Bot,
+  Building2,
+  FileText,
+  Hexagon,
+  Megaphone,
+  Palette,
+  Plug,
+  ShieldAlert,
+  UserPlus,
+} from 'lucide-react'
 import { useAuthenticatedApi } from './AuthContext'
 import { AdminApi, AdminFormat, AdminResourceVendor, AmbientGatekeeperMode, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from './theme'
@@ -20,6 +32,98 @@ const ACCENT_PRESETS: { label: string; value: string }[] = [
   { label: 'Teal', value: '#0d9488' },
 ]
 
+// The admin area is a hub of cards (grouped below) where each card opens its own detail page at
+// /admin/$section. `blurb` is the short card copy on the hub; `description` is the fuller intro
+// on the detail page. Sections whose detail page has a single control put the explanatory copy
+// here (in `description`) instead of repeating it inside the card.
+export type AdminSectionId =
+  | 'organization'
+  | 'brand'
+  | 'announcements'
+  | 'access'
+  | 'instructions'
+  | 'formats'
+  | 'connectors'
+
+type AdminSection = {
+  id: AdminSectionId
+  title: string
+  blurb: string
+  description: string
+  icon: ReactNode
+}
+
+const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
+  {
+    label: 'Workspace',
+    sections: [
+      {
+        id: 'organization',
+        title: 'Organization',
+        blurb: 'Tell your assistants what your organization does, your terminology, and key facts.',
+        description:
+          'Context about your organization added to every assistant’s system prompt: what you do, your terminology, key facts. Keep it short and put deeper reference material in shared Drive folders instead; the assistant will read it when it’s relevant.',
+        icon: <Building2 size={18} />,
+      },
+      {
+        id: 'brand',
+        title: 'Brand',
+        blurb: 'Site name, logo, and accent color shown across the app.',
+        description: 'Site name, logo, and accent color shown across the app. Changes apply to everyone on their next connection.',
+        icon: <Palette size={18} />,
+      },
+      {
+        id: 'announcements',
+        title: 'Announcements',
+        blurb: 'Banner and top-bar notices shown to everyone.',
+        description: 'The full-width banner and the top-bar notice shown to everyone using this deployment.',
+        icon: <Megaphone size={18} />,
+      },
+      {
+        id: 'access',
+        title: 'Access',
+        blurb: 'Control whether new accounts can be created.',
+        description: 'Control who can create an account on this deployment.',
+        icon: <UserPlus size={18} />,
+      },
+    ],
+  },
+  {
+    label: 'Assistant',
+    sections: [
+      {
+        id: 'instructions',
+        title: 'Assistant instructions',
+        blurb: 'Deployment-wide instructions added to every assistant.',
+        description:
+          'Extra instructions added to every assistant’s system prompt on this deployment. Use this for instance-specific context, conventions, or guardrails.',
+        icon: <Bot size={18} />,
+      },
+      {
+        id: 'formats',
+        title: 'Formats',
+        blurb: 'Standard output formats offered across the app.',
+        description: 'The standard output formats promoted to everyone across the app.',
+        icon: <FileText size={18} />,
+      },
+      {
+        id: 'connectors',
+        title: 'Connectors',
+        blurb: 'Turn connectors and their resources on or off for everyone.',
+        description:
+          'Turn connectors and resource types on or off for each service. Auto-provisioned connectors (like Drive) have three modes: disabled, optional, or enabled for everyone. Changes are soft: they don’t revoke access an app already holds.',
+        icon: <Plug size={18} />,
+      },
+    ],
+  },
+]
+
+const ADMIN_SECTIONS = ADMIN_GROUPS.flatMap((g) => g.sections)
+
+export function isAdminSectionId(value: string): value is AdminSectionId {
+  return ADMIN_SECTIONS.some((s) => s.id === value)
+}
+
 // Swatch background per banner color, matching AnnouncementBanner's accent styles.
 const BANNER_SWATCH: Record<BannerColor, string> = {
   neutral: 'var(--color-kumo-tint)',
@@ -30,10 +134,11 @@ const BANNER_SWATCH: Record<BannerColor, string> = {
   brand: 'var(--color-accent-100)',
 }
 
-export default function AdminPage() {
+export default function AdminPage({ section }: { section?: AdminSectionId }) {
   const { authenticatedApi, isAdmin } = useAuthenticatedApi()
   const toasts = useKumoToastManager()
-  useDocumentTitle('Admin')
+  const sectionMeta = section ? ADMIN_SECTIONS.find((s) => s.id === section) : undefined
+  useDocumentTitle(sectionMeta ? `${sectionMeta.title} · Admin` : 'Admin')
 
   // The admin capability (minted once via getAdminApi; null until loaded / for non-admins). Wrapped
   // in an object so useState doesn't treat the (callable) RPC stub as a state updater function.
@@ -84,8 +189,6 @@ export default function AdminPage() {
   // Gatekeeper resource config, and the set of resource keys ("vendorId\u0000urlPattern") busy toggling.
   const [resourceVendors, setResourceVendors] = useState<AdminResourceVendor[]>([])
   const [resourceBusy, setResourceBusy] = useState<Set<string>>(new Set())
-
-  const [activeTab, setActiveTab] = useState('general')
 
   // Promoted output formats, in menu order (see AdminFormatsPanel).
   const [formats, setFormats] = useState<AdminFormat[]>([])
@@ -389,6 +492,52 @@ export default function AdminPage() {
     )
   }
 
+  // The hub is a static directory of cards; it renders instantly without waiting on settings.
+  if (!section || !sectionMeta) {
+    return (
+      <div className="mx-auto w-full max-w-[1040px] px-4 sm:px-8 py-8">
+        <div>
+          <h1 className="text-2xl font-semibold text-kumo-default">Admin</h1>
+          <p className="text-sm text-kumo-subtle mt-1">
+            Deployment-wide settings. Changes apply to all users on their next connection.
+          </p>
+        </div>
+
+        <div className="mt-8 flex flex-col gap-9">
+          {ADMIN_GROUPS.map((group) => (
+            <section key={group.label} className="flex flex-col gap-3">
+              <h2 className="px-1 text-[12px] font-medium uppercase tracking-[0.08em] text-kumo-inactive">
+                {group.label}
+              </h2>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {group.sections.map((s) => (
+                  <Link
+                    key={s.id}
+                    to="/admin/$section"
+                    params={{ section: s.id }}
+                    className="group flex items-start gap-4 rounded-xl border border-kumo-line bg-kumo-elevated p-5 transition-colors hover:bg-kumo-tint"
+                  >
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-kumo-tint text-kumo-default transition-colors group-hover:bg-kumo-fill">
+                      {s.icon}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-[15px] font-semibold tracking-[-0.25px] text-kumo-strong">
+                        {s.title}
+                      </span>
+                      <span className="mt-1 block text-[13px] leading-[18px] tracking-[-0.2px] text-kumo-subtle">
+                        {s.blurb}
+                      </span>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center min-h-[60vh]">
@@ -411,26 +560,19 @@ export default function AdminPage() {
   return (
     <div className="mx-auto w-full max-w-[1040px] px-4 sm:px-8 py-8 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-kumo-default">Admin</h1>
-        <p className="text-sm text-kumo-subtle mt-1">
-          Deployment-wide settings. Changes apply to all users on their next connection.
-        </p>
+        <Link
+          to="/admin"
+          className="inline-flex items-center gap-1.5 text-[13px] font-medium tracking-[-0.25px] text-kumo-subtle transition-colors hover:text-kumo-default"
+        >
+          <ArrowLeft size={14} />
+          Admin
+        </Link>
+        <h1 className="mt-3 text-2xl font-semibold text-kumo-default">{sectionMeta.title}</h1>
+        <p className="text-sm text-kumo-subtle mt-1 max-w-2xl">{sectionMeta.description}</p>
       </div>
 
-      <Tabs
-        variant="underline"
-        value={activeTab}
-        onValueChange={setActiveTab}
-        tabs={[
-          { value: 'general', label: 'General' },
-          { value: 'gatekeepers', label: 'Connectors' },
-          { value: 'formats', label: 'Formats' },
-          { value: 'access', label: 'Access' },
-        ]}
-      />
-
       {/* Standard output formats */}
-      {activeTab === 'formats' && admin && (
+      {section === 'formats' && admin && (
         <AdminFormatsPanel
           admin={admin.api}
           formats={formats}
@@ -439,7 +581,7 @@ export default function AdminPage() {
       )}
 
       {/* Sign-ups */}
-      {activeTab === 'access' && (
+      {section === 'access' && (
         <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
           <div className="flex items-center gap-4">
             <div className="w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center bg-kumo-tint">
@@ -461,7 +603,7 @@ export default function AdminPage() {
       )}
 
       {/* Site name */}
-      {activeTab === 'general' && (
+      {section === 'brand' && (
         <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
           <h2 className="text-lg font-semibold text-kumo-strong mb-1">Site name</h2>
           <p className="text-sm text-kumo-subtle mb-5">
@@ -501,7 +643,7 @@ export default function AdminPage() {
       )}
 
       {/* Site logo */}
-      {activeTab === 'general' && (
+      {section === 'brand' && (
         <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
           <h2 className="text-lg font-semibold text-kumo-strong mb-1">Logo</h2>
           <p className="text-sm text-kumo-subtle mb-5">
@@ -550,7 +692,7 @@ export default function AdminPage() {
       )}
 
       {/* Theme / accent color */}
-      {activeTab === 'general' && (
+      {section === 'brand' && (
         <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
           <h2 className="text-lg font-semibold text-kumo-strong mb-1">Theme</h2>
           <p className="text-sm text-kumo-subtle mb-5">
@@ -622,7 +764,7 @@ export default function AdminPage() {
       )}
 
       {/* Full-width banner */}
-      {activeTab === 'general' && (
+      {section === 'announcements' && (
         <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
           <h2 className="text-lg font-semibold text-kumo-strong mb-1">Banner</h2>
           <p className="text-sm text-kumo-subtle mb-5">
@@ -702,7 +844,7 @@ export default function AdminPage() {
       )}
 
       {/* Top-bar notice */}
-      {activeTab === 'general' && (
+      {section === 'announcements' && (
         <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
           <h2 className="text-lg font-semibold text-kumo-strong mb-1">Top-bar notice</h2>
           <p className="text-sm text-kumo-subtle mb-5">
@@ -758,14 +900,8 @@ export default function AdminPage() {
       )}
 
       {/* Agent system prompt additions */}
-      {activeTab === 'general' && (
+      {section === 'instructions' && (
       <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-kumo-strong mb-1">Agent instructions</h2>
-        <p className="text-sm text-kumo-subtle mb-5">
-          Extra instructions added to every agent&rsquo;s system prompt on this deployment. Use this
-          for instance-specific context, conventions, or guardrails.
-        </p>
-
         <Textarea
           className="w-full"
           value={instructionsDraft}
@@ -813,15 +949,8 @@ export default function AdminPage() {
       )}
 
       {/* Organization profile */}
-      {activeTab === 'general' && (
+      {section === 'organization' && (
       <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-kumo-strong mb-1">Organization</h2>
-        <p className="text-sm text-kumo-subtle mb-5">
-          Context about your organization added to every assistant&rsquo;s system prompt: what you
-          do, your terminology, key facts. Keep it short&mdash;put deeper reference material in
-          shared Drive folders instead, and the assistant will read it when it&rsquo;s relevant.
-        </p>
-
         <Textarea
           className="w-full"
           value={orgProfileDraft}
@@ -869,16 +998,8 @@ export default function AdminPage() {
       )}
 
       {/* Gatekeeper resources */}
-      {activeTab === 'gatekeepers' && (
+      {section === 'connectors' && (
         <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-kumo-strong mb-1">Connectors</h2>
-          <p className="text-sm text-kumo-subtle mb-5">
-            Turn connectors and resource types on or off for each service. Auto-provisioned
-            connectors (like Drive) have three modes &mdash; disabled, optional, or
-            enabled for everyone. Changes are soft: they don&rsquo;t revoke access an app already
-            holds.
-          </p>
-
           {resourceVendors.length === 0 && (
             <p className="text-sm text-kumo-subtle">
               No configurable connectors are installed on this deployment.
