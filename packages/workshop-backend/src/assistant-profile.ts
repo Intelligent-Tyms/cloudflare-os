@@ -12,12 +12,24 @@ import { AssistantProfile, MAX_ASSISTANT_FIELD_LENGTH, MAX_ASSISTANT_NAME_LENGTH
 // The framing sentence sets the precedence contract: the profile shapes identity, voice, and
 // prioritization, but never overrides the operational instructions that precede it — profile
 // text is user-authored and sits at the same trust level as the user's chat messages.
-export function formatAssistantProfile(profile: AssistantProfile | null): string {
+export function formatAssistantProfile(profile: AssistantProfile | null, userName = ""): string {
   if (!profile) return "";
 
   // Fields are stored trimmed (see validateAssistantProfile), so truthiness means non-empty.
   let lines: string[] = [];
-  if (profile.assistantName) lines.push(`Your name: ${profile.assistantName}`);
+  if (profile.assistantName) {
+    // A named assistant is presented as the user's *personal assistant* — the base prompt's
+    // "coding assistant" framing loses the identity contest here deliberately. The reframe is
+    // scoped to self-presentation so it cannot dilute the operational contract: without the
+    // final sentence, "personal assistant" measurably pulls the model toward chatting instead
+    // of building.
+    let owner = userName.trim() ? `${userName.trim()}'s` : "the user's";
+    lines.push(
+        `You are ${profile.assistantName}, ${owner} personal assistant. Present yourself that ` +
+        `way — a personal assistant, not a "coding assistant". This shapes how you describe ` +
+        `yourself, not what you do: you still build and edit apps and follow all the ` +
+        `operational instructions above.`);
+  }
   if (profile.persona) lines.push(`Your persona: ${profile.persona}`);
   if (profile.role) lines.push(`The user's role: ${profile.role}`);
   if (profile.targets) lines.push(`The user's targets: ${profile.targets}`);
