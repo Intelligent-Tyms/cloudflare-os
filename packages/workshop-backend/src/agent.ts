@@ -1,4 +1,4 @@
-import { AiChatMessage, AiChatAuthorInfo, AiToolCall, AiChatMessageBody, AgentSpawnerConfig, AiChatStreamEvent, BlueprintOutput, WorkpieceId, type AiModelConfig, isTextLikeAttachmentMimeType, validateBindingName } from '@gadgets/workshop-shared/api';
+import { AiChatMessage, AiChatAuthorInfo, AiToolCall, AiChatMessageBody, AgentSpawnerConfig, AiChatStreamEvent, BlueprintOutput, WorkpieceId, type AiModelConfig, type AssistantProfile, isTextLikeAttachmentMimeType, validateBindingName } from '@gadgets/workshop-shared/api';
 import { PDF_MIME_TYPE, modelApiSupportsPdfAttachments } from './chat-attachment-pdf';
 import { AgentCatalog, ObservationDescription } from '@gadgets/workshop-shared/gatekeeper';
 import { createWorkshopLogger } from "./observability";
@@ -15,6 +15,7 @@ import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff";
 import { webFetch as webFetchImpl, WebFetchEnv, formatWebFetchResult } from "./web-fetch";
 import { AgentCatalogSnapshot, formatAlwaysAvailableResourcesPrompt } from "./agent-catalog";
 import { formatInstanceInstructions } from "./admin-config";
+import { formatAssistantProfile } from "./assistant-profile.js";
 import type { AiGatewayLogRoute } from "./ai-gateway";
 import { AgentTurnError, completeText, httpStatusFromError, zeroUsage } from "./ai-invoke";
 import type { ModelHandle } from "./ai-models";
@@ -319,6 +320,13 @@ export interface AgentHooks {
   // Deployment-wide, admin-authored instructions to append to the agent's system prompt. Returns
   // "" when none are set. Read on each turn so admin edits take effect promptly.
   getInstanceInstructions(): Promise<string>;
+
+  // The turn initiator's assistant profile (their personalization of the assistant), or null
+  // when the initiator has none or it cannot be read — a failed read must degrade the prompt,
+  // never fail the turn. `initiatorId` is a user identifier (user DOs are named by these; for
+  // gadget-initiated turns it is the owner's). Read on each turn (cached briefly by the
+  // implementation) so profile edits take effect promptly.
+  getAssistantProfile(initiatorId: string): Promise<AssistantProfile | null>;
 
   // Connection-request hooks for the agent.
   //
@@ -2093,6 +2101,12 @@ export async function runAgent(
   } else {
     // This is a regular coding agent.
 
+    // The turn initiator's personalization, rendered at the head of the dynamic slot. Per-user
+    // text must stay out of the static slot so the deployment-shared prompt-cache prefix stays
+    // byte-stable across users. Spawned agents (the branch above) never see it: they run
+    // programmatic tasks and are not the user's personal assistant.
+    let assistantProfile = formatAssistantProfile(await hooks.getAssistantProfile(initiator.id));
+
     // Let's include each gadget's list of files in the system prompt so that the agent doesn't
     // have to call a tool to list files at the start of every thread. In order to avoid cache
     // misses, we specifically list the files that existed at the start of the thread even if the
@@ -2193,7 +2207,8 @@ export async function runAgent(
       instanceInstructions
           ? `${SYSTEM_PROMPT}\n\n${instanceInstructions}`
           : SYSTEM_PROMPT,
-      (standardFormats ? `${standardFormats}\n\n` : "") +
+      (assistantProfile ? `${assistantProfile}\n\n` : "") +
+          (standardFormats ? `${standardFormats}\n\n` : "") +
           `${systemPromptWorkspace}${systemPromptConnections}` +
           (alwaysAvailableResourcesPrompt ? `\n\n${alwaysAvailableResourcesPrompt}` : ""),
     ];
