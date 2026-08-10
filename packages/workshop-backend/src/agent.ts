@@ -14,7 +14,7 @@ import { RpcStub as NativeRpcStub } from "cloudflare:workers";
 import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff";
 import { webFetch as webFetchImpl, WebFetchEnv, formatWebFetchResult } from "./web-fetch";
 import { AgentCatalogSnapshot, formatAlwaysAvailableResourcesPrompt } from "./agent-catalog";
-import { formatInstanceInstructions } from "./admin-config";
+import { formatInstanceInstructions, formatOrganizationProfile } from "./admin-config";
 import { formatAssistantProfile } from "./assistant-profile.js";
 import type { AiGatewayLogRoute } from "./ai-gateway";
 import { AgentTurnError, completeText, httpStatusFromError, zeroUsage } from "./ai-invoke";
@@ -320,6 +320,11 @@ export interface AgentHooks {
   // Deployment-wide, admin-authored instructions to append to the agent's system prompt. Returns
   // "" when none are set. Read on each turn so admin edits take effect promptly.
   getInstanceInstructions(): Promise<string>;
+
+  // Deployment-wide, admin-authored organization context for the system prompt. Returns "" when
+  // unset. Like the instructions, read each turn and rendered into the static slot for every
+  // agent, spawned agents included.
+  getOrganizationProfile(): Promise<string>;
 
   // The turn initiator's assistant profile (their personalization of the assistant), or null
   // when the initiator has none or it cannot be read — a failed read must degrade the prompt,
@@ -2059,9 +2064,13 @@ export async function runAgent(
       workpiece => hooks.resolveWorkpieceRoot(resolveToolWorkpieceId(workpiece), true, chatId));
   let executeCodeStreamManager = new ExecuteCodeStreamManager(emitStreamEvent);
 
-  // Deployment-wide admin instructions, appended to the static system slot (slot 0) so they stay
-  // inside the Anthropic prompt cache window. "" when unset.
+  // Deployment-wide admin additions — instructions, then organization context — appended to the
+  // static system slot (slot 0) so they stay inside the Anthropic prompt cache window. Each is
+  // "" when unset.
   let instanceInstructions = formatInstanceInstructions(await hooks.getInstanceInstructions());
+  let organizationProfile = formatOrganizationProfile(await hooks.getOrganizationProfile());
+  let staticSlotFor = (base: string) =>
+      [base, instanceInstructions, organizationProfile].filter(s => s).join("\n\n");
 
   // The two system prompt slots: the non-project-specific parts, followed by the
   // project-specific parts. Kept as a two-part construction (static slot first) so the shared
@@ -2091,9 +2100,7 @@ export async function runAgent(
 
     // Split the system prompt into static and dynamic parts for better caching.
     systemPromptSlots = [
-      instanceInstructions
-          ? `${SPAWNER_SYSTEM_PROMPT}\n\n${instanceInstructions}`
-          : SPAWNER_SYSTEM_PROMPT,
+      staticSlotFor(SPAWNER_SYSTEM_PROMPT),
       alwaysAvailableResourcesPrompt
           ? `${systemPromptBindings}\n\n${alwaysAvailableResourcesPrompt}`
           : systemPromptBindings,
@@ -2204,9 +2211,7 @@ export async function runAgent(
 
     // Split the system prompt into static and dynamic parts for better caching.
     systemPromptSlots = [
-      instanceInstructions
-          ? `${SYSTEM_PROMPT}\n\n${instanceInstructions}`
-          : SYSTEM_PROMPT,
+      staticSlotFor(SYSTEM_PROMPT),
       (assistantProfile ? `${assistantProfile}\n\n` : "") +
           (standardFormats ? `${standardFormats}\n\n` : "") +
           `${systemPromptWorkspace}${systemPromptConnections}` +

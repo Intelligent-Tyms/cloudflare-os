@@ -3,7 +3,7 @@ import { RpcStub } from 'capnweb'
 import { Switch, Textarea, Input, Button, Tabs, useKumoToastManager } from '@cloudflare/kumo'
 import { Hexagon, ShieldAlert, UserPlus } from 'lucide-react'
 import { useAuthenticatedApi } from './AuthContext'
-import { AdminApi, AdminFormat, AdminResourceVendor, AmbientGatekeeperMode, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
+import { AdminApi, AdminFormat, AdminResourceVendor, AmbientGatekeeperMode, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from './theme'
 import { cacheBustSiteLogoUrl, prepareSiteLogo } from './siteLogoUtils'
 import SiteLogo from './components/SiteLogo'
@@ -45,6 +45,11 @@ export default function AdminPage() {
   const [savedInstructions, setSavedInstructions] = useState('')
   const [instructionsDraft, setInstructionsDraft] = useState('')
   const [savingInstructions, setSavingInstructions] = useState(false)
+
+  // Organization profile: same saved/draft pattern.
+  const [savedOrgProfile, setSavedOrgProfile] = useState('')
+  const [orgProfileDraft, setOrgProfileDraft] = useState('')
+  const [savingOrgProfile, setSavingOrgProfile] = useState(false)
 
   // Top-bar notice: last-saved value + current editor draft.
   const [savedAnnouncement, setSavedAnnouncement] = useState('')
@@ -96,6 +101,8 @@ export default function AdminPage() {
     setResourceVendors(view.resourceVendors)
     setSavedInstructions(view.instanceInstructions)
     setInstructionsDraft(view.instanceInstructions)
+    setSavedOrgProfile(view.organizationProfile)
+    setOrgProfileDraft(view.organizationProfile)
     setSavedAnnouncement(view.announcement)
     setAnnouncementDraft(view.announcement)
     setSavedBanner(view.banner)
@@ -355,6 +362,21 @@ export default function AdminPage() {
       toasts.add({ title: message, variant: 'error' })
     } finally {
       setSavingInstructions(false)
+    }
+  }
+
+  const handleSaveOrgProfile = async () => {
+    if (!admin) return
+    setSavingOrgProfile(true)
+    try {
+      await admin.api.setOrganizationProfile(orgProfileDraft)
+      setSavedOrgProfile(orgProfileDraft)
+      toasts.add({ title: 'Organization profile saved', variant: 'success' })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save organization profile'
+      toasts.add({ title: message, variant: 'error' })
+    } finally {
+      setSavingOrgProfile(false)
     }
   }
 
@@ -781,6 +803,62 @@ export default function AdminPage() {
               disabled={
                 instructionsDraft === savedInstructions ||
                 instructionsDraft.length > MAX_INSTANCE_INSTRUCTIONS_LENGTH
+              }
+            >
+              Save
+            </Button>
+          </div>
+        </div>
+      </div>
+      )}
+
+      {/* Organization profile */}
+      {activeTab === 'general' && (
+      <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
+        <h2 className="text-lg font-semibold text-kumo-strong mb-1">Organization</h2>
+        <p className="text-sm text-kumo-subtle mb-5">
+          Context about your organization added to every assistant&rsquo;s system prompt: what you
+          do, your terminology, key facts. Keep it short&mdash;put deeper reference material in
+          shared Drive folders instead, and the assistant will read it when it&rsquo;s relevant.
+        </p>
+
+        <Textarea
+          className="w-full"
+          value={orgProfileDraft}
+          onValueChange={setOrgProfileDraft}
+          rows={6}
+          placeholder={'e.g. Tyms is an accounting platform for African SMEs. We call customer\nworkspaces "books". Our fiscal year starts in July.'}
+          maxLength={MAX_ORGANIZATION_PROFILE_LENGTH}
+          error={
+            orgProfileDraft.length > MAX_ORGANIZATION_PROFILE_LENGTH
+              ? `Too long by ${orgProfileDraft.length - MAX_ORGANIZATION_PROFILE_LENGTH} characters`
+              : undefined
+          }
+        />
+
+        <div className="flex items-center justify-between mt-3">
+          <span className="text-xs text-kumo-subtle">
+            {orgProfileDraft.length.toLocaleString()} / {MAX_ORGANIZATION_PROFILE_LENGTH.toLocaleString()} characters
+          </span>
+          <div className="flex items-center gap-2">
+            {orgProfileDraft !== savedOrgProfile && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setOrgProfileDraft(savedOrgProfile)}
+                disabled={savingOrgProfile}
+              >
+                Reset
+              </Button>
+            )}
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSaveOrgProfile}
+              loading={savingOrgProfile}
+              disabled={
+                orgProfileDraft === savedOrgProfile ||
+                orgProfileDraft.length > MAX_ORGANIZATION_PROFILE_LENGTH
               }
             >
               Save

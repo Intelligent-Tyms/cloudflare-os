@@ -712,6 +712,11 @@ export type GatekeeperVendorInfo = {
 // Maximum length (characters) of the admin-authored agent system-prompt instructions.
 export const MAX_INSTANCE_INSTRUCTIONS_LENGTH = 8000;
 
+// Maximum length (characters) of the admin-authored organization profile. Like the instructions,
+// it is included in every agent turn's system prompt, so this is a budget; deep org knowledge
+// belongs in Drive folders the agent reads on demand, not here.
+export const MAX_ORGANIZATION_PROFILE_LENGTH = 8000;
+
 // Maximum length (characters) of the admin-authored site name shown next to the top-bar logo.
 export const MAX_SITE_NAME_LENGTH = 40;
 
@@ -741,6 +746,8 @@ export type AdminSettingsView = {
   siteLogo?: AvatarImage;
   // Agent system-prompt instructions ("" when unset).
   instanceInstructions: string;
+  // Organization context added to every agent's system prompt ("" when unset).
+  organizationProfile: string;
   // Top-bar notice text ("" when unset).
   announcement: string;
   // Full-width banner (text + accent color).
@@ -811,6 +818,10 @@ export interface AdminApi {
 
   // Replace the agent system-prompt instructions. Pass "" to clear. Rejects over MAX_INSTANCE_INSTRUCTIONS_LENGTH.
   setInstanceInstructions(text: string): Promise<void>;
+
+  // Replace the organization profile added to every agent's system prompt (what the org does,
+  // its terminology, key facts). Pass "" to clear. Rejects over MAX_ORGANIZATION_PROFILE_LENGTH.
+  setOrganizationProfile(text: string): Promise<void>;
 
   // Enable or disable a single gatekeeper resource type, keyed by vendor id + resource urlPattern.
   // Soft enforcement: disabling hides the resource from the connect UI, the resource picker, and the
