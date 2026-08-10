@@ -13,6 +13,7 @@ import AppShell from '../components/AppShell/AppShell'
 import LoginPage from '../LoginPage'
 import OnboardingWizard from '../OnboardingWizard'
 import AccountSelectionModal from '../components/billing/AccountSelectionModal'
+import { AssistantProfileProvider } from '../AssistantProfileContext'
 
 export const Route = createRootRoute({
   component: RootComponent,
@@ -180,7 +181,7 @@ function AuthenticatedShell({
   // gets the persistent left-rail AppShell.
   const fullscreen = isWorkspaceEditor
   return (
-    <>
+    <AssistantProfileProvider authenticatedApi={authenticatedApi}>
       {connectionLost && <ConnectionLostBanner />}
       <AccountSelectionModal />
       {fullscreen ? (
@@ -192,6 +193,6 @@ function AuthenticatedShell({
           <Outlet />
         </AppShell>
       )}
-    </>
+    </AssistantProfileProvider>
   )
 }

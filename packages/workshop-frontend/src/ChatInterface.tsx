@@ -122,6 +122,7 @@ import OutOfCreditsModal from "./components/billing/OutOfCreditsModal";
 import { useSlashCommandPicker } from "./components/chat/SlashCommandPicker";
 import { formatFullTimestamp } from "./utils/formatTimestamp";
 import { copyToClipboard } from "./clipboard";
+import { useAssistantName } from "./AssistantProfileContext";
 
 export interface StreamingProposedChanges {
   updates: Uint8Array[];
@@ -1833,6 +1834,8 @@ export const ChatInput = ({
   /** Called after a gatekeeper is connected via the attach flow, so the parent can refresh the
    * pre-approval catalog and proactively offer to pre-approve its actions. */
 }) => {
+  // The user's chosen assistant name personalizes the new-chat placeholder ("Ask Zuri…").
+  const assistantName = useAssistantName();
   const toasts = useKumoToastManager();
   const [inputValue, setInputValue] = useState("");
   const [capsules, setCapsules] = useState<InputCapsule[]>([]);
@@ -3130,7 +3133,9 @@ export const ChatInput = ({
                   : isAgentActive
                     ? "Waiting for agent…"
                     : newChat
-                      ? "Start a new conversation…"
+                      ? assistantName
+                        ? `Ask ${assistantName}…`
+                        : "Start a new conversation…"
                       : "Ask a follow-up…"
               }
               autoFocus={autoFocus}
