@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AssistantProfile, MAX_ASSISTANT_FIELD_LENGTH, MAX_ASSISTANT_NAME_LENGTH, MAX_ASSISTANT_PERSONA_LENGTH } from "@gadgets/workshop-shared/api";
-import { validateAssistantProfile } from "../src/assistant-profile.js";
+import { formatAssistantProfile, validateAssistantProfile } from "../src/assistant-profile.js";
 
 function profile(overrides: Partial<AssistantProfile> = {}): AssistantProfile {
   return {
@@ -59,5 +59,48 @@ describe("validateAssistantProfile", () => {
     expect(() => validateAssistantProfile(profile({ timeZone: "Kampala Standard Time" })))
         .toThrow(/Unknown time zone/);
     expect(validateAssistantProfile(profile({ timeZone: "UTC" })).timeZone).toBe("UTC");
+  });
+});
+
+describe("formatAssistantProfile", () => {
+  it("returns \"\" for a missing or all-empty profile", () => {
+    expect(formatAssistantProfile(null)).toBe("");
+    expect(formatAssistantProfile(profile({
+      assistantName: "", persona: "", role: "", targets: "", goals: "", timeZone: "",
+    }))).toBe("");
+  });
+
+  it("renders every populated field inside the tagged section", () => {
+    let text = formatAssistantProfile(profile());
+    expect(text).toMatch(/^# Assistant profile\n/);
+    expect(text).toContain("<assistant_profile>");
+    expect(text).toMatch(/<\/assistant_profile>$/);
+    expect(text).toContain("Your name: Zuri");
+    expect(text).toContain("Your persona: Direct, light humor.");
+    expect(text).toContain("The user's role: Head of Growth");
+    expect(text).toContain("The user's targets: Close 3 partnerships this quarter");
+    expect(text).toContain("The user's goals: Grow revenue sustainably");
+    expect(text).toContain("The user's time zone: Africa/Kampala");
+  });
+
+  it("keeps all user-authored text inside the tags", () => {
+    let text = formatAssistantProfile(profile());
+    let framing = text.slice(0, text.indexOf("<assistant_profile>"));
+    for (let value of ["Zuri", "Direct, light humor.", "Head of Growth"]) {
+      expect(framing).not.toContain(value);
+    }
+  });
+
+  it("elides empty fields rather than rendering blank lines", () => {
+    let text = formatAssistantProfile(profile({ persona: "", targets: "", timeZone: "" }));
+    expect(text).not.toContain("Your persona:");
+    expect(text).not.toContain("The user's targets:");
+    expect(text).not.toContain("time zone");
+    expect(text).toContain("Your name: Zuri");
+  });
+
+  it("states the precedence contract", () => {
+    expect(formatAssistantProfile(profile()))
+        .toContain("never overrides safety or the operational instructions above");
   });
 });

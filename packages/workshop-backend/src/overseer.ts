@@ -1,6 +1,6 @@
 import { RpcCompatible, RpcStub, RpcTarget } from "capnweb";
 import { validateRpc } from "capnweb-validate";
-import { Overseer, GadgetMetadata, UiBundle, WorkpieceId, WorkpieceSummary, WorkpiecesSubscriber, GadgetClient, GadgetBindingInfo, GatekeeperClient, ActionState, ActionLogEntry, ActionsSubscriber, CodeUpdate, CodeSubscriber, AiChatMetadata, AiChatMessage, AiChatHistoryPage, AiChatSubscriber, AiChatAuthorInfo, AiModelConfig, AiChatMessageBody, AgentSpawnerConfig, ConsoleLogSubscriber, ConsoleLogEvent, CapsuleSpecifier, CollaboratorInfo, CollaboratorRole, AffectedCollaborator, ShareLinkInfo, GatekeeperCreationSpec, ObserverConfigCallback, ObserverBindingNeed, ObserverBindingFailure, BlueprintBindingAnnotation, BlueprintBinding, BlueprintMetadata, BlueprintOutput, MessageFormatRef, isOutputIcon, SpawnerEnvTarget, BlueprintGadgetSummary, AiChatStreamEvent, BlueprintScreenshotUpload, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ChatAttachmentUpload, ChatAttachmentHandle, ChatAttachmentRef, BoundHookInfo, PreApprovableAction, PresenceParticipant, PresenceSubscriber, SlashCommandChoice, SlashCommandRequest, validateBindingName, createOpenGadgetError, OPEN_GADGET_ERROR_CODES, resolveSiteName } from '@gadgets/workshop-shared/api';
+import { Overseer, GadgetMetadata, UiBundle, WorkpieceId, WorkpieceSummary, WorkpiecesSubscriber, GadgetClient, GadgetBindingInfo, GatekeeperClient, ActionState, ActionLogEntry, ActionsSubscriber, CodeUpdate, CodeSubscriber, AiChatMetadata, AiChatMessage, AiChatHistoryPage, AiChatSubscriber, AiChatAuthorInfo, AiModelConfig, AiChatMessageBody, AgentSpawnerConfig, ConsoleLogSubscriber, ConsoleLogEvent, CapsuleSpecifier, CollaboratorInfo, CollaboratorRole, AffectedCollaborator, ShareLinkInfo, GatekeeperCreationSpec, ObserverConfigCallback, ObserverBindingNeed, ObserverBindingFailure, BlueprintBindingAnnotation, BlueprintBinding, BlueprintMetadata, BlueprintOutput, MessageFormatRef, isOutputIcon, SpawnerEnvTarget, BlueprintGadgetSummary, AiChatStreamEvent, BlueprintScreenshotUpload, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ChatAttachmentUpload, ChatAttachmentHandle, ChatAttachmentRef, BoundHookInfo, PreApprovableAction, PresenceParticipant, PresenceSubscriber, SlashCommandChoice, SlashCommandRequest, validateBindingName, createOpenGadgetError, OPEN_GADGET_ERROR_CODES, resolveSiteName, AssistantProfile } from '@gadgets/workshop-shared/api';
 import { Gatekeeper, HookInitiator, ResourceDescription, ApprovalQueue, ActionDescription, ObservationAuthorizer, ObservationDescription, VendorDescription, SupportedResource, resolveRequestedResource, HookController, HookDescription, AGENT_CATALOG_MAX_ENTRIES, ActionKind } from "@gadgets/workshop-shared/gatekeeper";
 import {
   DurableObject, WorkerEntrypoint, RpcStub as NativeRpcStub,
@@ -5553,6 +5553,39 @@ class OverseerImpl implements AgentHooks {
       });
       return "";
     }
+  }
+
+  // Short-TTL cache of assistant profiles keyed by initiator id (a shared workspace sees one
+  // entry per collaborator). The system prompt reads the turn initiator's profile on every turn
+  // — caching avoids waking the user DO each time, while the short TTL lets profile edits take
+  // effect within a minute (matching #vendorsCache).
+  #assistantProfileCache =
+      new Map<string, {expires: number, promise: Promise<AssistantProfile | null>}>();
+  static readonly #ASSISTANT_PROFILE_CACHE_TTL_MS = 60_000;
+
+  getAssistantProfile(initiatorId: string): Promise<AssistantProfile | null> {
+    let now = Date.now();
+    let cached = this.#assistantProfileCache.get(initiatorId);
+    if (!cached || cached.expires <= now) {
+      // User DOs are named by user identifier, and `initiatorId` is one (for gadget-initiated
+      // turns, the owner's).
+      let promise = this.users.get(this.users.idFromName(initiatorId)).getAssistantProfile();
+      // Don't cache failures: drop the entry so the next call retries.
+      promise.catch(() => {
+        if (this.#assistantProfileCache.get(initiatorId)?.promise === promise) {
+          this.#assistantProfileCache.delete(initiatorId);
+        }
+      });
+      cached = {expires: now + OverseerImpl.#ASSISTANT_PROFILE_CACHE_TTL_MS, promise};
+      this.#assistantProfileCache.set(initiatorId, cached);
+    }
+    return cached.promise.catch(err => {
+      // A failed read degrades the prompt, never the turn.
+      this.logger.warn("failed to read assistant profile", {
+        event: "assistant.profile.read.failed", error: err,
+      });
+      return null;
+    });
   }
 
   async listConnectableVendors(): Promise<{id: string, displayName: string}[]> {
