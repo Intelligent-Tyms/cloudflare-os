@@ -16,6 +16,7 @@ import { webFetch as webFetchImpl, WebFetchEnv, formatWebFetchResult } from "./w
 import { AgentCatalogSnapshot, formatAlwaysAvailableResourcesPrompt } from "./agent-catalog";
 import { formatInstanceInstructions, formatOrganizationProfile } from "./admin-config";
 import { formatAssistantProfile } from "./assistant-profile.js";
+import { PRESENTATION_PROMPT } from "./presentation.js";
 import type { AiGatewayLogRoute } from "./ai-gateway";
 import { AgentTurnError, completeText, httpStatusFromError, zeroUsage } from "./ai-invoke";
 import type { ModelHandle } from "./ai-models";
@@ -2070,7 +2071,8 @@ export async function runAgent(
   let instanceInstructions = formatInstanceInstructions(await hooks.getInstanceInstructions());
   let organizationProfile = formatOrganizationProfile(await hooks.getOrganizationProfile());
   let staticSlotFor = (base: string) =>
-      [base, instanceInstructions, organizationProfile].filter(s => s).join("\n\n");
+      [base, PRESENTATION_PROMPT, instanceInstructions, organizationProfile]
+          .filter(s => s).join("\n\n");
 
   // The two system prompt slots: the non-project-specific parts, followed by the
   // project-specific parts. Kept as a two-part construction (static slot first) so the shared
@@ -2112,7 +2114,11 @@ export async function runAgent(
     // text must stay out of the static slot so the deployment-shared prompt-cache prefix stays
     // byte-stable across users. Spawned agents (the branch above) never see it: they run
     // programmatic tasks and are not the user's personal assistant.
-    let assistantProfile = formatAssistantProfile(await hooks.getAssistantProfile(initiator.id));
+    // The display name personalizes the identity line ("Zuri, Allan's personal assistant") for
+    // user turns only: a gadget initiator's `name` is the app's title, not a person.
+    let assistantProfile = formatAssistantProfile(
+        await hooks.getAssistantProfile(initiator.id),
+        initiator.type === "user" ? initiator.name : "");
 
     // Let's include each gadget's list of files in the system prompt so that the agent doesn't
     // have to call a tool to list files at the start of every thread. In order to avoid cache

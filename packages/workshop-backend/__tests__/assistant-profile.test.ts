@@ -71,11 +71,12 @@ describe("formatAssistantProfile", () => {
   });
 
   it("renders every populated field inside the tagged section", () => {
-    let text = formatAssistantProfile(profile());
+    let text = formatAssistantProfile(profile(), "Allan");
     expect(text).toMatch(/^# Assistant profile\n/);
     expect(text).toContain("<assistant_profile>");
     expect(text).toMatch(/<\/assistant_profile>$/);
-    expect(text).toContain("Your name: Zuri");
+    expect(text).toContain("You are Zuri, Allan's personal assistant.");
+    expect(text).toContain("not what you do");
     expect(text).toContain("Your persona: Direct, light humor.");
     expect(text).toContain("The user's role: Head of Growth");
     expect(text).toContain("The user's targets: Close 3 partnerships this quarter");
@@ -96,7 +97,20 @@ describe("formatAssistantProfile", () => {
     expect(text).not.toContain("Your persona:");
     expect(text).not.toContain("The user's targets:");
     expect(text).not.toContain("time zone");
-    expect(text).toContain("Your name: Zuri");
+    expect(text).toContain("You are Zuri");
+  });
+
+  it("possessive falls back to \"the user's\" without a display name", () => {
+    expect(formatAssistantProfile(profile()))
+        .toContain("You are Zuri, the user's personal assistant.");
+    expect(formatAssistantProfile(profile(), "   "))
+        .toContain("You are Zuri, the user's personal assistant.");
+  });
+
+  it("skips the identity line when the assistant is unnamed", () => {
+    let text = formatAssistantProfile(profile({ assistantName: "" }), "Allan");
+    expect(text).not.toContain("personal assistant");
+    expect(text).toContain("Your persona: Direct, light humor.");
   });
 
   it("states the precedence contract", () => {
