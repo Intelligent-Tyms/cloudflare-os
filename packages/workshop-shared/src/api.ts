@@ -293,6 +293,36 @@ function isOpenGadgetErrorCode(value: unknown): value is OpenGadgetErrorCode {
       value === OPEN_GADGET_ERROR_CODES.workspaceAccessDenied;
 }
 
+// A user's personalization of the assistant: the identity it adopts (name and persona), the
+// user's own working context (role, targets, goals), and stable preferences (time zone). Stored
+// on the user's own durable object and rendered into the agent system prompt each turn. All
+// fields are plain text authored by the user; "" means unset.
+export type AssistantProfile = {
+  // Name the assistant adopts, e.g. "Zuri". Also shown in UI surfaces such as the chat composer.
+  assistantName: string;
+  // Freeform persona and voice description (markdown), e.g. tone and style guidance.
+  persona: string;
+  // The user's own role, e.g. "Head of Growth at a 12-person fintech".
+  role: string;
+  // Concrete targets the user is working toward.
+  targets: string;
+  // Broader goals and priorities.
+  goals: string;
+  // IANA time zone name, e.g. "Africa/Kampala", used to interpret and present dates and times.
+  timeZone: string;
+};
+
+// Maximum length (characters) of AssistantProfile.assistantName (matches MAX_SITE_NAME_LENGTH).
+export const MAX_ASSISTANT_NAME_LENGTH = 40;
+
+// Maximum length (characters) of AssistantProfile.persona. Like the other MAX_ASSISTANT_*
+// values, this is a prompt budget rather than a validation limit: every non-empty field is
+// included in the system prompt on every agent turn (cf. MAX_INSTANCE_INSTRUCTIONS_LENGTH).
+export const MAX_ASSISTANT_PERSONA_LENGTH = 4000;
+
+// Maximum length (characters) of each of AssistantProfile's role, targets, and goals fields.
+export const MAX_ASSISTANT_FIELD_LENGTH = 2000;
+
 // Top-level API exposed to the user after they have authenticated.
 export interface AuthenticatedApi extends RpcTarget {
   // Get profile info for the user who is logged in.
@@ -349,6 +379,14 @@ export interface AuthenticatedApi extends RpcTarget {
 
   // Mark the onboarding wizard as completed.
   completeOnboarding(): Promise<void>;
+
+  // Get the user's assistant profile, or null if the user has never saved one.
+  getAssistantProfile(): Promise<AssistantProfile | null>;
+
+  // Replace the user's assistant profile. Fields are trimmed server-side; the MAX_ASSISTANT_*
+  // length limits and the IANA time zone are validated, throwing a descriptive error on
+  // violation.
+  setAssistantProfile(profile: AssistantProfile): Promise<void>;
 
   // --- Optional Cloudflare limits / top-up flow (only meaningful when enabled server-side) ---
 
