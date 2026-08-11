@@ -107,6 +107,17 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     return admins.includes(name);
   }
 
+  // Full admin check: the deploy-time ADMINS list, or (on central-login deployments) an
+  // "owner"/"admin" central role carried in the signed handoff token and stored on the user
+  // at sign-in. The role isn't admin-mutable state on this deployment — the central service
+  // asserts it — so this stays consistent with keeping auth config out of AdminConfig.
+  async #isAdminUser(): Promise<boolean> {
+    if (this.#isAdmin()) return true;
+    if (!hasCentralLogin(this.env)) return false;
+    let role = await this.user.getCentralRole();
+    return role === "owner" || role === "admin";
+  }
+
   whoami(): Promise<AiChatAuthorInfo> {
     return this.user.whoami();
   }
@@ -566,19 +577,20 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     let app = accounts.find(account => account.vendorId === id && account.description.providesUi);
     if (!app) return null;
     // isAdmin is supplied fresh per open so admin-gated features reflect the user's current status.
-    return this.user.startAccountAppUi(app.accountId, { isAdmin: this.#isAdmin() });
+    return this.user.startAccountAppUi(app.accountId, { isAdmin: await this.#isAdminUser() });
   }
 
   // --- Deployment admin ---
 
   async amIAdmin(): Promise<boolean> {
-    return this.#isAdmin();
+    return this.#isAdminUser();
   }
 
   async getAdminApi(): Promise<RpcStub<AdminApi> | null> {
-    if (!this.#isAdmin()) return null;
-    // #isAdmin() guarantees a non-empty user id name. Forwarded to gatekeepers when listing the
-    // resource catalog so RBAC-gated ones still surface for this admin.
+    if (!(await this.#isAdminUser())) return null;
+    // Admin users always have a non-empty user id name (email or username). Forwarded to
+    // gatekeepers when listing the resource catalog so RBAC-gated ones still surface for
+    // this admin, and to the team directory as the acting admin.
     let adminUserId = this.user.id.name!;
     // @ts-expect-error Cap'n Web RPC stubs and native RPC targets are compatible but the type
     //     system doesn't know this.
@@ -699,7 +711,13 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
     let userId = this.users.idFromName(email);
     let stub = this.users.get(userId);
     let signupsEnabled = (await readAdminConfig(this.env)).signupsEnabled;
-    let secret = await stub.loginOrCreateViaHandoff(email, signupsEnabled, payload.jti, payload.exp * 1000);
+    // Central role claim ("owner"/"admin" unlock this deployment's /admin area). Unknown
+    // values are dropped rather than stored — a future central service can add roles
+    // without old workshops mistaking them for privileges.
+    let role = payload.role === "owner" || payload.role === "admin" || payload.role === "member"
+        ? payload.role : null;
+    let secret = await stub.loginOrCreateViaHandoff(
+        email, signupsEnabled, payload.jti, payload.exp * 1000, role);
     if (!secret) return null;
 
     recordAnalytics(this.ctx, this.env, {

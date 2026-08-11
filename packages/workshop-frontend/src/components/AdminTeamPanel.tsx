@@ -72,7 +72,7 @@ export default function AdminTeamPanel({ admin }: { admin: RpcStub<AdminApi> }) 
 
   const roleOptions: { value: TeamRole; label: string; hint: string }[] = [
     { value: 'member', label: 'Member', hint: 'Uses the workspace' },
-    { value: 'admin', label: 'Admin', hint: 'Can also manage teammates' },
+    { value: 'admin', label: 'Admin', hint: 'Full access to this admin area' },
   ]
 
   return (

@@ -215,6 +215,12 @@ function makeUserStorage(storage: DurableObjectStorage) {
       // this to a handful of live entries.
       usedHandoffJtis: <Record<string, number>>{},
 
+      // The user's role ("owner" | "admin" | "member") as asserted by the central identity
+      // service in its signed handoff token, refreshed on every handoff sign-in. Owners and
+      // admins get this deployment's /admin area (see AuthenticatedApiImpl). null = no central
+      // role asserted (pre-role tokens, or non-handoff sign-in) — env ADMINS still applies.
+      centralRole: <string | null>null,
+
       // Per-user free-tier daily LLM-call counter (only used when ENABLE_CLOUDFLARE_LIMITS is on).
       // Stores the current UTC day and the calls made that day; a stale `day` implicitly resets the
       // count. Folds the former standalone RateLimitDO into the user object.
@@ -423,8 +429,11 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   // the jti is recorded here (the DO is single-threaded, so check-and-record is atomic) and a
   // replay throws. Otherwise identical to loginOrCreateViaGatekeeper — the DO is keyed by the
   // verified email.
+  // `role` is the central role claim from the verified token (or null when absent); it is
+  // stored fresh on every handoff sign-in, so central promotions/demotions take effect the
+  // next time the user signs in.
   async loginOrCreateViaHandoff(email: string, allowCreate: boolean, jti: string,
-      expiresAt: number): Promise<string | null> {
+      expiresAt: number, role: string | null = null): Promise<string | null> {
     let now = Date.now();
     let live: Record<string, number> = {};
     for (let [id, exp] of Object.entries(this.storage.usedHandoffJtis.get())) {
@@ -436,7 +445,15 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     live[jti] = expiresAt;
     this.storage.usedHandoffJtis.put(live);
 
-    return this.loginOrCreateViaGatekeeper(email, allowCreate);
+    let token = await this.loginOrCreateViaGatekeeper(email, allowCreate);
+    // Only after a successful sign-in: a refused login (signups closed) must not write state.
+    if (token !== null) this.storage.centralRole.put(role);
+    return token;
+  }
+
+  // The central role recorded at the last handoff sign-in, or null when none was asserted.
+  async getCentralRole(): Promise<string | null> {
+    return this.storage.centralRole.get();
   }
 
   // Whether this account has a password set (false for gatekeeper sign-in accounts).

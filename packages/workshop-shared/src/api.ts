@@ -909,8 +909,9 @@ export interface AdminApi {
   removeTeammate(email: string): Promise<TeamView>;
 }
 
-// Role an invited teammate gets in the central team directory. "admin" grants teammate
-// management there; workspace-internal admin (this /admin area) remains deployment-configured.
+// Role an invited teammate gets in the central team directory. "admin" also unlocks this
+// deployment's /admin area: the directory asserts the role in its signed sign-in handoff,
+// and role changes take effect on the member's next sign-in.
 export type TeamRole = "member" | "admin";
 
 // A workspace member as recorded by the central team directory.
