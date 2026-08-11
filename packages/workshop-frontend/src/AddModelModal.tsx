@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react'
 import { Dialog, Button, Input, Select, SensitiveInput, Collapsible, useKumoToastManager } from '@cloudflare/kumo'
 import { AiChatAuthorInfo, AiModelConfig, AiModelProvider, AiGatewayInfo, SUGGESTED_MODELS } from '@gadgets/workshop-shared/api'
-import { RpcStub } from 'capnweb'
-import { AuthenticatedApi } from '@gadgets/workshop-shared/api'
 
 interface AddModelModalProps {
   visible: boolean
   onCancel: () => void
   onSuccess: () => void
-  authenticatedApi: RpcStub<AuthenticatedApi>
+  // Persist the new model. Models are deployment-wide, so this is an AdminApi call supplied by
+  // the (admin-only) surface hosting the dialog.
+  addModel: (profile: AiChatAuthorInfo, config: AiModelConfig) => Promise<void>
   aiConfig: AiGatewayInfo | null
 }
 
@@ -89,7 +89,7 @@ function buildOptions(gatewayMode: boolean, enabledProviders: Set<string> | null
   return options
 }
 
-export default function AddModelModal({ visible, onCancel, onSuccess, authenticatedApi, aiConfig }: AddModelModalProps) {
+export default function AddModelModal({ visible, onCancel, onSuccess, addModel, aiConfig }: AddModelModalProps) {
   const toasts = useKumoToastManager()
 
   const [loading, setLoading] = useState(false)
@@ -202,7 +202,7 @@ export default function AddModelModal({ visible, onCancel, onSuccess, authentica
         ...(!gatewayMode && apiUrl.trim() && { apiUrl: apiUrl.trim() }),
       }
 
-      await authenticatedApi.addModel(profile, config)
+      await addModel(profile, config)
       toasts.add({ title: 'AI model added successfully', variant: 'success' })
       onSuccess()
     } catch (error: any) {

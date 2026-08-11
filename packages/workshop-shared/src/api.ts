@@ -340,24 +340,14 @@ export interface AuthenticatedApi extends RpcTarget {
   // which case the change-password UI should be hidden.
   hasPasswordLogin(): Promise<boolean>;
 
-  // List the user's configured AI models.
+  // List the AI models available on this deployment (gateway built-ins plus admin-configured
+  // models). The catalog itself is admin-managed; see AdminApi.addModel()/deleteModel().
   //
   // Note that the list returned here could be different from a particular gadget's Overseer,
   // especially if the gadget is owned by someone else.
   listModels(): Promise<AiChatAuthorInfo[]>;
 
-  // Adds a new model to the user's configured set. The ID must be unique among the user's
-  // configured models.
-  addModel(profile: AiChatAuthorInfo, config: AiModelConfig): Promise<void>;
-
-  // Deletes a configured model.
-  deleteModel(id: string): Promise<void>;
-
-  // Set the model to use for simple quick tasks, like generating chat titles. Set null to
-  // disable quick model use (e.g. chats will be titled "New Chat").
-  setQuickModel(id: string | null): Promise<void>;
-
-  // Get the quick model setting.
+  // Get the deployment's quick model setting (see AdminApi.setQuickModel()).
   getQuickModel(): Promise<null | string>;
 
   // Get AI configuration info, including whether AI Gateway mode is active and which providers
@@ -879,6 +869,22 @@ export interface AdminApi {
 
   // Reorder the menu. `blueprintIds` must be a permutation of the currently promoted ids.
   setFormatOrder(blueprintIds: string[]): Promise<void>;
+
+  // --- Deployment AI models ---
+  //
+  // The model catalog is deployment-wide: admins configure it here, every user reads it via
+  // AuthenticatedApi.listModels() and picks from it.
+
+  // Add a model to the deployment catalog. The ID must be unique among configured models.
+  addModel(profile: AiChatAuthorInfo, config: AiModelConfig): Promise<void>;
+
+  // Delete a configured model. Refused for built-in gateway models in AI Gateway mode.
+  deleteModel(id: string): Promise<void>;
+
+  // Set the model used for simple quick tasks, like generating chat titles. Set null to disable
+  // quick model use (e.g. chats will be titled "New Chat"). Ignored in AI Gateway mode, which has
+  // a built-in quick model.
+  setQuickModel(id: string | null): Promise<void>;
 }
 
 // A partial edit to one promoted format. Absent fields are left alone.

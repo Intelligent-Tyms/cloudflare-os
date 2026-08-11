@@ -1,8 +1,17 @@
-import { createFileRoute } from '@tanstack/react-router'
+// Admin panel for AI providers, rendered on the /admin/providers detail page. The page chrome
+// (title, description, back link) comes from AdminPage, so this panel is just the toolbar,
+// notices, and model list.
+//
+// Models are deployment-wide: reads go through the regular authenticated API (the same list every
+// user sees), mutations through the AdminApi capability. In AI Gateway mode the built-in models
+// come from the deployment config and can't be deleted.
+
 import { useState, useEffect } from 'react'
 import { DropdownMenu, useKumoToastManager } from '@cloudflare/kumo'
+import { RpcStub } from 'capnweb'
 import { useAuthenticatedApi } from '../AuthContext'
 import {
+  AdminApi,
   AiChatAuthorInfo,
   AiGatewayInfo,
   AiModelProvider,
@@ -16,12 +25,7 @@ import {
   EllipsisVertical,
 } from 'lucide-react'
 import AddModelModal from '../AddModelModal'
-import { useDocumentTitle } from '../useDocumentTitle'
-import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER } from '../components/menuStyles'
-
-export const Route = createFileRoute('/providers')({ component: ProvidersPage })
-
-// ─── constants ────────────────────────────────────────────────────────────────
+import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER } from './menuStyles'
 
 const PROVIDER_ORDER = Object.keys(SUGGESTED_MODELS) as AiModelProvider[]
 
@@ -128,11 +132,9 @@ function Notice({ children }: { children: React.ReactNode }) {
   )
 }
 
-// ─── main page ────────────────────────────────────────────────────────────────
+// ─── panel ─────────────────────────────────────────────────────────────────────
 
-function ProvidersPage() {
-  useDocumentTitle('AI Providers')
-
+export default function AdminProvidersPanel({ admin }: { admin: RpcStub<AdminApi> }) {
   const { authenticatedApi } = useAuthenticatedApi()
   const toasts = useKumoToastManager()
   const [models, setModels] = useState<AiChatAuthorInfo[]>([])
@@ -177,7 +179,7 @@ function ProvidersPage() {
     if (!confirm(`Delete "${model.name}"? This cannot be undone.`)) return
     setDeletingId(model.id)
     try {
-      await authenticatedApi.deleteModel(model.id)
+      await admin.deleteModel(model.id)
       await fetchAll()
     } catch (err) {
       console.error('Failed to delete model:', err)
@@ -191,7 +193,7 @@ function ProvidersPage() {
     const next = quickModel === modelId ? null : modelId
     setQuickModel(next)
     try {
-      await authenticatedApi.setQuickModel(next)
+      await admin.setQuickModel(next)
     } catch (err) {
       console.error('Failed to set quick model:', err)
       setQuickModel(quickModel) // revert
@@ -206,24 +208,11 @@ function ProvidersPage() {
   })
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-4xl flex-col px-6 sm:px-10">
-      <header className="flex items-end justify-between gap-4 px-3 pb-3 pt-10">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">AI providers</h1>
-          <p className="mt-1 text-[13px] leading-[18px] tracking-[-0.25px] text-kumo-subtle">
-            Configure the AI models available to your workspaces.
-          </p>
-        </div>
-        <button type="button" onClick={() => setSheetOpen(true)} className={PRIMARY_BTN}>
-          <Plus size={14} strokeWidth={2.5} />
-          Add provider
-        </button>
-      </header>
-
-      {/* Search — hidden when the user has no models */}
-      {!loading && !loadError && models.length > 0 && (
-        <div className="mb-3 px-3">
-          <div className="relative">
+    <div className="flex flex-col">
+      {/* Toolbar — search (hidden when there are no models) + add */}
+      <div className="mb-3 flex items-center gap-3">
+        {!loading && !loadError && models.length > 0 && (
+          <div className="relative flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-kumo-inactive" />
             <input
               type="text"
@@ -233,13 +222,19 @@ function ProvidersPage() {
               className="h-9 w-full rounded-lg border border-kumo-line bg-kumo-base pl-9 pr-4 text-[13px] tracking-[-0.25px] text-kumo-default placeholder:text-kumo-inactive transition-[border-color,box-shadow] duration-150 ease-out focus:border-kumo-ring focus:outline-none focus:ring-[3px] focus:ring-kumo-ring/15"
             />
           </div>
-        </div>
-      )}
+        )}
+        {!loading && !loadError && models.length > 0 && (
+          <button type="button" onClick={() => setSheetOpen(true)} className={`${PRIMARY_BTN} ml-auto`}>
+            <Plus size={14} strokeWidth={2.5} />
+            Add provider
+          </button>
+        )}
+      </div>
 
-      <div className="chat-panel flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pt-1 pb-16">
+      <div className="flex flex-col gap-0.5">
         {/* Notices */}
         {(gatewayMode || (!gatewayMode && models.length > 0)) && !loading && !loadError && (
-          <div className="flex flex-col gap-2.5 px-3 pb-2">
+          <div className="flex flex-col gap-2.5 pb-2">
             {gatewayMode && (
               <Notice>
                 <Zap size={15} className="mt-px shrink-0 text-kumo-brand" />
@@ -268,7 +263,7 @@ function ProvidersPage() {
 
         {/* Model list */}
         {loading ? (
-          <div className="flex flex-col gap-0.5 px-3">
+          <div className="flex flex-col gap-0.5">
             {[1, 2, 3].map((i) => (
               <div key={i} className="h-[56px] animate-pulse rounded-xl bg-kumo-elevated" />
             ))}
@@ -281,7 +276,7 @@ function ProvidersPage() {
             </button>
           </div>
         ) : models.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 px-3 py-16 text-center">
+          <div className="flex flex-col items-center gap-3 py-16 text-center">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-kumo-fill text-kumo-subtle">
               <Zap size={18} />
             </div>
@@ -324,7 +319,7 @@ function ProvidersPage() {
           setSheetOpen(false)
           fetchAll()
         }}
-        authenticatedApi={authenticatedApi}
+        addModel={(profile, config) => admin.addModel(profile, config)}
         aiConfig={aiConfig}
       />
     </div>

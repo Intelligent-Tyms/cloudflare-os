@@ -5,6 +5,7 @@ import { useAuthenticatedApi } from './AuthContext'
 import {
   AiChatAuthorInfo,
   AiGatewayInfo,
+  AiModelConfig,
   ConnectedAccountsSubscriber,
 } from '@gadgets/workshop-shared/api'
 import {
@@ -64,7 +65,7 @@ export default function OnboardingWizard({
 }: {
   onComplete: () => void
 }) {
-  const { authenticatedApi, currentUser } = useAuthenticatedApi()
+  const { authenticatedApi, currentUser, isAdmin } = useAuthenticatedApi()
   const { resolvedThemeMode } = useTheme()
   const toasts = useKumoToastManager()
   const siteName = useSiteName()
@@ -549,19 +550,25 @@ export default function OnboardingWizard({
                             No models configured yet
                           </p>
                           <p className="text-xs text-kumo-inactive">
-                            Add a model to get started
+                            {isAdmin
+                              ? 'Add a model to get started'
+                              : 'Ask your admin to add a model. You can continue without one for now.'}
                           </p>
                         </div>
                       )}
                     </div>
 
-                    <button
-                      onClick={() => setAddModelOpen(true)}
-                      className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-kumo-subtle border border-dashed border-kumo-line rounded-xl hover:border-kumo-fill hover:text-kumo-default hover:bg-kumo-tint transition-colors"
-                    >
-                      <Plus size={14} strokeWidth={2.5} />
-                      Add new model...
-                    </button>
+                    {/* Models are deployment-wide, so only admins can add one (from here or
+                        later via Admin → AI providers). */}
+                    {isAdmin && (
+                      <button
+                        onClick={() => setAddModelOpen(true)}
+                        className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-kumo-subtle border border-dashed border-kumo-line rounded-xl hover:border-kumo-fill hover:text-kumo-default hover:bg-kumo-tint transition-colors"
+                      >
+                        <Plus size={14} strokeWidth={2.5} />
+                        Add new model...
+                      </button>
+                    )}
                   </>
                 )}
               </div>
@@ -715,17 +722,29 @@ export default function OnboardingWizard({
     </div>
 
     {/* Add Model Modal — outside the wizard's inner content so it's not
-        clipped by overflow-hidden on the sliding panel */}
-    <AddModelModal
-      visible={addModelOpen}
-      onCancel={() => setAddModelOpen(false)}
-      onSuccess={() => {
-        setAddModelOpen(false)
-        fetchModels()
-      }}
-      authenticatedApi={authenticatedApi}
-      aiConfig={aiConfig}
-    />
+        clipped by overflow-hidden on the sliding panel. Admin-only: models are
+        deployment-wide, so adding one goes through the AdminApi capability,
+        minted per submission since this is the wizard's only admin call. */}
+    {isAdmin && (
+      <AddModelModal
+        visible={addModelOpen}
+        onCancel={() => setAddModelOpen(false)}
+        onSuccess={() => {
+          setAddModelOpen(false)
+          fetchModels()
+        }}
+        addModel={async (profile: AiChatAuthorInfo, config: AiModelConfig) => {
+          const admin = await authenticatedApi.getAdminApi()
+          if (!admin) throw new Error('Only admins can add models.')
+          try {
+            await admin.addModel(profile, config)
+          } finally {
+            admin[Symbol.dispose]?.()
+          }
+        }}
+        aiConfig={aiConfig}
+      />
+    )}
     </>
   )
 }
@@ -761,9 +780,9 @@ const SHOWCASE_FEATURES: ShowcaseFeature[] = [
     icon: Key,
     iconColor: 'text-kumo-warning',
     iconBg: 'bg-kumo-warning-tint',
-    title: 'Bring your own models',
+    title: 'Models from any provider',
     description:
-      'Plug in personal API tokens from any provider to use the models you love.',
+      'Use the models your organization has set up, from any of the major AI providers.',
   },
   {
     icon: Unplug,

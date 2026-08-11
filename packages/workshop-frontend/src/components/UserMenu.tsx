@@ -1,6 +1,6 @@
 import { useNavigate } from '@tanstack/react-router'
 import { DropdownMenu } from '@cloudflare/kumo'
-import { ChevronsUpDown, LogOut, Plug, ShieldCheck, SunMoon, User, Zap } from 'lucide-react'
+import { ChevronsUpDown, LogOut, Plug, ShieldCheck, SunMoon, User } from 'lucide-react'
 import { useAuthenticatedApi } from '../AuthContext'
 import { useAvatar } from '../useAvatar'
 import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER, MENU_POSITIONER_STYLE } from './menuStyles'
@@ -21,7 +21,7 @@ function ItemContent({ icon, children }: { icon: React.ReactNode; children: Reac
 
 // Profile row pinned at the bottom of the sidebar: avatar, name, and email with a disclosure
 // chevron (the Slack/Notion account-switcher pattern). The dropdown is the single home for
-// account-level destinations — Profile, Connectors, Theme, Providers, Admin — each of which is a
+// account-level destinations — Profile, Connectors, Theme, Admin — each of which is a
 // full page rather than inline controls. When the sidebar is collapsed the row shrinks to just
 // the avatar.
 export default function UserMenu({ collapsed = false }: { collapsed?: boolean }) {
@@ -96,12 +96,6 @@ export default function UserMenu({ collapsed = false }: { collapsed?: boolean })
           className={MENU_ITEM}
         >
           <ItemContent icon={<SunMoon />}>Theme</ItemContent>
-        </DropdownMenu.Item>
-        <DropdownMenu.Item
-          onClick={() => navigate({ to: '/providers' })}
-          className={MENU_ITEM}
-        >
-          <ItemContent icon={<Zap />}>Providers</ItemContent>
         </DropdownMenu.Item>
         {isAdmin && (
           <DropdownMenu.Item

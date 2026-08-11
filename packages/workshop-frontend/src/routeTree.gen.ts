@@ -18,7 +18,6 @@ import { Route as GatekeepersRouteImport } from './routes/gatekeepers'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as OutputsRouteImport } from './routes/outputs'
 import { Route as ProfileRouteImport } from './routes/profile'
-import { Route as ProvidersRouteImport } from './routes/providers'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as ThemeRouteImport } from './routes/theme'
 import { Route as WorkspacesRouteImport } from './routes/workspaces'
@@ -73,11 +72,6 @@ const ProfileRoute = ProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ProvidersRoute = ProvidersRouteImport.update({
-  id: '/providers',
-  path: '/providers',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
@@ -129,7 +123,6 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/outputs': typeof OutputsRoute
   '/profile': typeof ProfileRoute
-  '/providers': typeof ProvidersRoute
   '/signup': typeof SignupRoute
   '/theme': typeof ThemeRoute
   '/workspaces': typeof WorkspacesRoute
@@ -149,7 +142,6 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/outputs': typeof OutputsRoute
   '/profile': typeof ProfileRoute
-  '/providers': typeof ProvidersRoute
   '/signup': typeof SignupRoute
   '/theme': typeof ThemeRoute
   '/workspaces': typeof WorkspacesRoute
@@ -170,7 +162,6 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/outputs': typeof OutputsRoute
   '/profile': typeof ProfileRoute
-  '/providers': typeof ProvidersRoute
   '/signup': typeof SignupRoute
   '/theme': typeof ThemeRoute
   '/workspaces': typeof WorkspacesRoute
@@ -192,7 +183,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/outputs'
     | '/profile'
-    | '/providers'
     | '/signup'
     | '/theme'
     | '/workspaces'
@@ -212,7 +202,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/outputs'
     | '/profile'
-    | '/providers'
     | '/signup'
     | '/theme'
     | '/workspaces'
@@ -232,7 +221,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/outputs'
     | '/profile'
-    | '/providers'
     | '/signup'
     | '/theme'
     | '/workspaces'
@@ -253,7 +241,6 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   OutputsRoute: typeof OutputsRoute
   ProfileRoute: typeof ProfileRoute
-  ProvidersRoute: typeof ProvidersRoute
   SignupRoute: typeof SignupRoute
   ThemeRoute: typeof ThemeRoute
   WorkspacesRoute: typeof WorkspacesRoute
@@ -329,13 +316,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/providers': {
-      id: '/providers'
-      path: '/providers'
-      fullPath: '/providers'
-      preLoaderRoute: typeof ProvidersRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/signup': {
       id: '/signup'
       path: '/signup'
@@ -405,7 +385,6 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   OutputsRoute: OutputsRoute,
   ProfileRoute: ProfileRoute,
-  ProvidersRoute: ProvidersRoute,
   SignupRoute: SignupRoute,
   ThemeRoute: ThemeRoute,
   WorkspacesRoute: WorkspacesRoute,

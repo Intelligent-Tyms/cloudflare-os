@@ -13,6 +13,7 @@ import {
   Plug,
   ShieldAlert,
   UserPlus,
+  Zap,
 } from 'lucide-react'
 import { useAuthenticatedApi } from './AuthContext'
 import { AdminApi, AdminFormat, AdminResourceVendor, AmbientGatekeeperMode, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
@@ -21,6 +22,7 @@ import { cacheBustSiteLogoUrl, prepareSiteLogo } from './siteLogoUtils'
 import SiteLogo from './components/SiteLogo'
 import { useDocumentTitle } from './useDocumentTitle'
 import AdminFormatsPanel from './components/format/AdminFormatsPanel'
+import AdminProvidersPanel from './components/AdminProvidersPanel'
 
 // Preset accent colors offered in the Theme section ('' = default brand).
 const ACCENT_PRESETS: { label: string; value: string }[] = [
@@ -44,6 +46,7 @@ export type AdminSectionId =
   | 'instructions'
   | 'formats'
   | 'connectors'
+  | 'providers'
 
 type AdminSection = {
   id: AdminSectionId
@@ -113,6 +116,14 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         description:
           'Turn connectors and resource types on or off for each service. Auto-provisioned connectors (like Drive) have three modes: disabled, optional, or enabled for everyone. Changes are soft: they don’t revoke access an app already holds.',
         icon: <Plug size={18} />,
+      },
+      {
+        id: 'providers',
+        title: 'AI providers',
+        blurb: 'Configure the AI models everyone on this deployment can use.',
+        description:
+          'The AI models offered to everyone on this deployment. Add providers with your organization’s API tokens, and pick a quick model for fast tasks like generating chat titles.',
+        icon: <Zap size={18} />,
       },
     ],
   },
@@ -1150,6 +1161,9 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
           </div>
         </div>
       )}
+
+      {/* AI providers */}
+      {section === 'providers' && admin && <AdminProvidersPanel admin={admin.api} />}
     </div>
   )
 }

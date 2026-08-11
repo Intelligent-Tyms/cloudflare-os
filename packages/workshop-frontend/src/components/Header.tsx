@@ -169,14 +169,6 @@ export default function Header() {
                 >
                   Profile
                 </Link>
-                <Link
-                  to="/providers"
-                  onClick={closeMobileMenu}
-                  className={navLinkClass}
-                  activeProps={{ className: navLinkActiveClass }}
-                >
-                  Providers
-                </Link>
                 {auth.isAdmin && (
                   <Link
                     to="/admin"

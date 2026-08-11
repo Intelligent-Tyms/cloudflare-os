@@ -1,4 +1,4 @@
-import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
@@ -10,7 +10,8 @@ import { AdminConfig, DEFAULT_ADMIN_CONFIG, FormatCuration, MAX_AGENT_HINT, defa
 import { SITE_LOGO_R2_KEY, siteLogoImage, validateSiteLogo } from './site-logo.js';
 import { ambientGatekeeperMode, DEFAULT_AMBIENT_GATEKEEPER_MODE } from './provisioning-policy.js';
 import { buildGatekeeperVendorMap } from './auth/auth-vendors.js';
-import { UserDurableObject } from './user.js';
+import { UserDurableObject, type UserAiModelRecord } from './user.js';
+import { getAiGatewayConfig } from './ai-gateway.js';
 import { formatBlueprintsManifestVersion, installFormatBlueprints } from './format-blueprints.js';
 import { FORMAT_BLUEPRINTS } from './generated/format-blueprints.js';
 
@@ -23,6 +24,12 @@ function makeAdminSettingsStorage(storage: DurableObjectStorage) {
       // authoritative featured bit; this DO keeps the publishable deployment-wide copy.
       featuredBlueprints: collection<BlueprintPublicInfo>()({
         primaryKey: 'id',
+      }),
+      // Deployment-wide AI models, managed by admins and offered to every user. The stored record
+      // carries the provider API token, so raw records never leave the server: users see only the
+      // profiles via listModels().
+      aiModels: collection<UserAiModelRecord>()({
+        primaryKey: record => record.profile.id,
       }),
     },
     singletons: {
@@ -40,6 +47,10 @@ function makeAdminSettingsStorage(storage: DurableObjectStorage) {
       // exactly once per blueprint: an admin who then removes a format keeps it removed, while a
       // deployment that installed before curation existed still gets promoted.
       promotedFormatBlueprints: <string[]>[],
+
+      // Deployment-wide quick model (used for lightweight tasks like chat title generation),
+      // referencing an aiModels entry by id. Ignored in AI Gateway mode, which hardcodes its own.
+      quickModel: <string | null>null,
     },
   });
 }
@@ -313,6 +324,78 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
       resourceVendors: await this.#listResourceConfig(config, adminUserId),
       formats: await this.#listFormatConfig(config),
     };
+  }
+
+  // --- Deployment AI models ---
+
+  // The model catalog offered to every user: gateway built-ins (env-driven) first, then
+  // admin-added models, skipping duplicates by id. Several callers treat the first entry as the
+  // default model, so ordering is part of the contract.
+  async listModels(): Promise<AiChatAuthorInfo[]> {
+    let result: AiChatAuthorInfo[] = [];
+
+    let gwConfig = getAiGatewayConfig(this.env);
+    let gwModelIds = new Set<string>();
+    if (gwConfig) {
+      for (let entry of gwConfig.getModelList()) {
+        result.push(entry);
+        gwModelIds.add(entry.id);
+      }
+    }
+
+    for (let model of this.storage.aiModels.list()) {
+      if (!gwModelIds.has(model.profile.id)) {
+        result.push(model.profile);
+      }
+    }
+    return result;
+  }
+
+  // Raw stored record, INCLUDING the provider API token. For server-side chat-context resolution
+  // only -- never exposed through AdminApiImpl.
+  async getModelRecord(id: string): Promise<UserAiModelRecord | null> {
+    return this.storage.aiModels.get(id) ?? null;
+  }
+
+  async addModel(profile: AiChatAuthorInfo, config: AiModelConfig): Promise<void> {
+    let gwConfig = getAiGatewayConfig(this.env);
+    if (gwConfig && !gwConfig.providers.has(config.provider)) {
+      throw new Error(`Provider "${config.provider}" is not available in AI Gateway mode.`);
+    }
+
+    profile.type = "agent";
+    this.storage.aiModels.put({profile, config});
+  }
+
+  async deleteModel(id: string): Promise<void> {
+    // In AI Gateway mode, don't allow deleting built-in suggested models.
+    let gwConfig = getAiGatewayConfig(this.env);
+    if (gwConfig) {
+      for (let [provider, models] of Object.entries(SUGGESTED_MODELS)) {
+        if (gwConfig.providers.has(provider) && id in models) {
+          throw new Error(`Cannot delete built-in model "${models[id].name}".`);
+        }
+      }
+    }
+
+    this.storage.aiModels.delete(id);
+  }
+
+  async setQuickModel(id: string | null): Promise<void> {
+    this.storage.quickModel.put(id);
+  }
+
+  // The quick-model id, or null when unset or pointing at a since-deleted model.
+  async getQuickModelId(): Promise<string | null> {
+    let id = this.storage.quickModel.get();
+    return id && this.storage.aiModels.get(id) ? id : null;
+  }
+
+  // Resolved quick-model record (includes the API token) for chat-context assembly; server-side
+  // only, like getModelRecord.
+  async getQuickModelRecord(): Promise<UserAiModelRecord | null> {
+    let id = this.storage.quickModel.get();
+    return (id ? this.storage.aiModels.get(id) : undefined) ?? null;
   }
 
   // --- Standard output formats ---
@@ -651,5 +734,17 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
 
   setFormatOrder(blueprintIds: string[]): Promise<void> {
     return this.admin.setFormatOrder(blueprintIds);
+  }
+
+  addModel(profile: AiChatAuthorInfo, config: AiModelConfig): Promise<void> {
+    return this.admin.addModel(profile, config);
+  }
+
+  deleteModel(id: string): Promise<void> {
+    return this.admin.deleteModel(id);
+  }
+
+  setQuickModel(id: string | null): Promise<void> {
+    return this.admin.setQuickModel(id);
   }
 }
