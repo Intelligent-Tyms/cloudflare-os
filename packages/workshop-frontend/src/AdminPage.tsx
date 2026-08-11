@@ -13,9 +13,11 @@ import {
   Plug,
   ShieldAlert,
   UserPlus,
+  Users,
   Zap,
 } from 'lucide-react'
 import { useAuthenticatedApi } from './AuthContext'
+import { useServerConfig } from './ServerConfigContext'
 import { AdminApi, AdminFormat, AdminResourceVendor, AmbientGatekeeperMode, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from './theme'
 import { cacheBustSiteLogoUrl, prepareSiteLogo } from './siteLogoUtils'
@@ -40,6 +42,7 @@ const ACCENT_PRESETS: { label: string; value: string }[] = [
 // here (in `description`) instead of repeating it inside the card.
 export type AdminSectionId =
   | 'organization'
+  | 'teammates'
   | 'brand'
   | 'announcements'
   | 'access'
@@ -67,6 +70,14 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         description:
           'Context about your organization added to every assistant’s system prompt: what you do, your terminology, key facts. Keep it short and put deeper reference material in shared Drive folders instead; the assistant will read it when it’s relevant.',
         icon: <Building2 size={18} />,
+      },
+      {
+        id: 'teammates',
+        title: 'Teammates',
+        blurb: 'Invite people to this workspace and manage who has access.',
+        description:
+          'Invitations and membership for this workspace. Managed from your central Tyms account, which controls who can sign in here.',
+        icon: <Users size={18} />,
       },
       {
         id: 'brand',
@@ -148,6 +159,12 @@ const BANNER_SWATCH: Record<BannerColor, string> = {
 export default function AdminPage({ section }: { section?: AdminSectionId }) {
   const { authenticatedApi, isAdmin } = useAuthenticatedApi()
   const toasts = useKumoToastManager()
+  // Teammate membership lives in the central identity service, not this deployment, so the
+  // Teammates section hands off to it (and hides entirely when central login isn't configured).
+  const centralLoginUrl = useServerConfig()?.centralLoginUrl
+  const teammatesUrl = centralLoginUrl
+    ? `${centralLoginUrl}${centralLoginUrl.includes('?') ? '&' : '?'}team=1`
+    : undefined
   const sectionMeta = section ? ADMIN_SECTIONS.find((s) => s.id === section) : undefined
   useDocumentTitle(sectionMeta ? `${sectionMeta.title} · Admin` : 'Admin')
 
@@ -521,7 +538,9 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
                 {group.label}
               </h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {group.sections.map((s) => (
+                {group.sections
+                  .filter((s) => s.id !== 'teammates' || Boolean(teammatesUrl))
+                  .map((s) => (
                   <Link
                     key={s.id}
                     to="/admin/$section"
@@ -1006,6 +1025,38 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
           </div>
         </div>
       </div>
+      )}
+
+      {/* Teammates: membership is managed centrally, so this hands off to the Tyms account. */}
+      {section === 'teammates' && (
+        <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
+          {teammatesUrl ? (
+            <div className="flex items-center gap-4">
+              <div className="w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center bg-kumo-tint">
+                <Users size={18} className="text-kumo-subtle" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className="text-lg font-semibold text-kumo-strong">Invite teammates</h2>
+                <p className="text-sm text-kumo-subtle mt-0.5">
+                  Send invitations by email, see who hasn&rsquo;t joined yet, and remove members.
+                  Opens your Tyms account in a new tab.
+                </p>
+              </div>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => window.open(teammatesUrl, '_blank', 'noopener')}
+              >
+                Manage teammates
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm text-kumo-subtle">
+              This deployment doesn&rsquo;t use central sign-in, so there is no teammate directory
+              here. Account creation is controlled from the Access page.
+            </p>
+          )}
+        </div>
       )}
 
       {/* Gatekeeper resources */}
