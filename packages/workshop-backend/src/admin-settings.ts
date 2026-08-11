@@ -642,7 +642,7 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
   // acting admin. It's plain data — not a user-DO dependency. `env` is needed for the team
   // directory client only.
   constructor(private admin: DurableObjectStub<AdminSettings>, private adminUserId: string,
-      private env: Env) {
+      private env: Cloudflare.Env) {
     super();
   }
 
