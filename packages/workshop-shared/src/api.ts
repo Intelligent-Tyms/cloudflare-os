@@ -885,7 +885,64 @@ export interface AdminApi {
   // quick model use (e.g. chats will be titled "New Chat"). Ignored in AI Gateway mode, which has
   // a built-in quick model.
   setQuickModel(id: string | null): Promise<void>;
+
+  // --- Teammates ---
+  //
+  // On deployments with a central team directory (see TeamView), membership and invitations are
+  // managed there; these methods proxy to it. Every mutation returns the fresh team view.
+
+  // The current team, or null when this deployment has no central team directory configured.
+  getTeam(): Promise<TeamView | null>;
+
+  // Invite someone by email. Throws if they are already a member, already invited, or the
+  // deployment's seat limit is reached. The directory emails them an invitation link.
+  inviteTeammate(email: string, role: TeamRole): Promise<TeamView>;
+
+  // Revoke a pending invitation; its emailed link stops working immediately.
+  revokeTeamInvitation(invitationId: string): Promise<TeamView>;
+
+  // Re-send a pending invitation with a fresh link and expiry; the old link stops working.
+  resendTeamInvitation(invitationId: string): Promise<TeamView>;
+
+  // Remove a member. Refused for the workspace owner and for the calling admin themselves.
+  // Removal blocks new sign-ins; an already-open session ends on its own schedule.
+  removeTeammate(email: string): Promise<TeamView>;
 }
+
+// Role an invited teammate gets in the central team directory. "admin" grants teammate
+// management there; workspace-internal admin (this /admin area) remains deployment-configured.
+export type TeamRole = "member" | "admin";
+
+// A workspace member as recorded by the central team directory.
+export type TeamMember = {
+  email: string;
+  // Their display name, when the directory knows one.
+  displayName: string | null;
+  // "owner" | "admin" | "member" — the directory's role for them.
+  role: string;
+  // When they joined (ms since epoch).
+  createdAt: number;
+};
+
+// A pending invitation in the central team directory.
+export type TeamInvitation = {
+  id: string;
+  email: string;
+  role: string;
+  // Email of the admin who sent it, when recorded.
+  invitedBy: string | null;
+  // Expiry (ms since epoch); `expired` saves the caller the clock comparison.
+  expiresAt: number;
+  expired: boolean;
+  createdAt: number;
+};
+
+// Membership and pending invitations for this deployment, as reported by the central team
+// directory (multi-tenant installations). The workshop keeps no member list of its own.
+export type TeamView = {
+  members: TeamMember[];
+  invitations: TeamInvitation[];
+};
 
 // A partial edit to one promoted format. Absent fields are left alone.
 export type AdminFormatPatch = {

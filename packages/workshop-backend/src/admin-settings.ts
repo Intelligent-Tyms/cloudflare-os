@@ -1,4 +1,4 @@
-import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, TeamRole, TeamView, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
@@ -14,6 +14,7 @@ import { UserDurableObject, type UserAiModelRecord } from './user.js';
 import { getAiGatewayConfig } from './ai-gateway.js';
 import { formatBlueprintsManifestVersion, installFormatBlueprints } from './format-blueprints.js';
 import { FORMAT_BLUEPRINTS } from './generated/format-blueprints.js';
+import * as teamDirectory from './team-directory.js';
 
 const logger = createWorkshopLogger("workshop.admin.settings");
 
@@ -637,8 +638,11 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
 @validateRpc()
 export class AdminApiImpl extends RpcTarget implements AdminApi {
   // `adminUserId` is the requesting admin's identity, forwarded to gatekeepers when listing the
-  // resource catalog (some are RBAC-gated per user). It's plain data — not a user-DO dependency.
-  constructor(private admin: DurableObjectStub<AdminSettings>, private adminUserId: string) {
+  // resource catalog (some are RBAC-gated per user) and to the central team directory as the
+  // acting admin. It's plain data — not a user-DO dependency. `env` is needed for the team
+  // directory client only.
+  constructor(private admin: DurableObjectStub<AdminSettings>, private adminUserId: string,
+      private env: Env) {
     super();
   }
 
@@ -746,5 +750,41 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
 
   setQuickModel(id: string | null): Promise<void> {
     return this.admin.setQuickModel(id);
+  }
+
+  // --- Teammates (central team directory; see team-directory.ts) ---
+
+  #requireTeamDirectory(): void {
+    if (!teamDirectory.hasTeamDirectory(this.env)) {
+      throw new Error("This deployment has no central team directory configured.");
+    }
+  }
+
+  async getTeam(): Promise<TeamView | null> {
+    if (!teamDirectory.hasTeamDirectory(this.env)) return null;
+    return teamDirectory.fetchTeam(this.env);
+  }
+
+  async inviteTeammate(email: string, role: TeamRole): Promise<TeamView> {
+    this.#requireTeamDirectory();
+    let normalized = email.trim().toLowerCase();
+    if (!normalized.includes("@")) throw new Error("A valid email address is required.");
+    if (role !== "member" && role !== "admin") throw new Error(`Invalid role: ${role}`);
+    return teamDirectory.createTeamInvitation(this.env, normalized, role, this.adminUserId);
+  }
+
+  async revokeTeamInvitation(invitationId: string): Promise<TeamView> {
+    this.#requireTeamDirectory();
+    return teamDirectory.revokeTeamInvitation(this.env, invitationId);
+  }
+
+  async resendTeamInvitation(invitationId: string): Promise<TeamView> {
+    this.#requireTeamDirectory();
+    return teamDirectory.resendTeamInvitation(this.env, invitationId);
+  }
+
+  async removeTeammate(email: string): Promise<TeamView> {
+    this.#requireTeamDirectory();
+    return teamDirectory.removeTeamMember(this.env, email.trim().toLowerCase(), this.adminUserId);
   }
 }

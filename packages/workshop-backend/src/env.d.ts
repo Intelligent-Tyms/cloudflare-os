@@ -77,6 +77,13 @@ declare global {
       HANDOFF_PUBLIC_KEY?: string;
       HANDOFF_AUDIENCE?: string;
 
+      // Central team directory (multi-tenant installations with central login): base URL and
+      // bearer token for the identity service's tenant-scoped team API. When both are set,
+      // Admin → Teammates manages membership and invitations through it; the workshop keeps no
+      // member list of its own. Both unset = no team directory (the admin page explains).
+      CENTRAL_TEAM_API_URL?: string;
+      CENTRAL_TEAM_API_TOKEN?: string;
+
       // Enables the Cloudflare free-tier limits + top-up flow when set to "true".
       ENABLE_CLOUDFLARE_LIMITS?: string;
 

@@ -25,6 +25,7 @@ import SiteLogo from './components/SiteLogo'
 import { useDocumentTitle } from './useDocumentTitle'
 import AdminFormatsPanel from './components/format/AdminFormatsPanel'
 import AdminProvidersPanel from './components/AdminProvidersPanel'
+import AdminTeamPanel from './components/AdminTeamPanel'
 
 // Preset accent colors offered in the Theme section ('' = default brand).
 const ACCENT_PRESETS: { label: string; value: string }[] = [
@@ -76,7 +77,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         title: 'Teammates',
         blurb: 'Invite people to this workspace and manage who has access.',
         description:
-          'Invitations and membership for this workspace. Managed from your central Tyms account, which controls who can sign in here.',
+          'Invite teammates by email, see who hasn’t joined yet, and remove members. Membership controls who can sign in to this workspace.',
         icon: <Users size={18} />,
       },
       {
@@ -159,12 +160,9 @@ const BANNER_SWATCH: Record<BannerColor, string> = {
 export default function AdminPage({ section }: { section?: AdminSectionId }) {
   const { authenticatedApi, isAdmin } = useAuthenticatedApi()
   const toasts = useKumoToastManager()
-  // Teammate membership lives in the central identity service, not this deployment, so the
-  // Teammates section hands off to it (and hides entirely when central login isn't configured).
+  // Teammate membership lives in the central team directory, not this deployment; the hub
+  // hides the Teammates card entirely when central login isn't configured.
   const centralLoginUrl = useServerConfig()?.centralLoginUrl
-  const teammatesUrl = centralLoginUrl
-    ? `${centralLoginUrl}${centralLoginUrl.includes('?') ? '&' : '?'}team=1`
-    : undefined
   const sectionMeta = section ? ADMIN_SECTIONS.find((s) => s.id === section) : undefined
   useDocumentTitle(sectionMeta ? `${sectionMeta.title} · Admin` : 'Admin')
 
@@ -539,7 +537,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
               </h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {group.sections
-                  .filter((s) => s.id !== 'teammates' || Boolean(teammatesUrl))
+                  .filter((s) => s.id !== 'teammates' || Boolean(centralLoginUrl))
                   .map((s) => (
                   <Link
                     key={s.id}
@@ -1027,37 +1025,8 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
       </div>
       )}
 
-      {/* Teammates: membership is managed centrally, so this hands off to the Tyms account. */}
-      {section === 'teammates' && (
-        <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
-          {teammatesUrl ? (
-            <div className="flex items-center gap-4">
-              <div className="w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center bg-kumo-tint">
-                <Users size={18} className="text-kumo-subtle" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h2 className="text-lg font-semibold text-kumo-strong">Invite teammates</h2>
-                <p className="text-sm text-kumo-subtle mt-0.5">
-                  Send invitations by email, see who hasn&rsquo;t joined yet, and remove members.
-                  Opens your Tyms account in a new tab.
-                </p>
-              </div>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => window.open(teammatesUrl, '_blank', 'noopener')}
-              >
-                Manage teammates
-              </Button>
-            </div>
-          ) : (
-            <p className="text-sm text-kumo-subtle">
-              This deployment doesn&rsquo;t use central sign-in, so there is no teammate directory
-              here. Account creation is controlled from the Access page.
-            </p>
-          )}
-        </div>
-      )}
+      {/* Teammates: full management, proxied to the central team directory. */}
+      {section === 'teammates' && admin && <AdminTeamPanel admin={admin.api} />}
 
       {/* Gatekeeper resources */}
       {section === 'connectors' && (
