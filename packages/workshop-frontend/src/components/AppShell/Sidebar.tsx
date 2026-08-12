@@ -128,12 +128,6 @@ export default function Sidebar({
               collapsed={collapsed}
             />
             <SidebarItem
-              to="/blueprints"
-              label="App store"
-              icon={<DraftingCompass size={14} />}
-              collapsed={collapsed}
-            />
-            <SidebarItem
               to="/outputs"
               label="Outputs"
               icon={<Layers size={14} />}
@@ -179,8 +173,14 @@ export default function Sidebar({
               )
             })}
             <SidebarItem
+              to="/blueprints"
+              label="Templates"
+              icon={<DraftingCompass size={14} />}
+              collapsed={collapsed}
+            />
+            <SidebarItem
               to="/explore"
-              label="Explore"
+              label="Discover"
               icon={<Compass size={14} />}
               collapsed={collapsed}
             />

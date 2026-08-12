@@ -745,7 +745,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
       <BlueprintStatePage
         title="Template not found"
         message="This template may have been removed or the link may be incorrect."
-        actionLabel="Back to Explore"
+        actionLabel="Back to Discover"
         onAction={() => navigate({ to: '/explore' })}
       />
     )
@@ -756,7 +756,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
       <BlueprintStatePage
         title="Couldn’t load template"
         message={error || 'Failed to load template.'}
-        actionLabel="Back to Explore"
+        actionLabel="Back to Discover"
         onAction={() => navigate({ to: '/explore' })}
       />
     )

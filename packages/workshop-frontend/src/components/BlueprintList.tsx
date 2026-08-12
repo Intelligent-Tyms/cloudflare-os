@@ -268,7 +268,7 @@ export default function BlueprintList() {
           <div className="grid shrink-0 grid-cols-2 gap-2">
             <Link to="/explore" className={ACTION_BUTTON}>
               <Compass size={14} />
-              Explore
+              Discover
             </Link>
             <button
               type="button"
@@ -309,13 +309,13 @@ export default function BlueprintList() {
               <div>
                 <p className="text-sm font-medium text-kumo-default">No templates yet</p>
                 <p className="mt-1 text-[13px] leading-[18px] text-kumo-subtle">
-                  Publish a workspace as a template, or add one from Explore.
+                  Publish a workspace as a template, or add one from Discover.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <Link to="/explore" className={ACTION_BUTTON}>
                   <Compass size={14} />
-                  Explore templates
+                  Discover templates
                 </Link>
                 <button
                   type="button"
