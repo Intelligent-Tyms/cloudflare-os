@@ -1287,6 +1287,34 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
         });
       }
     }
+
+    await this.#refreshAutoProvisionedDescriptions();
+  }
+
+  // Auto-provisioned (ambient) accounts never re-auth, and re-auth is otherwise the only event that
+  // re-runs describe() — so a redeployed gatekeeper's new title/icon would never reach records minted
+  // before the deploy. Refresh them once per DO instance instead: DOs restart on deploy, so each
+  // deploy picks up description changes on the user's next visit. Best-effort per record.
+  #descriptionsRefreshed = false;
+
+  async #refreshAutoProvisionedDescriptions(): Promise<void> {
+    if (this.#descriptionsRefreshed) return;
+    this.#descriptionsRefreshed = true;
+    for (let rec of this.#connectedAccountRecords()) {
+      if (!rec.autoProvisioned) continue;
+      try {
+        let description = await rec.account.describe();
+        if (JSON.stringify(description) !== JSON.stringify(rec.description)) {
+          rec.description = description;
+          this.storage.connectedAccounts.put(rec);
+        }
+      } catch (err) {
+        logger.warn("failed to refresh auto-provisioned account description", {
+          event: "account.description.refresh.failed",
+          accountId: rec.id, vendorId: rec.vendorId, error: err,
+        });
+      }
+    }
   }
 
   // Ensure the user's auto-provisioned accounts exist (idempotent; see #ensureAutoProvisionedAccounts),
