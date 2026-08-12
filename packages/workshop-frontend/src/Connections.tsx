@@ -3,7 +3,7 @@ import { Dialog, Tooltip, useKumoToastManager } from '@cloudflare/kumo'
 import {
   Pencil,
   Trash2,
-  DraftingCompass as Blueprint,
+  LayoutTemplate as Blueprint,
   TriangleAlert,
   X,
 } from 'lucide-react'

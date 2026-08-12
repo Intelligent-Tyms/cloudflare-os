@@ -49,7 +49,7 @@ import {
   Search,
   CircleHelp,
   ArrowUpRight,
-  DraftingCompass as Blueprint,
+  LayoutTemplate as Blueprint,
   type LucideIcon,
 } from "lucide-react";
 import { RpcStub, RpcTarget } from "capnweb";

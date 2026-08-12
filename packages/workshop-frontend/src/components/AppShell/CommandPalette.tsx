@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useNavigate } from '@tanstack/react-router'
 import {
   Compass,
-  DraftingCompass as Blueprint,
+  LayoutTemplate as Blueprint,
   Search,
   Plus,
   LayoutGrid,

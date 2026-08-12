@@ -188,7 +188,7 @@ function PreviewStrip({ formats }: { formats: AdminFormat[] }) {
         </div>
       )}
       <p className="mt-2.5 text-[12px] leading-4 text-kumo-subtle">
-        In the composer’s + menu, the command palette, and on an empty Outputs page, in this order.
+        In the composer’s + menu, the command palette, and on an empty Files page, in this order.
       </p>
     </div>
   )
@@ -265,7 +265,7 @@ function FormatRow({
                 ? 'Template deleted. Remove this entry.'
                 : needsNaming
                 ? 'This template doesn’t declare what it produces. Give it a name to offer it.'
-                : `${format.blueprintTitle} · shown under ${format.output!.plural} on Outputs`}
+                : `${format.blueprintTitle} · shown under ${format.output!.plural} on Files`}
             </span>
           </span>
 
@@ -313,7 +313,7 @@ function FormatRow({
                     ? 'A bundled template can change its declared names when this deployment ' +
                       'updates; a value you type here stays as you set it. '
                     : '') +
-                  'Applies to outputs made from now on — existing ones keep the name they were ' +
+                  'Applies to files made from now on — existing ones keep the name they were ' +
                   'made with.'
                 }
               >
@@ -352,7 +352,7 @@ function FormatRow({
                   <figure className="hidden shrink-0 flex-col items-center gap-1.5 sm:flex">
                     <FormatPreview output={format.output} width={112} />
                     <figcaption className="text-[10px] uppercase tracking-[0.06em] text-kumo-inactive">
-                      On Outputs
+                      On Files
                     </figcaption>
                   </figure>
                 </div>
@@ -397,7 +397,7 @@ function FormatRow({
               <div className="flex items-end justify-between gap-4 border-t border-kumo-line pt-3">
                 <p className="text-[12px] leading-4 text-kumo-subtle">
                   {(format.enabled
-                    ? 'Turning this off removes it from the menus above and from the agent’s catalog. Outputs already made from it keep working. '
+                    ? 'Turning this off removes it from the menus above and from the agent’s catalog. Files already made from it keep working. '
                     : 'Currently hidden from the menus above and from the agent’s catalog. ') +
                     (format.bundled
                       ? 'It ships with the deployment, so it stays in this list either way.'

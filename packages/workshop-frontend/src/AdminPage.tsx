@@ -117,8 +117,8 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       {
         id: 'formats',
         title: 'Formats',
-        blurb: 'Standard output formats offered across the app.',
-        description: 'The standard output formats promoted to everyone across the app.',
+        blurb: 'Standard file formats offered across the app.',
+        description: 'The standard file formats promoted to everyone across the app.',
         icon: <FileText size={18} />,
       },
       {

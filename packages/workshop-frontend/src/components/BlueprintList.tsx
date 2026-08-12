@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import {
-  DraftingCompass as BlueprintIcon,
+  LayoutTemplate as BlueprintIcon,
   Clock,
   Compass,
   EllipsisVertical,

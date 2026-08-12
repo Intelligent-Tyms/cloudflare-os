@@ -1,8 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useKumoToastManager } from "@cloudflare/kumo";
 import {
-  DraftingCompass as BlueprintIcon,
-  BookOpen,
+  LayoutTemplate as BlueprintIcon,
   Search,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -299,7 +298,7 @@ function EmptySection({ title, message }: { title: string; message: string }) {
   return (
     <div className="flex flex-col items-center gap-3 px-3 py-20 text-center">
       <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-kumo-fill text-kumo-subtle">
-        <BookOpen size={18} />
+        <BlueprintIcon size={18} />
       </div>
       <div>
         <p className="text-sm font-medium text-kumo-default">{title}</p>

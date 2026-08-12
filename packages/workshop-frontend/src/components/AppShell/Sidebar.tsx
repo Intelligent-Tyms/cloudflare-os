@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import {
   Compass,
-  DraftingCompass,
+  LayoutTemplate,
   Hexagon,
   House,
   HardDrive,
@@ -129,7 +129,7 @@ export default function Sidebar({
             />
             <SidebarItem
               to="/outputs"
-              label="Outputs"
+              label="Files"
               icon={<Layers size={14} />}
               collapsed={collapsed}
             />
@@ -175,7 +175,7 @@ export default function Sidebar({
             <SidebarItem
               to="/blueprints"
               label="Templates"
-              icon={<DraftingCompass size={14} />}
+              icon={<LayoutTemplate size={14} />}
               collapsed={collapsed}
             />
             <SidebarItem

@@ -60,15 +60,15 @@ export default function WorkpiecePicker({
       <button
         type="button"
         onClick={toggleExpanded}
-        title={expanded ? 'Collapse outputs' : 'Expand outputs'}
-        aria-label={expanded ? 'Collapse outputs' : 'Expand outputs'}
+        title={expanded ? 'Collapse files' : 'Expand files'}
+        aria-label={expanded ? 'Collapse files' : 'Expand files'}
         aria-expanded={expanded}
         className={`flex h-12 flex-shrink-0 cursor-pointer items-center text-kumo-inactive transition-colors hover:text-kumo-subtle ${
           expanded ? 'justify-between px-3' : 'justify-center'
         }`}
       >
         {expanded && (
-          <span className="text-[11px] font-medium uppercase tracking-[0.06em]">Outputs</span>
+          <span className="text-[11px] font-medium uppercase tracking-[0.06em]">Files</span>
         )}
         {expanded ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
       </button>

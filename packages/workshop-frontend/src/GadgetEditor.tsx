@@ -7,7 +7,7 @@ import {
   Check,
   X,
   Hexagon,
-  DraftingCompass as Blueprint,
+  LayoutTemplate as Blueprint,
   Trash2,
   Maximize2,
   Activity as ActivityIcon,
