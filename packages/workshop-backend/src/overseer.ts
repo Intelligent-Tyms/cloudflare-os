@@ -32,7 +32,7 @@ import { recordAnalytics } from "./analytics";
 import { reportIssue } from "@gadgets/backend-utils/error-reporting";
 import type { ProductAnalyticsConnectionType, ProductAnalyticsGadgetInput } from "./analytics";
 import { checkUsageAndBalance } from "./ai-gateway-billing/limits/usage-checker";
-import { completeAgentCatalogSnapshot, normalizeAgentCatalog } from "./agent-catalog";
+import { completeAgentCatalogSnapshot, normalizeAgentCatalog, removeDisabledSkillEntries } from "./agent-catalog";
 import { refreshCachedBalance } from "./ai-gateway-billing/cloudflare/connection-service";
 import { SharingManager, SharingCaller, CollaboratorRecord, ShareKeyRecord } from "./sharing";
 import { AutoApprovalDrainer } from "./auto-approval";
@@ -3318,6 +3318,12 @@ class OverseerImpl implements AgentHooks {
           new SlashCommandAuthorizerImpl(this, gatekeeperId, {from: "user"}));
       let result = await invokeSlashCommand(
           this.getGatekeeperFacet(gatekeeperId), message, authorizer);
+      // Skill curation is enforced at invocation, not just in the picker: the command id arrives
+      // from the client, so a stale picker (or a crafted request) must not expand a disabled skill.
+      if (result.skillName &&
+          (await readAdminConfig(this.env)).disabledSkills.includes(result.skillName)) {
+        throw new Error(`The skill "${result.skillName}" is turned off for this deployment.`);
+      }
       if (result.message === undefined) {
         return {slashCommand: message, skillName: result.skillName};
       }
@@ -4787,8 +4793,12 @@ class OverseerImpl implements AgentHooks {
     }
 
     // Materialize the seed entries, skipping targets that no longer exist (mirroring env build);
-    // ambient entries carry their catalogs.
-    let catalogs = new Map(snapshots.map(entry => [entry.gatekeeperId, entry.catalog]));
+    // ambient entries carry their catalogs. Skill curation is applied here rather than where the
+    // snapshots are loaded: snapshots are cached per chat, and this runs every turn, so a curation
+    // change reaches existing chats on their next turn.
+    let disabledSkills = new Set((await readAdminConfig(this.env)).disabledSkills);
+    let catalogs = new Map(snapshots.map(entry =>
+        [entry.gatekeeperId, removeDisabledSkillEntries(entry.catalog, disabledSkills)]));
     let ambientSet = new Set(ambientIds);
     let result: SeedBindingInfo[] = [];
     for (let [name, target] of Object.entries(seedMap)) {
@@ -4815,12 +4825,17 @@ class OverseerImpl implements AgentHooks {
         providerLabel: record.resourceTitle || `Connector ${record.id}`,
         gatekeeper: this.getGatekeeperFacet(record.id),
       }));
+    let config = await readAdminConfig(this.env);
+    // Skill curation: a disabled skill's command is hidden from the picker. Filtered by name — a
+    // skill's command name IS its skill name — since that is the identity the admin disables.
+    let disabledSkills = new Set(config.disabledSkills);
     return [{
       selection: {builtin: true, commandId: "compact"},
       name: "compact",
       description: "Summarize older context while preserving recent messages.",
-      providerLabel: resolveSiteName((await readAdminConfig(this.env)).siteName),
-    }, ...await collectSlashCommands(sources)];
+      providerLabel: resolveSiteName(config.siteName),
+    }, ...(await collectSlashCommands(sources))
+        .filter(command => !disabledSkills.has(command.name))];
   }
 
   // =======================================================================================

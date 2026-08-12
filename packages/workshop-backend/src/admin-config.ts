@@ -43,6 +43,12 @@ export type AdminConfig = {
   // vendors that declare autoProvisionsAccount.
   ambientGatekeeperModes: Record<string, AmbientGatekeeperMode>;
 
+  // Disabled agent skill names (SKILL.md `name`s, e.g. from public Drive folders). Skills are
+  // enabled by default, matching this config's opt-out philosophy; a disabled skill is hidden from
+  // the slash-command picker and the agent's catalog, and its invocation is refused. Soft
+  // enforcement, like disabledResources: a chat that already read the skill's text keeps it.
+  disabledSkills: string[];
+
   // The blueprints offered as this deployment's standard output formats. What a user gets from
   // "New Slides", and what the agent is told to prefer. Order is menu order.
   //
@@ -81,6 +87,7 @@ export const DEFAULT_ADMIN_CONFIG: AdminConfig = {
   disabledResources: {},
   disabledGatekeepers: [],
   ambientGatekeeperModes: {},
+  disabledSkills: [],
   formats: [],
 };
 
@@ -284,6 +291,7 @@ export function parseAdminConfig(raw: string | null): AdminConfig {
       disabledResources,
       disabledGatekeepers: strings(p.disabledGatekeepers).map(v => v.toLowerCase()),
       ambientGatekeeperModes,
+      disabledSkills: [...new Set(strings(p.disabledSkills).filter(name => name))],
       formats: parseFormats(p.formats),
     };
   } catch {

@@ -12,19 +12,21 @@ import {
   Palette,
   Plug,
   ShieldAlert,
+  Sparkles,
   UserPlus,
   Users,
   Zap,
 } from 'lucide-react'
 import { useAuthenticatedApi } from './AuthContext'
 import { useServerConfig } from './ServerConfigContext'
-import { AdminApi, AdminFormat, AdminResourceVendor, AmbientGatekeeperMode, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
+import { AdminApi, AdminFormat, AdminResourceVendor, AdminSkill, AmbientGatekeeperMode, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from './theme'
 import { cacheBustSiteLogoUrl, prepareSiteLogo } from './siteLogoUtils'
 import SiteLogo from './components/SiteLogo'
 import { useDocumentTitle } from './useDocumentTitle'
 import AdminFormatsPanel from './components/format/AdminFormatsPanel'
 import AdminProvidersPanel from './components/AdminProvidersPanel'
+import AdminSkillsPanel from './components/AdminSkillsPanel'
 import AdminTeamPanel from './components/AdminTeamPanel'
 
 // Preset accent colors offered in the Theme section ('' = default brand).
@@ -49,6 +51,7 @@ export type AdminSectionId =
   | 'access'
   | 'instructions'
   | 'formats'
+  | 'skills'
   | 'connectors'
   | 'providers'
 
@@ -120,6 +123,14 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         blurb: 'Standard file formats offered across the app.',
         description: 'The standard file formats promoted to everyone across the app.',
         icon: <FileText size={18} />,
+      },
+      {
+        id: 'skills',
+        title: 'Skills',
+        blurb: 'Turn the skills your assistants can use on or off.',
+        description:
+          'Skills teach assistants how to perform specific tasks, step by step. A skill is a SKILL.md file in a shared Drive folder (including folders synced from git); this page controls which ones are offered to everyone.',
+        icon: <Sparkles size={18} />,
       },
       {
         id: 'connectors',
@@ -219,6 +230,9 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
   // Promoted output formats, in menu order (see AdminFormatsPanel).
   const [formats, setFormats] = useState<AdminFormat[]>([])
 
+  // Deployment agent skills with enabled state (see AdminSkillsPanel).
+  const [skills, setSkills] = useState<AdminSkill[]>([])
+
   const resourceKey = (vendorId: string, urlPattern: string) => `${vendorId}\u0000${urlPattern}`
 
   // Populate all editor state from a freshly-fetched settings view.
@@ -240,6 +254,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
     setSavedAccent(view.accentColor)
     setAccentDraft(view.accentColor)
     setFormats(view.formats)
+    setSkills(view.skills)
   }
 
   // Mint the admin capability once (the access check happens server-side) and load settings.
@@ -605,6 +620,15 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
           admin={admin.api}
           formats={formats}
           onChanged={async () => { setFormats((await admin.api.getSettings()).formats) }}
+        />
+      )}
+
+      {/* Agent skills */}
+      {section === 'skills' && admin && (
+        <AdminSkillsPanel
+          admin={admin.api}
+          skills={skills}
+          onChanged={async () => { setSkills((await admin.api.getSettings()).skills) }}
         />
       )}
 

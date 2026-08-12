@@ -27,6 +27,9 @@ export function normalizeAgentCatalog(catalog: AgentCatalog): AgentCatalog {
         id: normalizeText(entry.id, AGENT_CATALOG_MAX_ID_LENGTH),
         title: normalizeText(entry.title, AGENT_CATALOG_MAX_TITLE_LENGTH),
         description: normalizeText(entry.description, AGENT_CATALOG_MAX_DESCRIPTION_LENGTH),
+        // Coerced to a literal true/absent: the flag routes skill curation, so an untrusted truthy
+        // value must not survive as anything else.
+        ...(entry.skill === true ? {skill: true as const} : {}),
       }))
       .filter(entry => entry.id.length > 0 && entry.title.length > 0)
       .toSorted((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
@@ -68,6 +71,18 @@ export async function completeAgentCatalogSnapshot(
         .map(([gatekeeperId, catalog]) => ({gatekeeperId, catalog})),
     changed: missing.length > 0 || removedStaleEntries,
   };
+}
+
+// Apply the deployment's skill curation to a catalog: drop entries marked as Agent Skills whose
+// skill name (their title) the admin has disabled. Applied where cached catalog snapshots are
+// materialized for a turn — not where they are loaded — so a curation change reaches existing
+// chats on their next turn. Non-skill entries always pass.
+export function removeDisabledSkillEntries(
+    catalog: AgentCatalog | null, disabledSkills: ReadonlySet<string>): AgentCatalog | null {
+  if (!catalog || disabledSkills.size === 0) return catalog;
+  let entries = catalog.entries.filter(entry => !(entry.skill && disabledSkills.has(entry.title)));
+  if (entries.length === catalog.entries.length) return catalog;
+  return {...catalog, entries};
 }
 
 // The catalog as a JSON blob for inclusion in a prompt, on its own line, or "" if empty.

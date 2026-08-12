@@ -32,6 +32,17 @@ describe("parseAdminConfig", () => {
     ]);
   });
 
+  // setSkillEnabled() treats disabledSkills as a set; enforcement builds Sets from it. Junk values
+  // and duplicates from a hand-edited or corrupted mirror must not survive a read.
+  it("keeps disabled skills as a deduplicated list of non-empty strings", () => {
+    let config = parseAdminConfig(JSON.stringify({
+      disabledSkills: ["convert-docs", 7, "", "convert-docs", "summarize-tickets", null],
+    }));
+
+    expect(config.disabledSkills).toEqual(["convert-docs", "summarize-tickets"]);
+    expect(parseAdminConfig(JSON.stringify({})).disabledSkills).toEqual([]);
+  });
+
   // Everything downstream keys formats by blueprint id; setFormatOrder() in particular treats the
   // list as a set and refuses every reordering if it isn't one. A duplicate would make the menu
   // permanently unorderable, so it can't be allowed to survive a read.

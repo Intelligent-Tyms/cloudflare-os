@@ -5,7 +5,7 @@ import {
 } from "@gadgets/workshop-shared/gatekeeper";
 import {
   completeAgentCatalogSnapshot, formatAgentCatalogPrompt,
-  formatAlwaysAvailableResourcesPrompt, normalizeAgentCatalog,
+  formatAlwaysAvailableResourcesPrompt, normalizeAgentCatalog, removeDisabledSkillEntries,
 } from "../src/agent-catalog";
 
 describe("normalizeAgentCatalog", () => {
@@ -44,6 +44,24 @@ describe("normalizeAgentCatalog", () => {
     });
   });
 
+  // The skill marker routes deployment skill curation (removeDisabledSkillEntries), so it must
+  // survive normalization — and only as the literal true, since the catalog is untrusted data.
+  it("preserves the skill marker as literal true and drops other truthy values", () => {
+    let catalog = normalizeAgentCatalog({
+      entries: [
+        { id: "1", title: "convert-docs", description: "Agent Skill.", skill: true },
+        { id: "2", title: "Runbooks", description: "A collection" },
+        { id: "3", title: "sneaky", description: "x", skill: "yes" as unknown as boolean },
+      ],
+    });
+
+    expect(catalog.entries).toEqual([
+      { id: "1", title: "convert-docs", description: "Agent Skill.", skill: true },
+      { id: "2", title: "Runbooks", description: "A collection" },
+      { id: "3", title: "sneaky", description: "x" },
+    ]);
+  });
+
   it("preserves provider truncation and removes unusable entries", () => {
     let catalog = normalizeAgentCatalog({
       entries: [
@@ -80,6 +98,36 @@ describe("normalizeAgentCatalog", () => {
     // A resource with no catalog gets just its env line, nothing inlined.
     expect(message).toContain("- Empty: `env.EMPTY`");
     expect(message).not.toContain("- Empty: `env.EMPTY`\n{");
+  });
+});
+
+describe("removeDisabledSkillEntries", () => {
+  let catalog = {
+    entries: [
+      { id: "1", title: "convert-docs", description: "Agent Skill.", skill: true as const },
+      { id: "2", title: "summarize-tickets", description: "Agent Skill.", skill: true as const },
+      // A collection whose title collides with a disabled skill name must survive: curation is
+      // scoped to entries the provider marked as skills.
+      { id: "3", title: "convert-docs", description: "A collection about conversions" },
+    ],
+    truncated: true,
+  };
+
+  it("drops only skill entries whose name is disabled", () => {
+    expect(removeDisabledSkillEntries(catalog, new Set(["convert-docs"]))).toEqual({
+      entries: [
+        { id: "2", title: "summarize-tickets", description: "Agent Skill.", skill: true },
+        { id: "3", title: "convert-docs", description: "A collection about conversions" },
+      ],
+      truncated: true,
+    });
+  });
+
+  it("returns the catalog unchanged when nothing applies", () => {
+    // Same object, not a copy: this runs on every turn over cached snapshots.
+    expect(removeDisabledSkillEntries(catalog, new Set())).toBe(catalog);
+    expect(removeDisabledSkillEntries(catalog, new Set(["unknown"]))).toBe(catalog);
+    expect(removeDisabledSkillEntries(null, new Set(["convert-docs"]))).toBe(null);
   });
 });
 

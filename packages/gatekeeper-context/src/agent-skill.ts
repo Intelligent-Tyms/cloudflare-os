@@ -42,10 +42,13 @@ export function buildAgentSkillCommands(
   return commands;
 }
 
-// Build Agent Catalog entries. Their IDs can be passed to ContextLibrary.read().
+// Build Agent Catalog entries. Their IDs can be passed to ContextLibrary.read(). Entries carry the
+// `skill` marker so the Workshop can apply the deployment's skill curation before the catalog
+// reaches the agent.
 export function buildAgentSkillCatalogEntries(
-    loaded: CollectionSkills[]): Array<{id: string, title: string, description: string}> {
-  let entries: Array<{id: string, title: string, description: string}> = [];
+    loaded: CollectionSkills[])
+    : Array<{id: string, title: string, description: string, skill: true}> {
+  let entries: Array<{id: string, title: string, description: string, skill: true}> = [];
   for (let {collection, skills} of loaded) {
     for (let skill of skills) {
       entries.push({
@@ -53,11 +56,42 @@ export function buildAgentSkillCatalogEntries(
         title: skill.skillName,
         description: `Agent Skill. Read with env[N].read(id) and ` +
           `console.log(document.content). ${skill.description}`,
+        skill: true,
       });
     }
   }
   return entries.toSorted((left, right) =>
     left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
+}
+
+// How many collections to query at once when assembling skills across collections.
+export const COLLECTION_SKILL_FANOUT = 8;
+
+// Load each collection's skill index via `load`, batched to COLLECTION_SKILL_FANOUT concurrent
+// requests. A collection whose index fails to load is skipped (logged) rather than failing the
+// whole listing.
+export async function loadSkillsForCollections(
+    collections: EnabledCollectionInfo[],
+    load: (collectionId: string) => Promise<SkillIndexEntry[]>): Promise<CollectionSkills[]> {
+  let result: CollectionSkills[] = [];
+  for (let offset = 0; offset < collections.length; offset += COLLECTION_SKILL_FANOUT) {
+    let batch = await Promise.all(
+      collections.slice(offset, offset + COLLECTION_SKILL_FANOUT).map(async collection => {
+        try {
+          return {collection, skills: await load(collection.id)};
+        } catch (error) {
+          console.error("Failed to load skills from Context collection:", {
+            collectionId: collection.id,
+            error,
+          });
+          return null;
+        }
+      }));
+    for (let entry of batch) {
+      if (entry) result.push(entry);
+    }
+  }
+  return result;
 }
 
 // Context builds this complete message. Workshop stores it as normal chat text.

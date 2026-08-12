@@ -1,4 +1,4 @@
-import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, TeamRole, TeamView, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, TeamRole, TeamView, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
@@ -17,6 +17,11 @@ import { FORMAT_BLUEPRINTS } from './generated/format-blueprints.js';
 import * as teamDirectory from './team-directory.js';
 
 const logger = createWorkshopLogger("workshop.admin.settings");
+
+// listDeploymentSkills is optional on GatekeeperVendor (like createAccount): callers gate on
+// VendorDescription.providesAgentSkills and view the stub through the Required shape, since RPC
+// stub types don't narrow optional methods.
+type SkillListerStub = Required<Pick<GatekeeperVendor, "listDeploymentSkills">>;
 
 function makeAdminSettingsStorage(storage: DurableObjectStorage) {
   return createTypedStorage(storage, {
@@ -324,6 +329,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
       accentColor: config.accentColor,
       resourceVendors: await this.#listResourceConfig(config, adminUserId),
       formats: await this.#listFormatConfig(config),
+      skills: await this.#listSkillConfig(config),
     };
   }
 
@@ -496,6 +502,60 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
 
   async setFormatOrder(blueprintIds: string[]): Promise<void> {
     await this.#mutateFormats(formats => reorderFormats(formats, blueprintIds));
+  }
+
+  // --- Agent skills ---
+
+  // Admin view of the deployment's agent skills: every skill hosted by a skills-providing vendor
+  // (e.g. public Drive folders), joined with the deployment's curation. Skills are keyed by name;
+  // the same name in several folders is one row (curation applies to all of them). A disabled name
+  // whose skill has since disappeared is kept and flagged `missing` so the admin can clear it.
+  async #listSkillConfig(config: AdminConfig): Promise<AdminSkill[]> {
+    let disabled = new Set(config.disabledSkills);
+
+    let listings = await Promise.all([...this.vendors].map(async ([id, vendor]) => {
+      try {
+        if ((await vendor.describe()).providesAgentSkills !== true) return [];
+        return await (vendor as unknown as SkillListerStub).listDeploymentSkills();
+      } catch (err) {
+        logger.warn("failed to list deployment skills for gatekeeper", {
+          event: "gatekeeper.skills.list.failed", gatekeeperId: id, error: err,
+        });
+        return [];
+      }
+    }));
+
+    let byName = new Map<string, AdminSkill>();
+    for (let skill of listings.flat()) {
+      let existing = byName.get(skill.name);
+      if (existing) {
+        if (!existing.sources.includes(skill.source)) existing.sources.push(skill.source);
+      } else {
+        byName.set(skill.name, {
+          name: skill.name,
+          description: skill.description,
+          sources: [skill.source],
+          enabled: !disabled.has(skill.name),
+          missing: false,
+        });
+      }
+    }
+    for (let name of disabled) {
+      if (!byName.has(name)) {
+        byName.set(name, {name, description: "", sources: [], enabled: false, missing: true});
+      }
+    }
+    return [...byName.values()].toSorted((a, b) => a.name.localeCompare(b.name));
+  }
+
+  // Enable/disable a single agent skill atomically (read-modify-write within the DO). Enabling is
+  // also how a stale (`missing`) curation entry is cleared: the disabled set is the whole state.
+  async setSkillEnabled(name: string, enabled: boolean): Promise<void> {
+    await this.#mutateAdminConfig(config => {
+      let disabled = new Set(config.disabledSkills);
+      if (enabled) disabled.delete(name); else disabled.add(name);
+      return { ...config, disabledSkills: [...disabled] };
+    });
   }
 
   // Enable/disable a single gatekeeper resource type atomically (read-modify-write within the DO).
@@ -738,6 +798,15 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
 
   setFormatOrder(blueprintIds: string[]): Promise<void> {
     return this.admin.setFormatOrder(blueprintIds);
+  }
+
+  async setSkillEnabled(name: string, enabled: boolean): Promise<void> {
+    // Same bound as the SKILL.md frontmatter schema, so a name that can't belong to any skill
+    // can't grow the config; the shape stays free-form since curation may outlive the skill.
+    if (!name.trim() || name.length > 64) {
+      throw new Error("Invalid skill name.");
+    }
+    await this.admin.setSkillEnabled(name, enabled);
   }
 
   addModel(profile: AiChatAuthorInfo, config: AiModelConfig): Promise<void> {

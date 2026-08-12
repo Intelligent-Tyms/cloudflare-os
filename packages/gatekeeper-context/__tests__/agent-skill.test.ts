@@ -165,10 +165,12 @@ describe("buildAgentSkillCommands", () => {
       id: "engineering/deploy/SKILL.md",
       title: "deploy",
       description: "Agent Skill. Read with env[N].read(id) and console.log(document.content). Deploy for engineering",
+      skill: true,
     }, {
       id: "sales/deploy/SKILL.md",
       title: "deploy",
       description: "Agent Skill. Read with env[N].read(id) and console.log(document.content). Deploy for sales",
+      skill: true,
     }]);
   });
 

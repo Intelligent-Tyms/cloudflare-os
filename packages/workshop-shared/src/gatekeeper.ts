@@ -68,7 +68,24 @@ export type VendorDescription = {
   // The account — not the vendor — declares whether it provides an agent singleton and/or a
   // management UI (see AccountDescription.singleton / .providesUi).
   autoProvisionsAccount?: boolean;
+
+  // If set, this vendor hosts deployment-wide Agent Skills and implements
+  // GatekeeperVendor.listDeploymentSkills(). Like createAccount, callers gate on this flag rather
+  // than probing, since RPC stubs cannot report optional-method presence.
+  providesAgentSkills?: boolean;
 }
+
+// One deployment-wide Agent Skill a vendor hosts, as the admin skill curation panel sees it.
+// Purely descriptive: enablement is the Workshop's (AdminConfig.disabledSkills), not the vendor's.
+export type DeploymentSkillInfo = {
+  // The skill's name (SKILL.md frontmatter `name`): lowercase kebab-case, at most 64 characters.
+  // This is the identity the deployment curates by, and what users type after `/`.
+  name: string;
+  // The skill's own description of when to use it (frontmatter `description`).
+  description: string;
+  // Human-readable label of where the skill lives (e.g. a Drive folder title), for the admin panel.
+  source: string;
+};
 
 // Per-open context the Workshop passes to GatekeeperUser.startAppUi(). `isAdmin` is supplied fresh
 // each time rather than baked into the account, since a user's admin status can change over time.
@@ -89,6 +106,9 @@ export type AgentCatalogEntry = {
   title: string;
   // One-line description of what the item is, to help the agent decide if it's relevant.
   description: string;
+  // Marks an Agent Skill entry (its title is the skill name). The Workshop uses this to apply the
+  // deployment's skill curation (AdminConfig.disabledSkills) before the catalog reaches the agent.
+  skill?: boolean;
 };
 
 // The discovery metadata returned for one gatekeeper session.
@@ -125,6 +145,7 @@ export function boundAgentCatalog(
       id: entry.id.slice(0, AGENT_CATALOG_MAX_ID_LENGTH),
       title: entry.title.slice(0, AGENT_CATALOG_MAX_TITLE_LENGTH),
       description: entry.description.slice(0, AGENT_CATALOG_MAX_DESCRIPTION_LENGTH),
+      ...(entry.skill ? {skill: true} : {}),
     })),
     truncated: entries.length > limit,
   };
@@ -443,6 +464,13 @@ export interface GatekeeperVendor extends WorkerEntrypoint {
   // set VendorDescription.autoProvisionsAccount; callers gate on that flag rather than probing, since
   // RPC stubs cannot report optional-method presence.
   createAccount?(): Promise<Fetcher<GatekeeperUser>>;
+
+  // List the deployment-wide Agent Skills this vendor hosts (e.g. skills in public Drive folders),
+  // for the admin skills panel. Descriptive only — no per-user data, and returning a skill grants
+  // nothing: what the agent sees is still decided by the Workshop's curation and each account's own
+  // sessions. Present only on vendors that set VendorDescription.providesAgentSkills; callers gate
+  // on that flag rather than probing.
+  listDeploymentSkills?(): Promise<DeploymentSkillInfo[]>;
 }
 
 export interface GatekeeperConnectCallback extends WorkerEntrypoint {

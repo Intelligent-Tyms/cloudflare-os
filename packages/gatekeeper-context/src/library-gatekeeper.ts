@@ -10,7 +10,7 @@ import type {
   VendorDescription, AccountDescription, AgentCatalog, AgentCatalogRequest,
   AppUiContext, GatekeeperUser, GatekeeperUiFrame, ApprovalQueue, ObservationAuthorizer,
   GatekeeperConnectCallback, GatekeeperConnectOptions, SupportedResource,
-  Gatekeeper, GatekeeperUserVerifier, ResourceDescription, ActionKind,
+  Gatekeeper, GatekeeperUserVerifier, ResourceDescription, ActionKind, DeploymentSkillInfo,
   SlashCommandDescriptor, SlashCommandProvider, SlashCommandResult,
 } from "@gadgets/workshop-shared/gatekeeper";
 import { LibraryReadSession } from "./library-read.js";
@@ -19,10 +19,11 @@ import { ContextObserverTracker } from "./context-observers.js";
 import type { ContextVerifierApi } from "./context-observers.js";
 import {
   buildAgentSkillCatalogEntries, buildAgentSkillCommands, buildAgentSkillMessage,
-  parseSkillManifest,
+  loadSkillsForCollections, parseSkillManifest,
   type CollectionSkills,
 } from "./agent-skill.js";
 import type { EnabledCollectionInfo } from "./context-types.js";
+import { listPublicCollectionsFromKv } from "./collection-kv.js";
 import { domainName, DEFAULT_SHARING_DOMAIN } from "./domain.js";
 import APP_HTML from "./generated/app.txt";
 
@@ -39,8 +40,6 @@ const LIBRARY_ICON = {
     "<line x1='10' x2='10.01' y1='16' y2='16'/>" +
     "</svg>"),
 };
-
-const COLLECTION_SKILL_FANOUT = 8;
 
 class ContextSlashCommandProvider extends NativeRpcTarget
     implements SlashCommandProvider {
@@ -227,31 +226,12 @@ export class ContextGatekeeper
     return new ContextObserverTracker(this.ctx.storage.kv, this.ctx.props.sharingDomain);
   }
 
-  async #loadSkills(
-      collections: EnabledCollectionInfo[]):
-      Promise<CollectionSkills[]> {
-    let result: CollectionSkills[] = [];
-    for (let offset = 0; offset < collections.length; offset += COLLECTION_SKILL_FANOUT) {
-      let batch = await Promise.all(
-        collections.slice(offset, offset + COLLECTION_SKILL_FANOUT).map(async collection => {
-          try {
-            let id = this.#collections().idFromName(
-                domainName(this.ctx.props.sharingDomain, collection.id));
-            let skills = await this.#collections().get(id).listAgentSkills();
-            return {collection, skills};
-          } catch (error) {
-            console.error("Failed to load skills from Context collection:", {
-              collectionId: collection.id,
-              error,
-            });
-            return null;
-          }
-        }));
-      for (let entry of batch) {
-        if (entry) result.push(entry);
-      }
-    }
-    return result;
+  #loadSkills(collections: EnabledCollectionInfo[]): Promise<CollectionSkills[]> {
+    return loadSkillsForCollections(collections, collectionId => {
+      let id = this.#collections().idFromName(
+          domainName(this.ctx.props.sharingDomain, collectionId));
+      return this.#collections().get(id).listAgentSkills();
+    });
   }
 
   async describe(): Promise<ResourceDescription> {
@@ -402,7 +382,33 @@ export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env, Gatekeepe
         "connection needed.",
       autoProvisionsAccount: true,
       providesAuth: false,
+      providesAgentSkills: true,
     };
+  }
+
+  // The deployment-wide skills: every skill in this domain's public collections. Descriptive
+  // metadata for the admin skills panel only — private collections stay out (they are one
+  // account's, not the deployment's), and enablement is the Workshop's curation, not ours.
+  async listDeploymentSkills(): Promise<DeploymentSkillInfo[]> {
+    let sharingDomain = this.ctx.props.sharingDomain ?? DEFAULT_SHARING_DOMAIN;
+    let collections: EnabledCollectionInfo[] =
+        (await listPublicCollectionsFromKv(this.env, sharingDomain)).map(summary => ({
+          id: summary.id,
+          title: summary.title,
+          description: summary.description,
+          icon: summary.icon,
+          source: "public",
+          lastUpdated: summary.lastUpdated,
+        }));
+    let namespace = this.ctx.exports.ContextCollectionDurableObject;
+    let loaded = await loadSkillsForCollections(collections, collectionId =>
+      namespace.get(namespace.idFromName(domainName(sharingDomain, collectionId)))
+          .listAgentSkills());
+    return loaded.flatMap(({collection, skills}) => skills.map(skill => ({
+      name: skill.skillName,
+      description: skill.description,
+      source: collection.title,
+    })));
   }
 
   // Mint a fresh account capability with no user identity.

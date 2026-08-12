@@ -748,6 +748,31 @@ export type AdminSettingsView = {
   resourceVendors: AdminResourceVendor[];
   // The blueprints promoted as standard output formats, in menu order (including disabled ones).
   formats: AdminFormat[];
+  // Every deployment-wide agent skill, with enabled state (not hidden when disabled).
+  skills: AdminSkill[];
+};
+
+// One deployment-wide agent skill, as the admin Skills panel sees it: the skill's own metadata
+// joined with the deployment's curation. Skills are authored as SKILL.md files in shared (public)
+// Drive folders; this panel only curates which ones are offered.
+export type AdminSkill = {
+  // The skill name (lowercase kebab-case): the identity curation keys on, and what users type
+  // after `/`.
+  name: string;
+
+  // The skill's own description of when to use it.
+  description: string;
+
+  // Where the skill lives (e.g. Drive folder titles). Multiple when the same name appears in more
+  // than one folder — curation applies to all of them.
+  sources: string[];
+
+  // Offered to users and the agent. Everything is enabled by default; disabling is the curation.
+  enabled: boolean;
+
+  // A skill that was disabled and has since disappeared (its folder or file was removed). Skipped
+  // everywhere else; the panel surfaces it so the admin can clear the stale curation by re-enabling.
+  missing: boolean;
 };
 
 // One promoted blueprint, as the admin Formats panel sees it: the deployment's curation plus
@@ -869,6 +894,14 @@ export interface AdminApi {
 
   // Reorder the menu. `blueprintIds` must be a permutation of the currently promoted ids.
   setFormatOrder(blueprintIds: string[]): Promise<void>;
+
+  // --- Agent skills ---
+
+  // Enable or disable one agent skill, by name, for the whole deployment. Skills are enabled by
+  // default; disabling hides the skill from the slash-command picker and the agent's catalog, and
+  // refuses its invocation. Soft enforcement, like resources: a chat that already read the skill's
+  // text keeps it. Re-enabling a `missing` skill simply clears the stale curation entry.
+  setSkillEnabled(name: string, enabled: boolean): Promise<void>;
 
   // --- Deployment AI models ---
   //
