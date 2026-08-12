@@ -25,7 +25,7 @@ import { deploymentOutputForBlueprint, FormatOffer, listFormatOffers, readAdminC
 import { foldProposedChanges, isCompactionTurn, type ChangeBatch } from "./agent-compaction";
 import { ambientGatekeeperMode } from "./provisioning-policy";
 import { listFeaturedBlueprintsFromKv, readBlueprintContent, readBlueprintKvRecord, sanitizeBlueprintOutput } from "./blueprint-archive";
-import { WebFetchEnv } from "./web-fetch";
+import { WebFetchEnv, convertBytesToMarkdown } from "./web-fetch";
 import { UserDurableObject, UserAiModelRecord, type UserChatContext, type WorkspaceOutputEntry } from "./user";
 import { AgentSpawnerBinding } from "./agent-spawner-binding";
 import { recordAnalytics } from "./analytics";
@@ -40,8 +40,10 @@ import { collectSlashCommands, invokeSlashCommand } from "./slash-commands";
 import { createWorkshopLogger, obsContext } from "./observability";
 import type { ChatGatewayRpcTarget, SubmitExternalMessageResult } from "@gadgets/workshop-shared/external-message-gateway";
 import {
+  MAX_CHAT_ATTACHMENT_BYTES,
   assertChatAttachmentSupportedByProvider,
   isAllowedChatAttachmentImageMimeType,
+  isConvertibleDocumentAttachment,
   validateChatAttachmentUpload,
 } from "./chat-attachment-validation";
 import { renderGadgetPdf } from "./browser-export";
@@ -8083,6 +8085,30 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
       attachment,
       provider,
     );
+
+    // Convertible documents (Office/OpenDocument/Numbers) become Markdown at the door, so the
+    // stored attachment IS the text every provider takes — replay, display, and download all see
+    // exactly what the model sees, and conversion happens once rather than per turn. This is the
+    // same free toMarkdown() path webFetch uses; the original binary is deliberately not kept.
+    // Deliberately NOT gated on the workspace's sharing prohibition (unlike getWebFetchEnv):
+    // that guard prevents exfiltration via attacker-chosen URLs, whereas this sends user-supplied
+    // bytes to the deployment's own Workers AI binding.
+    if (isConvertibleDocumentAttachment(attachment.mimeType)) {
+      let markdown = await convertBytesToMarkdown(
+        { ai: this.impl.env.WORKERS_AI, gateway: getAiGatewayConfig(this.impl.env) },
+        attachment.name ?? "document",
+        attachment.content,
+        attachment.mimeType,
+        { gatewayTool: "chatAttachment" },
+      );
+      let content = new TextEncoder().encode(markdown);
+      if (content.byteLength > MAX_CHAT_ATTACHMENT_BYTES) {
+        throw new Error(
+            "This document is too large once converted to text. Try attaching a smaller " +
+            "portion of it.");
+      }
+      attachment = { ...attachment, mimeType: "text/markdown", content };
+    }
 
     this.impl.sweepStagedChatAttachments();
 

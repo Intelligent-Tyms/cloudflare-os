@@ -175,40 +175,34 @@ const TO_MARKDOWN_MIME_TYPES = new Set([
 // resolved by AiGatewayConfig. A cross-account platform gateway cannot be used by this binding.
 function buildGatewayOptions(
   gateway: AiGatewayConfig | null,
+  tool: string,
 ): GatewayOptions | undefined {
   if (!gateway) return undefined;
   if (!gateway.workersAiGateway) return undefined;
-  return { id: gateway.workersAiGateway, metadata: { tool: "webFetch", automated: true } };
+  return { id: gateway.workersAiGateway, metadata: { tool, automated: true } };
 }
 
-// Attempt to convert a document to Markdown using the Workers AI binding. Returns the
-// Markdown body on success, or null if the document's MIME type isn't in the supported
-// allow-list. Throws (with a contextual error) if the conversion itself fails.
-async function convertToMarkdown(
+// Core toMarkdown() call, shared by webFetch and chat-attachment ingestion. `name` is the
+// filename hint toMarkdown's format detection uses; `gatewayTool` labels the request in AI
+// Gateway logs. Throws (with a contextual error) if the conversion fails.
+export async function convertBytesToMarkdown(
   env: WebFetchEnv,
+  name: string,
   bytes: Uint8Array,
-  contentType: string,
-  url: URL,
-): Promise<string | null> {
-  const mime = baseContentType(contentType);
-  if (!TO_MARKDOWN_MIME_TYPES.has(mime)) {
-    return null;
-  }
-
-  // Build a name from the URL path so toMarkdown's format detection has a hint.
-  const pathBasename = url.pathname.split("/").filter(Boolean).pop() || "document";
-
+  mime: string,
+  options?: { htmlOrigin?: string; gatewayTool?: string },
+): Promise<string> {
   const result = await env.ai.toMarkdown(
     {
-      name: pathBasename,
+      name,
       blob: new Blob([bytes], { type: mime }),
     },
     {
-      gateway: buildGatewayOptions(env.gateway),
+      gateway: buildGatewayOptions(env.gateway, options?.gatewayTool ?? "webFetch"),
       conversionOptions: {
-        // Resolve relative links against the page's own origin.
         html: {
-          hostname: url.origin,
+          // Resolve relative links against the page's own origin, when the caller has one.
+          ...(options?.htmlOrigin ? { hostname: options.htmlOrigin } : {}),
           // Skip per-image summarization (which would invoke paid Workers AI models). The
           // agent gets a Markdown skeleton with image alt text and src URLs, which is
           // sufficient for documentation-lookup use cases.
@@ -222,6 +216,24 @@ async function convertToMarkdown(
     throw new Error(`Markdown conversion failed: ${result.error}`);
   }
   return result.data;
+}
+
+// Attempt to convert a fetched document to Markdown. Returns the Markdown body on success, or
+// null if the document's MIME type isn't in the supported allow-list.
+async function convertToMarkdown(
+  env: WebFetchEnv,
+  bytes: Uint8Array,
+  contentType: string,
+  url: URL,
+): Promise<string | null> {
+  const mime = baseContentType(contentType);
+  if (!TO_MARKDOWN_MIME_TYPES.has(mime)) {
+    return null;
+  }
+
+  // Build a name from the URL path so toMarkdown's format detection has a hint.
+  const pathBasename = url.pathname.split("/").filter(Boolean).pop() || "document";
+  return convertBytesToMarkdown(env, pathBasename, bytes, mime, { htmlOrigin: url.origin });
 }
 
 
