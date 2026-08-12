@@ -151,6 +151,60 @@ export function boundAgentCatalog(
   };
 }
 
+// Agent Skills are named instruction packages (SKILL.md files) a gatekeeper can host. Unlike
+// catalog entries, they get their own system-prompt section (<available_skills>) and their own
+// budget, so a deployment's skills don't crowd out resource discovery. Like the catalog, the list
+// is untrusted data injected into the agent's context, so it is size-capped on both sides.
+
+// One skill offered through a gatekeeper session.
+export type AgentSkillInfo = {
+  // Opaque, gatekeeper-defined identifier the Workshop passes to readAgentSkill().
+  id: string;
+  // The skill's name (SKILL.md frontmatter `name`): what the model asks loadSkill for, and the
+  // identity deployment curation keys on.
+  name: string;
+  // The skill's description of when to use it (frontmatter `description`).
+  description: string;
+};
+
+// The skills returned for one gatekeeper session.
+export type AgentSkillList = {
+  // The skills, already truncated to the maximum count.
+  skills: AgentSkillInfo[];
+  // True if skills were dropped to fit the limit, so the agent knows the list is partial.
+  truncated?: boolean;
+};
+
+// One skill's full instructions, as returned by Gatekeeper.readAgentSkill().
+export type AgentSkillContent = {
+  // The skill's name, re-derived from the manifest (not echoed from the request).
+  name: string;
+  // The complete SKILL.md text (frontmatter included).
+  content: string;
+};
+
+// Hard caps the Workshop enforces on any skill list, regardless of what the gatekeeper returns.
+// The description cap matches the SKILL.md frontmatter bound (1024) rather than the catalog's 400:
+// the description is exactly what the model uses to decide when to load a skill.
+export const AGENT_SKILLS_MAX_ENTRIES = 64;
+export const AGENT_SKILL_MAX_ID_LENGTH = 256;
+export const AGENT_SKILL_MAX_NAME_LENGTH = 64;
+export const AGENT_SKILL_MAX_DESCRIPTION_LENGTH = 1024;
+
+// Helper for gatekeepers to produce a well-formed AgentSkillList: truncates each field to its cap,
+// clamps the count, and sets `truncated` when skills were dropped. Gatekeepers should call this
+// rather than hand-rolling the limits.
+export function boundAgentSkillList(skills: AgentSkillInfo[]): AgentSkillList {
+  return {
+    skills: skills.slice(0, AGENT_SKILLS_MAX_ENTRIES).map(skill => ({
+      id: skill.id.slice(0, AGENT_SKILL_MAX_ID_LENGTH),
+      name: skill.name.slice(0, AGENT_SKILL_MAX_NAME_LENGTH),
+      description: skill.description.slice(0, AGENT_SKILL_MAX_DESCRIPTION_LENGTH),
+    })),
+    ...(skills.length > AGENT_SKILLS_MAX_ENTRIES ? {truncated: true} : {}),
+  };
+}
+
 // Describes a connected user account on an external service, for display purposes.
 export type AccountDescription = {
   // User's display name, e.g. "John Doe". This is a non-unique name that is human-readable.
@@ -660,6 +714,24 @@ export interface Gatekeeper<Session> extends DurableObject {
     request: AgentCatalogRequest,
     authorizer: RpcStub<ObservationAuthorizer>,
   ): Promise<AgentCatalog | null>;
+
+  // The Agent Skills reachable through this gatekeeper's session, for the system prompt's
+  // <available_skills> section. Separate from getAgentCatalog so skills have their own budget and
+  // don't crowd resource discovery. Listing is an observation (it reveals skill names and
+  // descriptions), so the implementation must authorize it via `authorizer.authorizeObservation()`
+  // before returning metadata. Returns null when the gatekeeper hosts no skills. Use
+  // `boundAgentSkillList()` to enforce the size limits.
+  listAgentSkills?(
+    authorizer: RpcStub<ObservationAuthorizer>,
+  ): Promise<AgentSkillList | null>;
+
+  // One skill's full instructions, by an id previously returned from listAgentSkills(). Backs the
+  // Workshop's loadSkill tool. Reading is an observation and must be authorized like any session
+  // read. Must reject ids that don't resolve to a skill.
+  readAgentSkill?(
+    id: string,
+    authorizer: RpcStub<ObservationAuthorizer>,
+  ): Promise<AgentSkillContent>;
 
   // Informs the gatekeeper that a new user is being added to the Gadget with the potential to see
   // all data that was read from this Gatekeeper in the past.

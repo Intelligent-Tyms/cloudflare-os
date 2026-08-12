@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  isSkillManifestPath, buildAgentSkillCatalogEntries, buildAgentSkillCommands,
+  isSkillManifestPath, buildAgentSkillCommands, buildAgentSkillList,
   buildAgentSkillMessage, parseSkillManifest,
   type CollectionSkills,
 } from "../src/agent-skill";
@@ -161,16 +161,12 @@ describe("buildAgentSkillCommands", () => {
       description: "Deploy for engineering",
       resourceLabel: "Engineering Runbooks · deploy/SKILL.md",
     }]);
-    expect(buildAgentSkillCatalogEntries(loaded)).toEqual([{
+    // The skill list resolves by name, so a duplicated name keeps only one entry — the first in
+    // sorted (name, then id) order, making the winner stable across loads.
+    expect(buildAgentSkillList(loaded)).toEqual([{
       id: "engineering/deploy/SKILL.md",
-      title: "deploy",
-      description: "Agent Skill. Read with env[N].read(id) and console.log(document.content). Deploy for engineering",
-      skill: true,
-    }, {
-      id: "sales/deploy/SKILL.md",
-      title: "deploy",
-      description: "Agent Skill. Read with env[N].read(id) and console.log(document.content). Deploy for sales",
-      skill: true,
+      name: "deploy",
+      description: "Deploy for engineering",
     }]);
   });
 

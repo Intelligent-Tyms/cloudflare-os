@@ -1,6 +1,6 @@
 import { AiChatMessage, AiChatAuthorInfo, AiToolCall, AiChatMessageBody, AgentSpawnerConfig, AiChatStreamEvent, BlueprintOutput, WorkpieceId, type AiModelConfig, type AssistantProfile, isTextLikeAttachmentMimeType, validateBindingName } from '@gadgets/workshop-shared/api';
 import { PDF_MIME_TYPE, modelApiSupportsPdfAttachments } from './chat-attachment-pdf';
-import { AgentCatalog, ObservationDescription } from '@gadgets/workshop-shared/gatekeeper';
+import { AgentCatalog, AgentSkillList, ObservationDescription } from '@gadgets/workshop-shared/gatekeeper';
 import { createWorkshopLogger } from "./observability";
 import * as Y from "yjs";
 import { Type } from "@earendil-works/pi-ai";
@@ -13,7 +13,7 @@ import {
 import { RpcStub as NativeRpcStub } from "cloudflare:workers";
 import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff";
 import { webFetch as webFetchImpl, WebFetchEnv, formatWebFetchResult } from "./web-fetch";
-import { AgentCatalogSnapshot, formatAlwaysAvailableResourcesPrompt } from "./agent-catalog";
+import { AgentCatalogSnapshot, AgentSkillSnapshot, formatAlwaysAvailableResourcesPrompt, formatAvailableSkillsPrompt } from "./agent-catalog";
 import { formatInstanceInstructions, formatOrganizationProfile } from "./admin-config";
 import { formatAssistantProfile } from "./assistant-profile.js";
 import { PRESENTATION_PROMPT } from "./presentation.js";
@@ -66,6 +66,10 @@ export type AiChatAgentContext = {
   // Cached discovery catalogs for the always-available resources, keyed per gatekeeper.
   // Regenerable: re-fetched when missing/stale (see prepareChatBindings).
   alwaysAvailableCatalogs?: AgentCatalogSnapshot[];
+
+  // Cached Agent Skill lists for the always-available resources, keyed per gatekeeper. Cached and
+  // regenerated exactly like the catalogs; rendered as the <available_skills> prompt section.
+  alwaysAvailableSkills?: AgentSkillSnapshot[];
 };
 
 // One entry of the chat's seed binding layer, as returned by AgentHooks.prepareChatBindings():
@@ -84,6 +88,11 @@ export type SeedBindingInfo = {
   // connected account that provides a singleton; carries its progressive-discovery catalog (null
   // when the gatekeeper provides none). Such entries get their own system-prompt section.
   catalog?: AgentCatalog | null;
+
+  // The Agent Skills this always-available resource hosts (null when it hosts none), already
+  // filtered by the deployment's skill curation. Rendered as the <available_skills> section and
+  // resolved against by the loadSkill tool.
+  skills?: AgentSkillList | null;
 };
 
 // One entry of the chat's binding map: what a name in the agent's executeCode `env` resolves to.
@@ -260,6 +269,12 @@ export interface AgentHooks {
   // for the agent's describeBinding tool. (`envName` is provided here only so that it can be
   // incorporated into the returned description.)
   describeBinding(envName: string, id: WorkpieceId): Promise<string>;
+
+  // Load one Agent Skill's full instructions by name, for the agent's loadSkill tool. Resolved
+  // against the chat's cached skill snapshots (see AiChatAgentContext.alwaysAvailableSkills) with
+  // the deployment's skill curation re-checked live. Throws an agent-readable error for an
+  // unknown or disabled skill.
+  loadAgentSkill(chatId: number, name: string): Promise<string>;
 
   // Add a binding to the given gadget, pointing at the given workpiece. The binding is provisional
   // to the chat. The caller is responsible for getting the addition recorded in the chat log (see
@@ -1387,6 +1402,13 @@ export async function runAgent(
           ({title: seed.title, name: seed.name, catalog: seed.catalog!})))
       : "";
 
+  // Agent Skills hosted by the always-available resources, flattened across resources (already
+  // deduplicated per list; the loadSkill tool resolves a cross-resource name collision to the
+  // first match the same way). Like the resources section, this describes the environment, so it
+  // lives in slot 1 — stable within a chat, since the skill snapshots are frozen per chat.
+  let availableSkillsPrompt = formatAvailableSkillsPrompt(
+      seedBindings.flatMap(seed => seed.skills?.skills ?? []));
+
   // Agent-callback bindings are named PARAMS_1, PARAMS_2, ... in replay order, skipping any name
   // already taken in scope. This is the authoritative allocation; chatScopeNames and the naming
   // chokepoint in overseer.ts simulate it (so name-choosing paths there can't claim a name a
@@ -1699,6 +1721,7 @@ export async function runAgent(
                 case "listBlueprints":
                 case "listConnectableResources":
                 case "requestConnection":
+                case "loadSkill":
                   toolOutput = {text: toolCall.output ?? ""};
                   break;
                 default:
@@ -2103,9 +2126,8 @@ export async function runAgent(
     // Split the system prompt into static and dynamic parts for better caching.
     systemPromptSlots = [
       staticSlotFor(SPAWNER_SYSTEM_PROMPT),
-      alwaysAvailableResourcesPrompt
-          ? `${systemPromptBindings}\n\n${alwaysAvailableResourcesPrompt}`
-          : systemPromptBindings,
+      [systemPromptBindings, alwaysAvailableResourcesPrompt, availableSkillsPrompt]
+          .filter(s => s).join("\n\n"),
     ];
   } else {
     // This is a regular coding agent.
@@ -2221,7 +2243,8 @@ export async function runAgent(
       (assistantProfile ? `${assistantProfile}\n\n` : "") +
           (standardFormats ? `${standardFormats}\n\n` : "") +
           `${systemPromptWorkspace}${systemPromptConnections}` +
-          (alwaysAvailableResourcesPrompt ? `\n\n${alwaysAvailableResourcesPrompt}` : ""),
+          (alwaysAvailableResourcesPrompt ? `\n\n${alwaysAvailableResourcesPrompt}` : "") +
+          (availableSkillsPrompt ? `\n\n${availableSkillsPrompt}` : ""),
     ];
   }
 
@@ -2508,6 +2531,31 @@ export async function runAgent(
       execute: async (toolCallId, {name}) => {
         try {
           return toolResult(await resolveBindingDescription(name, chatBindings, hooks));
+        } catch (error) {
+          toolCallNotes.set(toolCallId, {
+            error: toolErrorText(error)
+          });
+          throw error;
+        }
+      }
+    }),
+
+    loadSkill: defineTool({
+      name: "loadSkill",
+      label: "Load skill",
+      description:
+          "Load an Agent Skill's full instructions. Skills are listed under <available_skills> " +
+          "in your system prompt; call this with a skill's name when the task matches its " +
+          "description, then follow the returned instructions.",
+      parameters: Type.Object({
+        name: Type.String({description: "The skill's name, exactly as listed in <available_skills>."}),
+      }),
+      execute: async (toolCallId, {name}) => {
+        try {
+          // Recorded as the tool's output so history replay doesn't re-read the skill (whose
+          // content may have changed since — the agent acted on this text).
+          let content = await hooks.loadAgentSkill(chatId, name);
+          return toolResult(content, {output: content} as Partial<AiToolCall>);
         } catch (error) {
           toolCallNotes.set(toolCallId, {
             error: toolErrorText(error)
@@ -2861,6 +2909,7 @@ export async function runAgent(
     // (which is how they read reference knowledge), but not the full editing/connection surface.
     tools = {
       describeBinding: tools.describeBinding,
+      loadSkill: tools.loadSkill,
       executeCode: tools.executeCode,
       ...(callbackInitiated ? {giveUp: tools.giveUp} : {}),
     };

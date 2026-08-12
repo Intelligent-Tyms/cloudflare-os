@@ -32,7 +32,7 @@ import { recordAnalytics } from "./analytics";
 import { reportIssue } from "@gadgets/backend-utils/error-reporting";
 import type { ProductAnalyticsConnectionType, ProductAnalyticsGadgetInput } from "./analytics";
 import { checkUsageAndBalance } from "./ai-gateway-billing/limits/usage-checker";
-import { completeAgentCatalogSnapshot, normalizeAgentCatalog, removeDisabledSkillEntries } from "./agent-catalog";
+import { completeAgentCatalogSnapshot, completeAgentSkillSnapshot, normalizeAgentCatalog, normalizeAgentSkillList, removeDisabledSkillEntries, removeDisabledSkills } from "./agent-catalog";
 import { refreshCachedBalance } from "./ai-gateway-billing/cloudflare/connection-service";
 import { SharingManager, SharingCaller, CollaboratorRecord, ShareKeyRecord } from "./sharing";
 import { AutoApprovalDrainer } from "./auto-approval";
@@ -159,6 +159,13 @@ type GatekeeperClass = DurableObjectClass<Gatekeeper<any>>;
 // shape to call it — same optional-method-on-a-stub pattern as user.ts's SingletonAccountStub.
 type CatalogGatekeeperFacet =
     Fetcher<Gatekeeper<any> & Required<Pick<Gatekeeper<any>, "getAgentCatalog">>>;
+
+// listAgentSkills/readAgentSkill are optional on Gatekeeper; most gatekeepers omit them. Unlike the
+// catalog there is no "always implemented for ambient" guarantee, so callers rely on the try/catch
+// around the RPC (a missing method throws) rather than probing.
+type SkillsGatekeeperFacet =
+    Fetcher<Gatekeeper<any> &
+        Required<Pick<Gatekeeper<any>, "listAgentSkills" | "readAgentSkill">>>;
 
 type LegacyBlueprintBindingAnnotation = BlueprintBindingAnnotation & {
   included?: boolean;
@@ -4783,6 +4790,31 @@ class OverseerImpl implements AgentHooks {
       context.alwaysAvailableCatalogs = snapshots;
       dirty = true;
     }
+
+    // Complete/refresh the cached Agent Skill lists the same way. listAgentSkills is optional and
+    // most gatekeepers omit it, so a failed load — including the routine "not a function" from a
+    // gatekeeper that doesn't host skills — quietly caches null rather than logging per chat.
+    let skillsResult = await completeAgentSkillSnapshot(
+        context.alwaysAvailableSkills,
+        ambientIds,
+        async gatekeeperId => {
+          if (!this.storage.gatekeepers.get(gatekeeperId)) return null;
+          try {
+            using authorizer = new RpcStub<ObservationAuthorizer>(new ApprovalQueueImpl(
+                this, gatekeeperId, {from: "agent", chatId}));
+            let facet = this.getGatekeeperFacet(gatekeeperId) as unknown as SkillsGatekeeperFacet;
+            let list = await facet.listAgentSkills(
+                authorizer as unknown as ObservationAuthorizer);
+            return list ? normalizeAgentSkillList(list) : null;
+          } catch {
+            return null;
+          }
+        });
+    if (skillsResult.changed) {
+      context.alwaysAvailableSkills = skillsResult.snapshots;
+      dirty = true;
+    }
+
     if (dirty) {
       // The work above is async, so the chat could have been deleted meanwhile. Don't resurrect
       // its per-chat storage: deleteChat is the single cleanup point (see its comment) and
@@ -4799,6 +4831,8 @@ class OverseerImpl implements AgentHooks {
     let disabledSkills = new Set((await readAdminConfig(this.env)).disabledSkills);
     let catalogs = new Map(snapshots.map(entry =>
         [entry.gatekeeperId, removeDisabledSkillEntries(entry.catalog, disabledSkills)]));
+    let skillLists = new Map(skillsResult.snapshots.map(entry =>
+        [entry.gatekeeperId, removeDisabledSkills(entry.skills, disabledSkills)]));
     let ambientSet = new Set(ambientIds);
     let result: SeedBindingInfo[] = [];
     for (let [name, target] of Object.entries(seedMap)) {
@@ -4811,7 +4845,10 @@ class OverseerImpl implements AgentHooks {
       if (!gk) continue;
       let info: SeedBindingInfo =
           {name, target, title: gk.resourceTitle || "(untitled resource)", isGadget: false};
-      if (ambientSet.has(target)) info.catalog = catalogs.get(target) ?? null;
+      if (ambientSet.has(target)) {
+        info.catalog = catalogs.get(target) ?? null;
+        info.skills = skillLists.get(target) ?? null;
+      }
       result.push(info);
     }
     return result;
@@ -4836,6 +4873,32 @@ class OverseerImpl implements AgentHooks {
       providerLabel: resolveSiteName(config.siteName),
     }, ...(await collectSlashCommands(sources))
         .filter(command => !disabledSkills.has(command.name))];
+  }
+
+  // Load one Agent Skill's full text by name, for the agent's loadSkill tool. Resolution uses the
+  // chat's frozen skill snapshots (what <available_skills> was rendered from); curation is
+  // re-checked live, so a skill disabled mid-chat can no longer be loaded even while it stays
+  // listed until the next turn. Errors are agent-readable: the model sees them as tool failures.
+  async loadAgentSkill(chatId: number, name: string): Promise<string> {
+    let context = this.getChatAgentContext(chatId);
+    if ((await readAdminConfig(this.env)).disabledSkills.includes(name)) {
+      throw new Error(`The skill "${name}" is turned off for this deployment.`);
+    }
+    for (let entry of context.alwaysAvailableSkills ?? []) {
+      let skill = entry.skills?.skills.find(s => s.name === name);
+      if (!skill) continue;
+      // Disconnected since the chat froze its ambient set — inert, like its other capabilities.
+      if (!this.storage.gatekeepers.get(entry.gatekeeperId)) continue;
+      using authorizer = new RpcStub<ObservationAuthorizer>(new ApprovalQueueImpl(
+          this, entry.gatekeeperId, {from: "agent", chatId}));
+      let facet = this.getGatekeeperFacet(entry.gatekeeperId) as unknown as SkillsGatekeeperFacet;
+      let result = await facet.readAgentSkill(
+          skill.id, authorizer as unknown as ObservationAuthorizer);
+      return result.content;
+    }
+    throw new Error(
+        `Unknown skill: ${JSON.stringify(name)}. ` +
+        `Only skills listed in <available_skills> can be loaded.`);
   }
 
   // =======================================================================================

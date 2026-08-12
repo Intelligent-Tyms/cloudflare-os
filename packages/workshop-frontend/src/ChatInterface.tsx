@@ -47,6 +47,7 @@ import {
   Terminal,
   Globe,
   Search,
+  Sparkles,
   CircleHelp,
   ArrowUpRight,
   LayoutTemplate as Blueprint,
@@ -638,6 +639,8 @@ function getToolCallSummary(
       return { verb: "Edited", target: tc.input.filename };
     case "describeBinding":
       return { verb: "Inspected", target: `${String(tc.input.name)} binding` };
+    case "loadSkill":
+      return { verb: "Loaded skill", target: tc.input.name };
     case "setBindingHook":
       return {
         verb: "Connected",
@@ -753,6 +756,8 @@ function describeToolCallCount(toolName: AiToolCall["toolName"], count: number):
       return count === 1 ? "Ran code" : `Ran code ${formatTimes(count)}`;
     case "describeBinding":
       return `Inspected ${pluralize(count, "binding")}`;
+    case "loadSkill":
+      return `Loaded ${pluralize(count, "skill")}`;
     case "setBindingHook":
       return `Connected ${pluralize(count, "binding")}`;
     case "setGadgetBinding":
@@ -794,6 +799,8 @@ function getToolIcon(
       return Globe;
     case "describeBinding":
       return Search;
+    case "loadSkill":
+      return Sparkles;
     case "setBindingHook":
     case "setGadgetBinding":
     case "saveCapsuleAsBinding":
@@ -821,6 +828,8 @@ function getProvisionalToolLabel(toolName: AiToolCall["toolName"] | null | undef
       return "Editing file";
     case "describeBinding":
       return "Inspecting binding";
+    case "loadSkill":
+      return "Loading skill";
     case "setBindingHook":
       return "Connecting binding";
     case "setGadgetBinding":
@@ -853,6 +862,7 @@ function getProvisionalToolVerb(toolName: AiToolCall["toolName"]): string {
     case "writeFile": return "Writing";
     case "editFile": return "Editing";
     case "describeBinding": return "Inspecting";
+    case "loadSkill": return "Loading skill";
     case "setBindingHook": return "Connecting";
     case "setGadgetBinding": return "Wiring up";
     case "saveCapsuleAsBinding": return "Saving";
@@ -879,6 +889,7 @@ function describeProvisionalToolCount(toolName: AiToolCall["toolName"], count: n
     case "webFetch": return `Fetching ${pluralize(count, "page")}`;
     case "executeCode": return count === 1 ? "Running code" : `Running code ${formatTimes(count)}`;
     case "describeBinding": return `Inspecting ${pluralize(count, "binding")}`;
+    case "loadSkill": return `Loading ${pluralize(count, "skill")}`;
     case "setBindingHook": return `Connecting ${pluralize(count, "binding")}`;
     case "setGadgetBinding": return `Wiring up ${pluralize(count, "binding")}`;
     case "saveCapsuleAsBinding": return `Saving ${pluralize(count, "resource")}`;

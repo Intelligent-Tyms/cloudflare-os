@@ -1,8 +1,10 @@
 import {
   AGENT_CATALOG_MAX_DESCRIPTION_LENGTH, AGENT_CATALOG_MAX_ENTRIES,
   AGENT_CATALOG_MAX_ID_LENGTH, AGENT_CATALOG_MAX_TITLE_LENGTH,
+  AGENT_SKILL_MAX_DESCRIPTION_LENGTH, AGENT_SKILL_MAX_ID_LENGTH,
+  AGENT_SKILL_MAX_NAME_LENGTH, AGENT_SKILLS_MAX_ENTRIES,
 } from "@gadgets/workshop-shared/gatekeeper";
-import type { AgentCatalog } from "@gadgets/workshop-shared/gatekeeper";
+import type { AgentCatalog, AgentSkillInfo, AgentSkillList } from "@gadgets/workshop-shared/gatekeeper";
 import { createWorkshopLogger } from "./observability";
 
 const logger = createWorkshopLogger("workshop.agent.catalog");
@@ -10,6 +12,13 @@ const logger = createWorkshopLogger("workshop.agent.catalog");
 export type AgentCatalogSnapshot = {
   gatekeeperId: number;
   catalog: AgentCatalog | null;
+};
+
+// Cached skill list for one always-available resource, persisted beside the catalog snapshots in
+// the chat context (see AiChatAgentContext.alwaysAvailableSkills).
+export type AgentSkillSnapshot = {
+  gatekeeperId: number;
+  skills: AgentSkillList | null;
 };
 
 function normalizeText(value: string, maxLength: number): string {
@@ -40,37 +49,139 @@ export function normalizeAgentCatalog(catalog: AgentCatalog): AgentCatalog {
   };
 }
 
+// Generic core of the per-gatekeeper snapshot cache: keep entries for still-active gatekeepers,
+// load the missing ones (isolating per-entry failures as null so one bad loader can't lose every
+// other snapshot and abort the turn), and report whether anything changed. `what` labels failures
+// in the log.
+async function completeSnapshots<T>(
+    existing: Array<{gatekeeperId: number, data: T | null}> | undefined,
+    gatekeeperIds: number[],
+    load: (gatekeeperId: number) => Promise<T | null>,
+    what: string):
+    Promise<{snapshots: Array<{gatekeeperId: number, data: T | null}>, changed: boolean}> {
+  let activeIds = new Set(gatekeeperIds);
+  let existingCount = existing?.length ?? 0;
+  let byId = new Map(
+      existing
+          ?.filter(entry => activeIds.has(entry.gatekeeperId))
+          .map(entry => [entry.gatekeeperId, entry.data]));
+  let removedStaleEntries = byId.size !== existingCount;
+  let missing = gatekeeperIds.filter(gatekeeperId => !byId.has(gatekeeperId));
+  await Promise.all(missing.map(async gatekeeperId => {
+    try {
+      byId.set(gatekeeperId, await load(gatekeeperId));
+    } catch (error) {
+      logger.warn(`failed to load ${what}`, {
+        event: "agent.catalog.load.failed", gatekeeperId, error,
+      });
+      byId.set(gatekeeperId, null);
+    }
+  }));
+  return {
+    snapshots: [...byId]
+        .toSorted(([left], [right]) => left - right)
+        .map(([gatekeeperId, data]) => ({gatekeeperId, data})),
+    changed: missing.length > 0 || removedStaleEntries,
+  };
+}
+
 export async function completeAgentCatalogSnapshot(
     existing: AgentCatalogSnapshot[] | undefined,
     gatekeeperIds: number[],
     loadCatalog: (gatekeeperId: number) => Promise<AgentCatalog | null>):
     Promise<{snapshots: AgentCatalogSnapshot[], changed: boolean}> {
-  let activeIds = new Set(gatekeeperIds);
-  let existingCount = existing?.length ?? 0;
-  let catalogs = new Map(
-      existing
-          ?.filter(entry => activeIds.has(entry.gatekeeperId))
-          .map(entry => [entry.gatekeeperId, entry.catalog]));
-  let removedStaleEntries = catalogs.size !== existingCount;
-  let missing = gatekeeperIds.filter(gatekeeperId => !catalogs.has(gatekeeperId));
-  await Promise.all(missing.map(async gatekeeperId => {
-    // Isolate per entry: one failing loader must not reject the whole snapshot (it would lose every
-    // other catalog and abort the turn). A failed/empty load is recorded as null, like any other.
-    try {
-      catalogs.set(gatekeeperId, await loadCatalog(gatekeeperId));
-    } catch (error) {
-      logger.warn("failed to load agent catalog", {
-        event: "agent.catalog.load.failed", gatekeeperId, error,
-      });
-      catalogs.set(gatekeeperId, null);
-    }
-  }));
+  let {snapshots, changed} = await completeSnapshots(
+      existing?.map(entry => ({gatekeeperId: entry.gatekeeperId, data: entry.catalog})),
+      gatekeeperIds, loadCatalog, "agent catalog");
   return {
-    snapshots: [...catalogs]
-        .toSorted(([left], [right]) => left - right)
-        .map(([gatekeeperId, catalog]) => ({gatekeeperId, catalog})),
-    changed: missing.length > 0 || removedStaleEntries,
+    snapshots: snapshots.map(({gatekeeperId, data}) => ({gatekeeperId, catalog: data})),
+    changed,
   };
+}
+
+export async function completeAgentSkillSnapshot(
+    existing: AgentSkillSnapshot[] | undefined,
+    gatekeeperIds: number[],
+    loadSkills: (gatekeeperId: number) => Promise<AgentSkillList | null>):
+    Promise<{snapshots: AgentSkillSnapshot[], changed: boolean}> {
+  let {snapshots, changed} = await completeSnapshots(
+      existing?.map(entry => ({gatekeeperId: entry.gatekeeperId, data: entry.skills})),
+      gatekeeperIds, loadSkills, "agent skills");
+  return {
+    snapshots: snapshots.map(({gatekeeperId, data}) => ({gatekeeperId, skills: data})),
+    changed,
+  };
+}
+
+// Workshop-side re-validation of a gatekeeper's skill list (defense-in-depth — the gatekeeper
+// output is untrusted): strip control chars / collapse whitespace, drop unusable entries,
+// deduplicate by name (the model loads skills by name, so a name resolves to exactly one skill),
+// sort, and re-clamp to the global AGENT_SKILL_MAX_* bounds. Intentionally overlaps the
+// provider-side boundAgentSkillList(), which we don't trust the gatekeeper to have applied.
+export function normalizeAgentSkillList(list: AgentSkillList): AgentSkillList {
+  let seen = new Set<string>();
+  let skills = list.skills
+      .map(skill => ({
+        id: normalizeText(skill.id, AGENT_SKILL_MAX_ID_LENGTH),
+        name: normalizeText(skill.name, AGENT_SKILL_MAX_NAME_LENGTH),
+        description: normalizeText(skill.description, AGENT_SKILL_MAX_DESCRIPTION_LENGTH),
+      }))
+      .filter(skill => skill.id.length > 0 && skill.name.length > 0)
+      .toSorted((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+      .filter(skill => !seen.has(skill.name) && (seen.add(skill.name), true));
+  let truncated = list.truncated === true || skills.length > AGENT_SKILLS_MAX_ENTRIES;
+  return {
+    skills: skills.slice(0, AGENT_SKILLS_MAX_ENTRIES),
+    ...(truncated ? {truncated: true} : {}),
+  };
+}
+
+// Apply the deployment's skill curation to a skill list: drop skills the admin has disabled.
+// Applied at per-turn materialization, like removeDisabledSkillEntries below, so a curation change
+// reaches existing chats on their next turn despite the cached snapshots.
+export function removeDisabledSkills(
+    list: AgentSkillList | null, disabledSkills: ReadonlySet<string>): AgentSkillList | null {
+  if (!list || disabledSkills.size === 0) return list;
+  let skills = list.skills.filter(skill => !disabledSkills.has(skill.name));
+  if (skills.length === list.skills.length) return list;
+  return {...list, skills};
+}
+
+// The <available_skills> system-prompt section (slot 1): the skills reachable this turn, in the
+// agentskills.io XML shape, with instructions to load one via the loadSkill tool when a task
+// matches. "" when there are no skills. Escaped because the names/descriptions are untrusted
+// gatekeeper data being placed inside an XML-shaped block.
+export function formatAvailableSkillsPrompt(skills: AgentSkillInfo[]): string {
+  // Lists are deduplicated per resource (normalizeAgentSkillList), but a name can recur across
+  // resources; keep the first, matching how loadSkill resolves a name to the first snapshot hit.
+  let seen = new Set<string>();
+  skills = skills.filter(skill => !seen.has(skill.name) && (seen.add(skill.name), true));
+  if (skills.length === 0) return "";
+  let lines = [
+    "The following skills provide specialized instructions for specific tasks. When a task " +
+        "matches a skill's description, call the loadSkill tool with the skill's name, then " +
+        "follow the loaded instructions.",
+    "",
+    "<available_skills>",
+  ];
+  for (let skill of skills) {
+    lines.push(
+        "  <skill>",
+        `    <name>${escapeXml(skill.name)}</name>`,
+        `    <description>${escapeXml(skill.description)}</description>`,
+        "  </skill>");
+  }
+  lines.push("</available_skills>");
+  return lines.join("\n");
+}
+
+function escapeXml(value: string): string {
+  return value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
 }
 
 // Apply the deployment's skill curation to a catalog: drop entries marked as Agent Skills whose

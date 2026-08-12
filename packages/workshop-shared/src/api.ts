@@ -2205,6 +2205,16 @@ export type AiToolCall = {
     name: string | number;
   };
 } | {
+  // Load an Agent Skill's full instructions by name (from the system prompt's <available_skills>).
+  toolName: "loadSkill";
+  input: {
+    name: string;
+  };
+
+  // The loaded SKILL.md text, stored so history replay doesn't re-read the skill (whose content
+  // may have changed since). Absent only when the call failed (`error` is set).
+  output?: string;
+} | {
   toolName: "setBindingHook";
   input: {
     bindingName: string;

@@ -5,9 +5,10 @@
 import { WorkerEntrypoint, DurableObject, RpcStub as NativeRpcStub, RpcTarget as NativeRpcTarget } from "cloudflare:workers";
 import { RpcStub } from "capnweb";
 import { validateRpc, skipRpcValidation } from "capnweb-validate";
-import { boundAgentCatalog } from "@gadgets/workshop-shared/gatekeeper";
+import { boundAgentCatalog, boundAgentSkillList } from "@gadgets/workshop-shared/gatekeeper";
 import type {
   VendorDescription, AccountDescription, AgentCatalog, AgentCatalogRequest,
+  AgentSkillContent, AgentSkillList,
   AppUiContext, GatekeeperUser, GatekeeperUiFrame, ApprovalQueue, ObservationAuthorizer,
   GatekeeperConnectCallback, GatekeeperConnectOptions, SupportedResource,
   Gatekeeper, GatekeeperUserVerifier, ResourceDescription, ActionKind, DeploymentSkillInfo,
@@ -18,7 +19,7 @@ import { ContextApiImpl, loadEnabledContextCollections } from "./context-api.js"
 import { ContextObserverTracker } from "./context-observers.js";
 import type { ContextVerifierApi } from "./context-observers.js";
 import {
-  buildAgentSkillCatalogEntries, buildAgentSkillCommands, buildAgentSkillMessage,
+  buildAgentSkillCommands, buildAgentSkillList, buildAgentSkillMessage,
   loadSkillsForCollections, parseSkillManifest,
   type CollectionSkills,
 } from "./agent-skill.js";
@@ -297,6 +298,8 @@ export class ContextGatekeeper
     };
   }
 
+  // Collections only: skills get their own channel (listAgentSkills) with its own budget, so they
+  // no longer compete with collections for the catalog's entry cap.
   async getAgentCatalog(
       request: AgentCatalogRequest,
       authorizer: NativeRpcStub<ObservationAuthorizer>): Promise<AgentCatalog> {
@@ -304,9 +307,7 @@ export class ContextGatekeeper
     let userLibrary = this.#userLibraries().get(
       this.#userLibraries().idFromName(domainName(domain, this.ctx.props.accountId)));
     let collections = await loadEnabledContextCollections(this.env, domain, userLibrary);
-    let loaded = await this.#loadSkills(collections);
-    let skillEntries = buildAgentSkillCatalogEntries(loaded);
-    let collectionEntries = collections
+    let entries = collections
         .map(collection => ({
           id: collection.id,
           title: collection.title,
@@ -314,8 +315,6 @@ export class ContextGatekeeper
         }))
         .toSorted((left, right) =>
           left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
-    let entries = [...skillEntries, ...collectionEntries].toSorted((left, right) =>
-      left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
     let catalog = boundAgentCatalog(entries, request);
     if (catalog.entries.length > 0) {
       let collectionIds = [...new Set(catalog.entries.map(entry => {
@@ -331,6 +330,44 @@ export class ContextGatekeeper
       check.commit();
     }
     return catalog;
+  }
+
+  // Every skill in the enabled collections, for the <available_skills> prompt section. Listing
+  // reveals skill names and descriptions, so it is authorized as an observation against the
+  // collections the returned skills came from — same pattern as getAgentCatalog.
+  async listAgentSkills(
+      authorizer: NativeRpcStub<ObservationAuthorizer>): Promise<AgentSkillList | null> {
+    let domain = this.ctx.props.sharingDomain;
+    let userLibrary = this.#userLibraries().get(
+      this.#userLibraries().idFromName(domainName(domain, this.ctx.props.accountId)));
+    let collections = await loadEnabledContextCollections(this.env, domain, userLibrary);
+    let list = boundAgentSkillList(buildAgentSkillList(await this.#loadSkills(collections)));
+    if (list.skills.length === 0) return null;
+
+    let collectionIds = [...new Set(list.skills.map(skill => {
+      let slash = skill.id.indexOf("/");
+      return slash < 0 ? skill.id : skill.id.slice(0, slash);
+    }))];
+    let check = await this.#observers().prepareObservation(collectionIds);
+    await authorizer.authorizeObservation({
+      title: "Agent skills",
+      description: `Listed ${list.skills.length} available Agent Skill(s).`,
+      excludeObservers: check.excludeObservers,
+    });
+    check.commit();
+    return list;
+  }
+
+  // One skill's full SKILL.md text, by an id from listAgentSkills(). Read through an ordinary
+  // read session, so it records the same observation as any other document read; parsing the
+  // manifest is what rejects ids that resolve to a non-skill document.
+  async readAgentSkill(
+      id: string, authorizer: NativeRpcStub<ObservationAuthorizer>): Promise<AgentSkillContent> {
+    using session = this.#newReadSession(authorizer);
+    let document = await session.read(id);
+    if (!document?.path) throw new Error("No such Agent Skill.");
+    let manifest = parseSkillManifest(document.path, document.content);
+    return {name: manifest.name, content: document.content};
   }
 
   // Read-only gatekeeper: no side-effecting actions, so nothing is ever auto-approvable.

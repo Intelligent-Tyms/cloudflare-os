@@ -1,6 +1,6 @@
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import type { SlashCommandDescriptor } from "@gadgets/workshop-shared/gatekeeper";
+import type { AgentSkillInfo, SlashCommandDescriptor } from "@gadgets/workshop-shared/gatekeeper";
 import type { EnabledCollectionInfo } from "./context-types.js";
 import { encodeDocId } from "./context-types.js";
 
@@ -42,26 +42,25 @@ export function buildAgentSkillCommands(
   return commands;
 }
 
-// Build Agent Catalog entries. Their IDs can be passed to ContextLibrary.read(). Entries carry the
-// `skill` marker so the Workshop can apply the deployment's skill curation before the catalog
-// reaches the agent.
-export function buildAgentSkillCatalogEntries(
-    loaded: CollectionSkills[])
-    : Array<{id: string, title: string, description: string, skill: true}> {
-  let entries: Array<{id: string, title: string, description: string, skill: true}> = [];
+// Build the session's skill list for the Workshop's <available_skills> prompt section (see
+// Gatekeeper.listAgentSkills). Skill IDs are doc ids, also accepted by ContextLibrary.read().
+// Deduplicated by skill name — the model loads skills by name, so a name can only ever resolve to
+// one skill; with the list sorted, the winner is stable (first by collection-qualified id).
+export function buildAgentSkillList(loaded: CollectionSkills[]): AgentSkillInfo[] {
+  let entries: AgentSkillInfo[] = [];
   for (let {collection, skills} of loaded) {
     for (let skill of skills) {
       entries.push({
         id: encodeDocId(collection.id, skill.path),
-        title: skill.skillName,
-        description: `Agent Skill. Read with env[N].read(id) and ` +
-          `console.log(document.content). ${skill.description}`,
-        skill: true,
+        name: skill.skillName,
+        description: skill.description,
       });
     }
   }
-  return entries.toSorted((left, right) =>
-    left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
+  entries.sort((left, right) =>
+    left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
+  let seen = new Set<string>();
+  return entries.filter(entry => !seen.has(entry.name) && (seen.add(entry.name), true));
 }
 
 // How many collections to query at once when assembling skills across collections.
