@@ -34,7 +34,6 @@ import {
   useState,
 } from "react";
 import type { ComponentProps, ReactElement, ReactNode } from "react";
-import { createPortal } from "react-dom";
 import type {
   ContextCollectionContent,
   ContextCollectionMetadata,
@@ -51,8 +50,6 @@ import {
   isMarkdownContentType,
   isTextContentType,
 } from "../src/context-types";
-import emojiData from "@emoji-mart/data";
-import { Picker as EmojiMartPicker } from "emoji-mart";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, lineNumbers } from "@codemirror/view";
 import {
@@ -156,146 +153,6 @@ function dataUri(contentType: string, base64Body: string): string {
   return `data:${contentType};base64,${base64Body}`;
 }
 
-const DEFAULT_COLLECTION_ICON = "📚";
-
-function IconPickerButton({
-  value,
-  onChange,
-  size = 32,
-  variant = "boxed",
-}: {
-  value?: string;
-  onChange: (emoji: string) => void;
-  size?: number;
-  // "boxed": standalone bordered tile (settings modal). "inline": borderless tile that sits inside a
-  // shared input pill.
-  variant?: "boxed" | "inline";
-}) {
-  const themeMode = useResolvedThemeMode();
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const pickerHostRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (
-        wrapRef.current?.contains(target) ||
-        pickerHostRef.current?.contains(target)
-      )
-        return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [open]);
-
-  // Fixed-position layer anchored to the trigger so the form can't clip it. Opens above the trigger
-  // by default, flips below when there's no room, and stays glued to the button on scroll/resize.
-  useLayoutEffect(() => {
-    if (!open) {
-      setPos(null);
-      return;
-    }
-    const PICKER_W = 352;
-    const PICKER_H = 435;
-    const GAP = 6;
-    const place = () => {
-      const btn = btnRef.current;
-      if (!btn) return;
-      const rect = btn.getBoundingClientRect();
-      const roomAbove = rect.top;
-      const roomBelow = window.innerHeight - rect.bottom;
-      const openAbove = roomAbove >= PICKER_H + GAP || roomAbove >= roomBelow;
-      const top = openAbove
-        ? Math.max(GAP, rect.top - GAP - PICKER_H)
-        : Math.min(window.innerHeight - PICKER_H - GAP, rect.bottom + GAP);
-      const left = Math.min(
-        Math.max(GAP, rect.left),
-        window.innerWidth - PICKER_W - GAP,
-      );
-      setPos({ left, top });
-    };
-    place();
-    window.addEventListener("resize", place);
-    window.addEventListener("scroll", place, true);
-    return () => {
-      window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", place, true);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || !pickerHostRef.current) return;
-    const host = pickerHostRef.current;
-    const picker = new (EmojiMartPicker as any)({
-      data: emojiData,
-      theme: themeMode,
-      previewPosition: "none",
-      skinTonePosition: "none",
-      // Hide the "Frequently used" category.
-      maxFrequentRows: 0,
-      onEmojiSelect: (e: { native: string }) => {
-        onChange(e.native);
-        setOpen(false);
-      },
-    });
-    host.appendChild(picker as unknown as Node);
-    return () => {
-      host.replaceChildren();
-    };
-  }, [open, onChange, themeMode]);
-
-  const inline = variant === "inline";
-  return (
-    <div ref={wrapRef} className="relative inline-block">
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        title="Choose an icon"
-        className={
-          inline
-            ? "grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-kumo-tint text-[18px] leading-none text-kumo-subtle transition-colors hover:bg-kumo-fill"
-            : "grid place-items-center rounded-xl border border-kumo-line bg-kumo-base hover:border-kumo-brand transition-colors"
-        }
-        style={
-          inline
-            ? undefined
-            : {
-                width: size + 12,
-                height: size + 12,
-                fontSize: size * 0.66,
-                lineHeight: 1,
-              }
-        }
-      >
-        <span>{value || DEFAULT_COLLECTION_ICON}</span>
-      </button>
-      {open &&
-        // Portaled to <body> so a transformed ancestor (e.g. .ctx-rise's fill-both transform) can't
-        // become the containing block for `fixed` and offset the coordinates.
-        createPortal(
-          <div
-            ref={pickerHostRef}
-            className="z-[2000]"
-            style={{
-              position: "fixed",
-              left: pos?.left ?? 0,
-              top: pos?.top ?? 0,
-              // Hidden until measured so it never flashes at (0,0).
-              visibility: pos ? "visible" : "hidden",
-            }}
-          />,
-          document.body,
-        )}
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Layout primitives
 // ---------------------------------------------------------------------------
@@ -319,7 +176,7 @@ function CollectionProvenance({ source }: { source: EnabledCollectionInfo["sourc
   );
 }
 
-// Tile dimensions + matching fallback-folder glyph size, keyed together so they can't drift.
+// Tile dimensions + matching folder glyph size, keyed together so they can't drift.
 const ICON_TILE_SIZES = {
   sm: { tile: "h-9 w-9 rounded-lg text-[18px]", glyph: 16 },
   md: { tile: "h-10 w-10 rounded-xl text-[20px]", glyph: 18 },
@@ -327,10 +184,8 @@ const ICON_TILE_SIZES = {
 } as const;
 
 function CollectionIconTile({
-  icon,
   size = "md",
 }: {
-  icon?: string;
   size?: keyof typeof ICON_TILE_SIZES;
 }) {
   const { tile, glyph } = ICON_TILE_SIZES[size];
@@ -338,7 +193,7 @@ function CollectionIconTile({
     <div
       className={`grid ${tile} shrink-0 place-items-center bg-kumo-fill leading-none text-kumo-subtle`}
     >
-      {icon ? <span>{icon}</span> : <Folder size={glyph} weight="regular" />}
+      <Folder size={glyph} weight="regular" />
     </div>
   );
 }
@@ -378,7 +233,7 @@ function CollectionRow({
       onKeyDown={(e) => handleCardKeyDown(e, onClick)}
       className="group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-150 ease-out hover:bg-kumo-tint"
     >
-      <CollectionIconTile icon={collection.icon} size="sm" />
+      <CollectionIconTile size="sm" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium tracking-[-0.25px] text-kumo-default">
           {collection.title}
@@ -553,15 +408,11 @@ function KebabMenu({
 // Name + description fields, shared by the New Collection page and the settings modal. Callers own
 // their layout wrappers.
 function CollectionNameField({
-  icon,
-  onIconChange,
   value,
   onChange,
   onEnter,
   autoFocus,
 }: {
-  icon: string;
-  onIconChange: (icon: string) => void;
   value: string;
   onChange: (value: string) => void;
   onEnter?: () => void;
@@ -570,9 +421,7 @@ function CollectionNameField({
   return (
     <>
       <FieldLabel>Name</FieldLabel>
-      {/* Icon tile + name share one focus-within pill so the emoji reads as part of the input. */}
-      <div className="flex items-center gap-2 rounded-xl border-2 border-kumo-line bg-kumo-base p-1.5 transition-[border-color,box-shadow] duration-150 ease-out focus-within:border-kumo-ring focus-within:ring-1 focus-within:ring-kumo-ring/15">
-        <IconPickerButton value={icon} onChange={onIconChange} variant="inline" />
+      <div className="flex items-center rounded-xl border-2 border-kumo-line bg-kumo-base p-1.5 transition-[border-color,box-shadow] duration-150 ease-out focus-within:border-kumo-ring focus-within:ring-1 focus-within:ring-kumo-ring/15">
         <input
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -581,7 +430,7 @@ function CollectionNameField({
           }}
           placeholder="A short name, e.g., Brand guidelines"
           autoFocus={autoFocus}
-          className="h-9 min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 pr-2 text-[13px] leading-[18px] tracking-[-0.25px] text-kumo-default outline-none placeholder:text-kumo-inactive"
+          className="h-9 min-w-0 flex-1 appearance-none border-0 bg-transparent px-2 text-[13px] leading-[18px] tracking-[-0.25px] text-kumo-default outline-none placeholder:text-kumo-inactive"
         />
       </div>
     </>
@@ -711,7 +560,6 @@ function CreateCollectionView({
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<ContextCollectionVisibility>("private");
   const [source, setSource] = useState<ContextCollectionContent["source"]>("web");
-  const [icon, setIcon] = useState(DEFAULT_COLLECTION_ICON);
   const [creating, setCreating] = useState(false);
   // Only admins may create public collections.
   const [isAdmin, setIsAdmin] = useState(false);
@@ -746,7 +594,7 @@ function CreateCollectionView({
         title.trim(),
         description.trim(),
         visibility,
-        icon,
+        undefined,
         source,
       );
       toasts.add({ title: "Folder created", variant: "success" });
@@ -766,7 +614,7 @@ function CreateCollectionView({
           className="press mb-3 -ml-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[13px] font-medium tracking-[-0.25px] text-kumo-subtle transition-colors hover:text-kumo-default"
         >
           <CaretLeft size={14} />
-          Context &amp; Skills
+          Drive
         </button>
         <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">
           New folder
@@ -781,8 +629,6 @@ function CreateCollectionView({
           <div className="space-y-5">
             <div className="ctx-rise" style={{ animationDelay: "60ms" }}>
               <CollectionNameField
-                icon={icon}
-                onIconChange={setIcon}
                 value={title}
                 onChange={setTitle}
                 onEnter={handleCreate}
@@ -1150,7 +996,7 @@ function CollectionOverview({
         <header>
           <div className="flex items-center justify-between gap-6">
             <div className="flex min-w-0 items-start gap-4">
-              <CollectionIconTile icon={metadata.icon} size="lg" />
+              <CollectionIconTile size="lg" />
               <div className="min-w-0 pt-0.5">
                 <h1 className="truncate text-2xl font-semibold leading-8 tracking-tight text-kumo-default">
                   {metadata.title}
@@ -1316,7 +1162,6 @@ function CollectionSettingsModal({
   const [mode, setMode] = useState<"edit" | "delete">(initialMode);
   const [title, setTitle] = useState(metadata.title);
   const [description, setDescription] = useState(metadata.description);
-  const [icon, setIcon] = useState(metadata.icon ?? DEFAULT_COLLECTION_ICON);
   const [branch, setBranch] = useState(metadata.content.source === "git" ? metadata.content.branch : DEFAULT_GIT_BRANCH);
   const [confirmText, setConfirmText] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1328,13 +1173,12 @@ function CollectionSettingsModal({
       setMode(initialMode);
       setTitle(metadata.title);
       setDescription(metadata.description);
-      setIcon(metadata.icon ?? DEFAULT_COLLECTION_ICON);
       setBranch(metadata.content.source === "git" ? metadata.content.branch : DEFAULT_GIT_BRANCH);
       setConfirmText("");
       setSaving(false);
       setDeleting(false);
     }
-  }, [open, initialMode, metadata.title, metadata.description, metadata.icon, metadata.content]);
+  }, [open, initialMode, metadata.title, metadata.description, metadata.content]);
 
   const busy = saving || deleting;
 
@@ -1342,7 +1186,6 @@ function CollectionSettingsModal({
   const hasChanges =
     title.trim() !== metadata.title ||
     description.trim() !== metadata.description ||
-    icon !== (metadata.icon ?? DEFAULT_COLLECTION_ICON) ||
     (metadata.content.source === "git" && supportsGitCollections &&
       branch.trim() !== metadata.content.branch);
 
@@ -1356,8 +1199,6 @@ function CollectionSettingsModal({
     if (title.trim() !== metadata.title) updates.title = title.trim();
     if (description.trim() !== metadata.description)
       updates.description = description.trim();
-    if (icon !== (metadata.icon ?? DEFAULT_COLLECTION_ICON))
-      updates.icon = icon;
     if (metadata.content.source === "git" && supportsGitCollections &&
         branch.trim() !== metadata.content.branch)
       updates.branch = branch.trim();
@@ -1414,8 +1255,6 @@ function CollectionSettingsModal({
             <div className="space-y-5 px-4 py-5 sm:px-6">
               <div>
                 <CollectionNameField
-                  icon={icon}
-                  onIconChange={setIcon}
                   value={title}
                   onChange={setTitle}
                   onEnter={handleSave}
@@ -2638,7 +2477,7 @@ function CollectionEditor({
                   selectedPath ? "hover:bg-kumo-tint" : "bg-kumo-recessed"
                 }`}
               >
-                <CollectionIconTile icon={metadata.icon} size="sm" />
+                <CollectionIconTile size="sm" />
                 <span className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-5 tracking-[-0.25px] text-kumo-default">
                   {metadata.title}
                 </span>

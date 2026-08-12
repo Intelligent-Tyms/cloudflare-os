@@ -3,6 +3,67 @@
 @import "tailwindcss";
 @custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
 
+/* Tyms brand fonts — sourced from workshop-frontend's self-hosted subsets so the app matches the
+   host exactly. The single-file build inlines them as data: URIs, which is also the only way fonts
+   can load here: the sandboxed iframe's CSP allows font-src data: and nothing external. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(../../workshop-frontend/public/fonts/inter-400.woff2) format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(../../workshop-frontend/public/fonts/inter-500.woff2) format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(../../workshop-frontend/public/fonts/inter-600.woff2) format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(../../workshop-frontend/public/fonts/inter-700.woff2) format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(../../workshop-frontend/public/fonts/jetbrains-mono-400.woff2) format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(../../workshop-frontend/public/fonts/jetbrains-mono-500.woff2) format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(../../workshop-frontend/public/fonts/jetbrains-mono-700.woff2) format("woff2");
+}
+@font-face {
+  font-family: "Aeonik";
+  font-style: normal;
+  /* One static 700 file covering the whole range so semibold headings don't synthesize. */
+  font-weight: 400 900;
+  font-display: swap;
+  src: url(../../workshop-frontend/public/fonts/aeonik-700.woff2) format("woff2");
+}
+
 html,
 body,
 #root {
@@ -12,10 +73,11 @@ body,
 }
 
 @theme {
-  /* ===== FONTS ===== */
-  --font-sans: "FT Kunst Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI",
+  /* ===== FONTS (Tyms DS: Inter body, Aeonik display, JetBrains Mono code) ===== */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Roboto", "Helvetica Neue", sans-serif;
-  --font-mono: "Apercu Mono Pro", "SF Mono", Menlo, Monaco, Consolas, monospace;
+  --font-display: "Aeonik", "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, monospace;
 
   /* ===== TEXT SIZES (Tailwind defaults over Kumo) ===== */
   --text-xs: 0.75rem;
@@ -27,73 +89,75 @@ body,
   --text-lg: 1.125rem;
   --text-lg--line-height: 1.75rem;
 
-  /* ===== KUMO SEMANTIC COLOR OVERRIDES ===== */
+  /* ===== KUMO SEMANTIC COLOR OVERRIDES =====
+     Tyms monochrome theme, kept in sync with workshop-frontend/src/styles.css so the app matches
+     the host: type, spacing, and hairline rules carry the design instead of brand color. */
 
-  /* Background tokens */
-  --color-kumo-base: #fcfcfb;
-  --color-kumo-elevated: #f8f8f7;
-  --color-kumo-tint: #f3f3f1;
-  --color-kumo-overlay: #fbfbfa;
-  --color-kumo-recessed: #efeeec;
+  /* Background tokens — white ground + neutral greys */
+  --color-kumo-base: #ffffff;
+  --color-kumo-elevated: #fafafa;
+  --color-kumo-tint: #f5f5f5;
+  --color-kumo-overlay: #ffffff;
+  --color-kumo-recessed: #f5f5f5;
   --color-kumo-control: #ffffff;
-  --color-kumo-contrast: #14110f;
-  --color-kumo-fill: #e8e7e4;
-  --color-kumo-fill-hover: #dededb;
-  --color-kumo-interact: #cac8c3;
+  --color-kumo-contrast: #0a0a0a;
+  --color-kumo-fill: #f5f5f5;
+  --color-kumo-fill-hover: #ebebeb;
+  --color-kumo-interact: #d4d4d4;
 
-  /* Brand — orange accent */
-  --color-kumo-brand: #ff4801;
-  --color-kumo-brand-hover: #e03f00;
+  /* Brand — near-black (intent only: CTA/primary action) */
+  --color-kumo-brand: #0a0a0a;
+  --color-kumo-brand-hover: #232323;
 
-  /* Border / line tokens — neutral */
-  --color-kumo-line: #1411100f;
-  --color-kumo-ring: #cac8c3;
+  /* Border / line tokens — neutral hairlines */
+  --color-kumo-line: #0a0a0a14;
+  --color-kumo-ring: #0a0a0a;
 
   /* Chat surface tokens */
-  --color-kumo-bubble-user: #f1f0ee;
+  --color-kumo-bubble-user: #f5f5f5;
 
-  /* Status tints */
-  --color-kumo-info: oklch(62.3% 0.214 259.815);
-  --color-kumo-info-tint: oklch(90% 0.06 250);
-  --color-kumo-warning: oklch(79.5% 0.184 86.047);
-  --color-kumo-warning-tint: oklch(92% 0.08 85);
-  --color-kumo-danger: oklch(63.7% 0.237 25.331);
-  --color-kumo-danger-tint: oklch(92% 0.06 25);
-  --color-kumo-success: oklch(72.3% 0.219 149.579);
-  --color-kumo-success-tint: oklch(92% 0.08 150);
+  /* Status tints — Tyms AA-safe action & feedback palette */
+  --color-kumo-info: #6d4de0;
+  --color-kumo-info-tint: #ece7fc;
+  --color-kumo-warning: #b85309;
+  --color-kumo-warning-tint: #f7e8d9;
+  --color-kumo-danger: #d32f2f;
+  --color-kumo-danger-tint: #fdeaea;
+  --color-kumo-success: #059669;
+  --color-kumo-success-tint: #e2f7ef;
 
   /* Tooltip */
-  --color-kumo-tip-shadow: #14111014;
+  --color-kumo-tip-shadow: #0a0a0a14;
   --color-kumo-tip-stroke: transparent;
 
-  /* Text color tokens */
-  --text-color-kumo-default: #1c1a18;
-  --text-color-kumo-default-hover: #100f0d;
+  /* Text color tokens — neutral near-black scale */
+  --text-color-kumo-default: #0a0a0a;
+  --text-color-kumo-default-hover: #000000;
   --text-color-kumo-inverse: #ffffff;
-  --text-color-kumo-strong: #100f0d;
-  --text-color-kumo-subtle: oklch(52% 0.006 60);
-  --text-color-kumo-inactive: oklch(66% 0.005 60);
-  --text-color-kumo-brand: #ff4801;
-  --text-color-kumo-link: #ff4801;
-  --text-color-kumo-success: oklch(72.3% 0.219 149.579);
-  --text-color-kumo-danger: oklch(63.7% 0.237 25.331);
-  --text-color-kumo-warning: oklch(47.6% 0.114 61.907);
+  --text-color-kumo-strong: #0a0a0a;
+  --text-color-kumo-subtle: #666666;
+  --text-color-kumo-inactive: #999999;
+  --text-color-kumo-brand: #0a0a0a;
+  --text-color-kumo-link: #0a0a0a;
+  --text-color-kumo-success: #047857;
+  --text-color-kumo-danger: #c81e1e;
+  --text-color-kumo-warning: #b85309;
 
   /* ===== CUSTOM BRAND TOKENS ===== */
-  --color-accent-100: #ff4801;
-  --color-accent-200: #ff7038;
-  --color-background-100: #fcfcfb;
-  --color-background-200: #f8f8f7;
-  --color-background-300: #f3f3f1;
-  --color-foreground-100: #100f0d;
-  --color-foreground-200: #100f0d;
-  --color-foreground-300: #1c1a18;
-  --color-border-100: #e8e7e4;
-  --color-border-100-50: #1411100f;
-  --color-selection-bg: #ffe9e0;
-  --color-selection-text: #ff500a;
-  --color-shadow-accent-light: #ffa683;
-  --color-shadow-accent-dark: #b13200;
+  --color-accent-100: #0a0a0a;
+  --color-accent-200: #444444;
+  --color-background-100: #ffffff;
+  --color-background-200: #fafafa;
+  --color-background-300: #f5f5f5;
+  --color-foreground-100: #0a0a0a;
+  --color-foreground-200: #171717;
+  --color-foreground-300: #444444;
+  --color-border-100: #eaeaea;
+  --color-border-100-50: #eaeaea80;
+  --color-selection-bg: #0a0a0a1f;
+  --color-selection-text: #0a0a0a;
+  --color-shadow-accent-light: #e5e5e5;
+  --color-shadow-accent-dark: #3a3a3a;
 
   /* Category colors */
   --color-compute-100: #0a95ff;
@@ -139,63 +203,65 @@ body,
     0 4px 12px 0 #00000005, 0 0 0px 0 #00000005, 0 2px 12px 0 #00000008;
 }
 
-/* Dark palette, kept in sync with workshop-frontend/src/styles.css so the app matches the host. */
+/* Monochrome dark, kept in sync with workshop-frontend/src/styles.css: near-black surfaces,
+   neutral greys. Brand stays a dark grey (not inverted to white) because components pair
+   bg-kumo-brand with white text/icons. */
 [data-mode="dark"] {
-  --color-kumo-base: oklch(0.115 0.012 285);
-  --color-kumo-elevated: oklch(0.155 0.011 285);
-  --color-kumo-tint: oklch(0.225 0.025 285);
-  --color-kumo-overlay: oklch(0.155 0.011 285);
-  --color-kumo-recessed: oklch(0.1 0.012 285);
-  --color-kumo-control: oklch(0.155 0.011 285);
-  --color-kumo-contrast: var(--color-kumo-brand);
-  --color-kumo-strong: var(--color-kumo-brand-hover);
-  --color-kumo-fill: oklch(0.225 0.025 285);
-  --color-kumo-fill-hover: oklch(0.295 0.045 285);
-  --color-kumo-interact: oklch(0.34 0.022 285);
-  --color-kumo-line: oklch(0.34 0.022 285);
-  --color-kumo-ring: oklch(0.52 0.065 285);
-  --color-kumo-bubble-user: oklch(0.225 0.025 285);
+  --color-kumo-base: #0a0a0a;
+  --color-kumo-elevated: #141414;
+  --color-kumo-tint: #1a1a1a;
+  --color-kumo-overlay: #141414;
+  --color-kumo-recessed: #060606;
+  --color-kumo-control: #141414;
+  --color-kumo-contrast: #ededed;
+  --color-kumo-strong: #2a2a2a;
+  --color-kumo-fill: #1a1a1a;
+  --color-kumo-fill-hover: #242424;
+  --color-kumo-interact: #333333;
+  --color-kumo-line: #2a2a2a;
+  --color-kumo-ring: #ededed;
+  --color-kumo-bubble-user: #1a1a1a;
 
-  --color-kumo-brand: #b84e00;
-  --color-kumo-brand-hover: #a54200;
+  --color-kumo-brand: #3f3f3f;
+  --color-kumo-brand-hover: #525252;
 
-  --color-kumo-info: oklch(62.3% 0.214 259.815);
-  --color-kumo-info-tint: oklch(0.25 0.065 259.815);
-  --color-kumo-warning: oklch(55.5% 0.163 48.998);
-  --color-kumo-warning-tint: oklch(0.27 0.06 84.429);
-  --color-kumo-danger: oklch(50.5% 0.213 27.518);
-  --color-kumo-danger-tint: oklch(0.25 0.065 25.331);
-  --color-kumo-success: oklch(52.7% 0.154 150.069);
-  --color-kumo-success-tint: oklch(0.25 0.06 150.069);
+  --color-kumo-info: #6d4de0;
+  --color-kumo-info-tint: #241b4d;
+  --color-kumo-warning: #e8630a;
+  --color-kumo-warning-tint: #3a2410;
+  --color-kumo-danger: #d32f2f;
+  --color-kumo-danger-tint: #401414;
+  --color-kumo-success: #059669;
+  --color-kumo-success-tint: #0d2f26;
 
   --color-kumo-tip-shadow: #00000066;
-  --color-kumo-tip-stroke: oklch(0.34 0.022 285);
+  --color-kumo-tip-stroke: #2a2a2a;
 
-  --text-color-kumo-default: oklch(0.92 0.01 285);
-  --text-color-kumo-default-hover: oklch(0.97 0.006 285);
+  --text-color-kumo-default: #ededed;
+  --text-color-kumo-default-hover: #ffffff;
   --text-color-kumo-inverse: #ffffff;
-  --text-color-kumo-strong: oklch(0.92 0.01 285);
-  --text-color-kumo-subtle: oklch(0.66 0.02 285);
-  --text-color-kumo-inactive: oklch(0.58 0.025 285);
-  --text-color-kumo-brand: #ff8a5c;
-  --text-color-kumo-link: #ff8a5c;
-  --text-color-kumo-success: oklch(79.2% 0.209 151.711);
-  --text-color-kumo-danger: oklch(70.4% 0.191 22.216);
-  --text-color-kumo-warning: oklch(82.8% 0.189 84.429);
+  --text-color-kumo-strong: #ffffff;
+  --text-color-kumo-subtle: #a1a1a1;
+  --text-color-kumo-inactive: #666666;
+  --text-color-kumo-brand: #ededed;
+  --text-color-kumo-link: #ededed;
+  --text-color-kumo-success: #3dffc0;
+  --text-color-kumo-danger: #ff6b6b;
+  --text-color-kumo-warning: #fb8b3c;
 
-  --color-accent-100: #b84e00;
-  --color-accent-200: #ff8a5c;
-  --color-background-100: oklch(0.115 0.012 285);
-  --color-background-200: oklch(0.155 0.011 285);
-  --color-background-300: oklch(0.225 0.025 285);
-  --color-foreground-100: oklch(0.92 0.01 285);
-  --color-foreground-200: oklch(0.78 0.018 285);
-  --color-foreground-300: oklch(0.66 0.02 285);
-  --color-border-100: oklch(0.34 0.022 285);
-  --color-border-100-50: oklch(0.34 0.022 285 / 0.5);
-  --color-selection-bg: color-mix(in srgb, var(--color-kumo-brand) 28%, transparent);
-  --color-selection-text: oklch(0.97 0.006 285);
-  --color-shadow-accent-light: #ff663355;
+  --color-accent-100: #ededed;
+  --color-accent-200: #a1a1a1;
+  --color-background-100: #0a0a0a;
+  --color-background-200: #141414;
+  --color-background-300: #1a1a1a;
+  --color-foreground-100: #ededed;
+  --color-foreground-200: #c7c7c7;
+  --color-foreground-300: #a1a1a1;
+  --color-border-100: #2a2a2a;
+  --color-border-100-50: #2a2a2a80;
+  --color-selection-bg: color-mix(in srgb, #ededed 24%, transparent);
+  --color-selection-text: #ffffff;
+  --color-shadow-accent-light: #ffffff26;
   --color-shadow-accent-dark: #00000080;
 
   --color-compute-100: oklch(74% 0.16 250);
@@ -220,6 +286,11 @@ body {
   font-family: var(--font-sans);
   background-color: var(--color-kumo-base);
   color: var(--text-color-kumo-default);
+}
+
+/* Headings use the display face (matching the host workspace). */
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
 }
 
 /* While a modal presents as a full-viewport overlay (see bridge.ts), go transparent so the dimmed
