@@ -46,7 +46,6 @@ import type {
 import {
   DEFAULT_GIT_BRANCH,
   contentTypeFromPath,
-  isConvertibleDocumentContentType,
   isImageContentType,
   isMarkdownContentType,
   isTextContentType,
@@ -2314,13 +2313,6 @@ function CollectionEditor({
       }
       const ct = known ?? contentTypeFromPath(rel);
       try {
-        if (isConvertibleDocumentContentType(ct)) {
-          // Upload-as-import: the server converts the document to Markdown and stores only
-          // that — Drive holds what the assistant reads, not binary containers.
-          await context.importContextDocument(collectionId, rel, await fileToBase64(file), ct);
-          ok++;
-          return;
-        }
         const isText = isTextContentType(ct);
         const body = isText ? await file.text() : await fileToBase64(file);
         await context.putContextDocument(collectionId, rel, {

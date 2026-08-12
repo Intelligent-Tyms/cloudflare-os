@@ -118,7 +118,9 @@ interface ContextDocument {
   title: string;
   path?: string;
   description?: string;
-  content: string;        // text (markdown/etc.) or a data: URI for binary content
+  // Text (markdown/etc.). Binary documents (Word, Excel, OpenDocument) read as text extracted
+  // from the file; other binary content is a data: URI.
+  content: string;
 }
 `;
 

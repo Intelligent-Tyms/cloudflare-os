@@ -14,6 +14,9 @@ import { metadataToSummary } from "./collection-kv.js";
 import { domainName } from "./domain.js";
 import { readArtifactRepoDocuments } from "./artifact-sync.js";
 import {
+  convertStoredDocumentToMarkdown, isConvertibleDocumentContentType,
+} from "./document-conversion.js";
+import {
   isSkillManifestPath, parseSkillManifest, type SkillIndexEntry,
 } from "./agent-skill.js";
 import { obsContext } from "./observability.js";
@@ -75,6 +78,9 @@ type ContextRecord = {
   description: string;
   contentType: string;
   body: string;
+  // Derived text for convertible binary documents (see document-conversion.ts). Regenerated on
+  // every write; never edited, so it cannot diverge from `body`.
+  extractedText?: string;
   lastUpdated: Date;
 };
 
@@ -344,6 +350,7 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       description: manifest?.description ?? record.description,
       contentType,
       body: record.body,
+      ...(record.extractedText ? {extractedText: record.extractedText} : {}),
       ...(manifest ? {skillName: manifest.name} : {}),
       lastUpdated: record.lastUpdated,
     };
@@ -364,6 +371,21 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     let record: ContextRecord = {
       path, name: baseName(path), description: doc.description, contentType, body: doc.body, lastUpdated: new Date(),
     };
+
+    // Convertible binary documents get a derived text extraction so search and agents can see
+    // inside them while the stored body stays the byte-perfect original. Best-effort: extraction
+    // failure (or a deployment without the WORKERS_AI binding) stores the original alone.
+    if (isConvertibleDocumentContentType(contentType) && this.env.WORKERS_AI) {
+      try {
+        let extracted = await convertStoredDocumentToMarkdown(
+            this.env.WORKERS_AI, record.name, doc.body, contentType);
+        record.extractedText = extracted.slice(0, MAX_DOCUMENT_BODY_BYTES);
+      } catch (error) {
+        logger.warn("failed to extract document text", {
+          event: "context.document.extract.failed", error,
+        });
+      }
+    }
 
     this.storage.transaction(() => {
       let isNew = !this.storage.documents.get(path);
@@ -606,20 +628,23 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       let snippet: string | undefined;
 
       let isText = isTextContentType(record.contentType ?? DEFAULT_DOCUMENT_CONTENT_TYPE);
+      // Binary documents search through their derived extraction (when one exists), so a .docx
+      // is findable by its contents, not just its name.
+      let searchableBody = isText ? record.body : record.extractedText ?? "";
       let nameLower = record.name.toLowerCase();
       let descLower = record.description.toLowerCase();
-      let bodyLower = isText ? record.body.toLowerCase() : "";
+      let bodyLower = searchableBody.toLowerCase();
 
       for (let token of tokens) {
         if (nameLower.includes(token)) score += 10;
         if (descLower.includes(token)) score += 5;
-        let bodyIdx = isText ? bodyLower.indexOf(token) : -1;
+        let bodyIdx = bodyLower.indexOf(token);
         if (bodyIdx >= 0) {
           score += 1;
           if (!snippet) {
             let start = Math.max(0, bodyIdx - 40);
-            let end = Math.min(record.body.length, bodyIdx + token.length + 80);
-            snippet = (start > 0 ? "..." : "") + record.body.slice(start, end) + (end < record.body.length ? "..." : "");
+            let end = Math.min(searchableBody.length, bodyIdx + token.length + 80);
+            snippet = (start > 0 ? "..." : "") + searchableBody.slice(start, end) + (end < searchableBody.length ? "..." : "");
           }
         }
       }

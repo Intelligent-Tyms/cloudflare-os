@@ -8,10 +8,6 @@ import {
   ContextDocument, ContextDocumentSummary, ContextGitTokenCreateResult, ContextGitTokenList,
   DEFAULT_GIT_BRANCH, EnabledCollectionInfo,
 } from "./context-types.js";
-import {
-  convertStoredDocumentToMarkdown, importPathFor, isConvertibleDocumentContentType,
-} from "./document-conversion.js";
-import { extractDescription } from "./description-extractors.js";
 import type { ContextCollectionDurableObject } from "./context-collection.js";
 import type { UserLibraryDurableObject } from "./user-library.js";
 import type { LibraryRegistryDurableObject } from "./registry-do.js";
@@ -247,33 +243,6 @@ export class ContextApiImpl extends RpcTarget implements ContextApi {
   }): Promise<void> {
     await this.#assertCanWrite(collectionId);
     await this.#collection(collectionId).putContextDocument(path, doc);
-  }
-
-  // Upload-as-import for binary documents: convert to Markdown and store ONLY the Markdown, at
-  // the source path with its extension swapped for ".md" (see document-conversion.ts). Fails
-  // loudly — an import that can't convert stores nothing, so everything in Drive stays
-  // agent-readable, and an existing document is never silently overwritten by a name collision.
-  async importContextDocument(collectionId: string, path: string, base64Body: string,
-      contentType: string): Promise<{ path: string }> {
-    await this.#assertCanWrite(collectionId);
-    if (!isConvertibleDocumentContentType(contentType)) {
-      throw new Error(`This file type cannot be imported: ${contentType}`);
-    }
-    let ai = this.env.WORKERS_AI;
-    if (!ai) throw new Error("Document import is not enabled on this deployment.");
-
-    let name = path.split("/").pop() || path;
-    let markdown = await convertStoredDocumentToMarkdown(ai, name, base64Body, contentType);
-    let importedPath = importPathFor(path);
-    if (await this.#collection(collectionId).getContextDocument(importedPath) !== null) {
-      throw new Error(`${importedPath} already exists.`);
-    }
-    await this.#collection(collectionId).putContextDocument(importedPath, {
-      description: extractDescription("text/markdown", markdown) ?? `Imported from ${name}`,
-      body: markdown,
-      contentType: "text/markdown",
-    });
-    return { path: importedPath };
   }
 
   async deleteContextDocument(collectionId: string, path: string): Promise<void> {

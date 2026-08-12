@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { importPathFor } from "../src/document-conversion";
 import {
   contentTypeFromPath, isConvertibleDocumentContentType, knownContentTypeFromPath,
 } from "../src/context-types";
@@ -24,25 +23,17 @@ describe("knownContentTypeFromPath", () => {
   });
 });
 
-describe("document imports", () => {
-  it("marks exactly the importable document types", () => {
+describe("document text extraction", () => {
+  it("marks exactly the extractable document types", () => {
     expect(isConvertibleDocumentContentType(knownContentTypeFromPath("a.docx")!)).toBe(true);
     expect(isConvertibleDocumentContentType(knownContentTypeFromPath("a.ods")!)).toBe(true);
     expect(isConvertibleDocumentContentType("application/vnd.ms-excel; charset=x")).toBe(true);
-    // Text stores as itself, images would invoke paid models, and PDF reads natively through
-    // most providers — none go through import conversion.
+    // Text needs no extraction, images would invoke paid models, and PDF reads natively through
+    // most providers — none get extractions.
     expect(isConvertibleDocumentContentType("text/markdown")).toBe(false);
     expect(isConvertibleDocumentContentType("image/png")).toBe(false);
     expect(isConvertibleDocumentContentType("application/pdf")).toBe(false);
-    // PowerPoint isn't in toMarkdown's supported set: stored intact, but not imported.
+    // PowerPoint isn't in toMarkdown's supported set: stored intact, no extraction.
     expect(isConvertibleDocumentContentType(knownContentTypeFromPath("a.pptx")!)).toBe(false);
-  });
-
-  it("derives the imported path by swapping the extension for .md", () => {
-    expect(importPathFor("reports/q3.docx")).toBe("reports/q3.md");
-    expect(importPathFor("q3.xlsx")).toBe("q3.md");
-    // A dot in a parent directory is not this file's extension.
-    expect(importPathFor("v1.2/plan.docx")).toBe("v1.2/plan.md");
-    expect(importPathFor("v1.2/plan")).toBe("v1.2/plan.md");
   });
 });

@@ -162,6 +162,12 @@ export type ContextDocument = {
   // Literal text for text content types; base64 for binary ones.
   body: string;
 
+  // Derived, machine-generated text extracted from a convertible binary document at write time
+  // (see document-conversion.ts). Never human-edited — regenerated whenever the document is
+  // re-uploaded — so it cannot diverge from `body`, which stays the byte-perfect original.
+  // Search indexes it and agents read it in place of the binary.
+  extractedText?: string;
+
   // Set when this document is a valid skill.
   skillName?: string;
 
@@ -364,13 +370,6 @@ export interface ContextApi extends RpcTarget {
   putContextDocument(collectionId: string, path: string, doc: {
     description: string; body: string; contentType?: string;
   }): Promise<void>;
-  // Import a binary document (Office/OpenDocument/Numbers) by converting it to Markdown and
-  // storing ONLY the Markdown — upload-as-import, like a Notion/Google Docs import. `base64Body`
-  // is the original file's bytes; the stored path swaps the extension for ".md" and is returned.
-  // Throws if the target path already exists, if the type isn't convertible, or if this
-  // deployment has no conversion binding.
-  importContextDocument(collectionId: string, path: string, base64Body: string,
-    contentType: string): Promise<{ path: string }>;
   deleteContextDocument(collectionId: string, path: string): Promise<void>;
   moveContextDocument(collectionId: string, fromPath: string, toPath: string): Promise<void>;
   // Own private collections plus every public one.
