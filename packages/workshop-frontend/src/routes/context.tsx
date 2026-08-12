@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { BookOpen, Sparkles, type LucideIcon } from 'lucide-react'
+import { Folder, HardDrive, Sparkles, type LucideIcon } from 'lucide-react'
 import { useDocumentTitle } from '../useDocumentTitle'
 import ComingSoonPreview from '../components/ComingSoonPreview'
 import { useSiteName } from '../ServerConfigContext'
@@ -22,7 +22,7 @@ interface ContextItem {
 }
 
 const TYPE_META: Record<Kind, { label: string; Icon: LucideIcon }> = {
-  collection: { label: 'Folder', Icon: BookOpen },
+  collection: { label: 'Folder', Icon: Folder },
   skill: { label: 'Skill', Icon: Sparkles },
 }
 
@@ -68,7 +68,7 @@ function ContextPage() {
       </header>
 
       <ComingSoonPreview
-        icon={BookOpen}
+        icon={HardDrive}
         title={`Drive is coming soon to ${siteName}`}
         description="A preview of how you'll author folders of knowledge and skills for your agents to draw on."
       >

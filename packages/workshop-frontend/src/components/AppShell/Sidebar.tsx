@@ -1,10 +1,10 @@
 import { Link } from '@tanstack/react-router'
 import {
-  BookOpen,
   Compass,
   DraftingCompass,
   Hexagon,
   House,
+  HardDrive,
   Layers,
   LayoutGrid,
   PanelLeft,
@@ -171,7 +171,7 @@ export default function Sidebar({
                       }}
                     />
                   ) : (
-                    <BookOpen size={14} />
+                    <HardDrive size={14} />
                   )
                 }
                 collapsed={collapsed}

@@ -1,6 +1,5 @@
 import { Button, Dialog, DropdownMenu, Input, InputArea, useKumoToastManager } from "@cloudflare/kumo";
 import {
-  BookOpen,
   Buildings,
   Clock,
   GitBranch,
@@ -320,11 +319,11 @@ function CollectionProvenance({ source }: { source: EnabledCollectionInfo["sourc
   );
 }
 
-// Tile dimensions + matching fallback-book glyph size, keyed together so they can't drift.
+// Tile dimensions + matching fallback-folder glyph size, keyed together so they can't drift.
 const ICON_TILE_SIZES = {
-  sm: { tile: "h-9 w-9 rounded-lg text-[18px]", book: 16 },
-  md: { tile: "h-10 w-10 rounded-xl text-[20px]", book: 18 },
-  lg: { tile: "h-12 w-12 rounded-2xl text-[26px]", book: 24 },
+  sm: { tile: "h-9 w-9 rounded-lg text-[18px]", glyph: 16 },
+  md: { tile: "h-10 w-10 rounded-xl text-[20px]", glyph: 18 },
+  lg: { tile: "h-12 w-12 rounded-2xl text-[26px]", glyph: 24 },
 } as const;
 
 function CollectionIconTile({
@@ -334,12 +333,12 @@ function CollectionIconTile({
   icon?: string;
   size?: keyof typeof ICON_TILE_SIZES;
 }) {
-  const { tile, book } = ICON_TILE_SIZES[size];
+  const { tile, glyph } = ICON_TILE_SIZES[size];
   return (
     <div
       className={`grid ${tile} shrink-0 place-items-center bg-kumo-fill leading-none text-kumo-subtle`}
     >
-      {icon ? <span>{icon}</span> : <BookOpen size={book} weight="regular" />}
+      {icon ? <span>{icon}</span> : <Folder size={glyph} weight="regular" />}
     </div>
   );
 }
@@ -1058,7 +1057,7 @@ export default function ContextLibraryPage() {
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-3 px-3 py-20 text-center">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-kumo-fill text-kumo-subtle">
-              <BookOpen size={18} />
+              <Folder size={18} />
             </div>
             <div>
               <p className="text-sm font-medium text-kumo-default">
@@ -2521,7 +2520,7 @@ function CollectionEditor({
             Drive
           </button>
           <div className="rounded-xl border border-kumo-line bg-kumo-base px-5 py-10 text-center shadow-[0_1px_2px_rgba(20,17,16,0.03)]">
-            <BookOpen size={32} className="mx-auto mb-3 text-kumo-subtle" />
+            <Folder size={32} className="mx-auto mb-3 text-kumo-subtle" />
             <p className="m-0 text-[15px] leading-5 font-medium tracking-[-0.25px] text-kumo-default">
               This folder is no longer available
             </p>
