@@ -49,6 +49,7 @@ import {
   isImageContentType,
   isMarkdownContentType,
   isTextContentType,
+  knownContentTypeFromPath,
 } from "../src/context-types";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, lineNumbers } from "@codemirror/view";
@@ -151,6 +152,17 @@ function fileToBase64(file: File): Promise<string> {
 
 function dataUri(contentType: string, base64Body: string): string {
   return `data:${contentType};base64,${base64Body}`;
+}
+
+// Whether a file's bytes decode as valid UTF-8, so an unknown-extension upload can be treated as
+// text without mangling binary content.
+async function isUtf8Text(file: File): Promise<boolean> {
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2283,13 +2295,23 @@ function CollectionEditor({
 
   const uploadFiles = async (files: FileList) => {
     let ok = 0,
-      failed = 0;
+      failed = 0,
+      unsupported = 0;
     await runWithConcurrency(Array.from(files), 6, async (file) => {
       const rel = (file as any).webkitRelativePath || file.name;
       // Derive the type from the path (its extension), not the browser-reported file.type, so the
       // stored encoding matches how the editor and the agent read-path interpret it (both go by
       // extension). Trusting file.type caused e.g. .js to be stored base64 but shown as text.
-      const ct = contentTypeFromPath(rel);
+      //
+      // An unknown extension only gets the markdown default when the bytes actually decode as
+      // UTF-8. Unknown *binary* is refused: reading it as text would corrupt it irreversibly,
+      // and storing it against a text-deriving path would corrupt it on the next save instead.
+      const known = knownContentTypeFromPath(rel);
+      if (!known && !(await isUtf8Text(file))) {
+        unsupported++;
+        return;
+      }
+      const ct = known ?? contentTypeFromPath(rel);
       try {
         const isText = isTextContentType(ct);
         const body = isText ? await file.text() : await fileToBase64(file);
@@ -2304,9 +2326,13 @@ function CollectionEditor({
         failed++;
       }
     });
+    const problems = [
+      failed ? `${failed} failed` : "",
+      unsupported ? `${pluralize(unsupported, "unsupported file type")} skipped` : "",
+    ].filter(Boolean).join(", ");
     toasts.add({
-      title: `Uploaded ${pluralize(ok, "file")}${failed ? `, ${failed} failed` : ""}`,
-      variant: failed ? "error" : "success",
+      title: `Uploaded ${pluralize(ok, "file")}${problems ? `, ${problems}` : ""}`,
+      variant: problems ? "error" : "success",
     });
     await loadDocs();
   };

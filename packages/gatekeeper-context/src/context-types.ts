@@ -263,14 +263,34 @@ const EXTENSION_CONTENT_TYPES: Record<string, string> = {
   ico: "image/x-icon",
   bmp: "image/bmp",
   pdf: "application/pdf",
+  // Office / OpenDocument / Numbers. Binary containers: stored base64, never read as text.
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xls: "application/vnd.ms-excel",
+  xlsm: "application/vnd.ms-excel.sheet.macroenabled.12",
+  xlsb: "application/vnd.ms-excel.sheet.binary.macroenabled.12",
+  odt: "application/vnd.oasis.opendocument.text",
+  ods: "application/vnd.oasis.opendocument.spreadsheet",
+  numbers: "application/vnd.apple.numbers",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ppt: "application/vnd.ms-powerpoint",
+  odp: "application/vnd.oasis.opendocument.presentation",
 };
 
-// Derive a MIME type from a path's file extension, defaulting to markdown.
-export function contentTypeFromPath(path: string): string {
+// The MIME type a path's extension names, or undefined for an extension we don't recognize.
+// Callers that need a default should decide it from the *content* (see the upload path): the old
+// blanket text/markdown default corrupted unknown binary uploads by reading them as text.
+export function knownContentTypeFromPath(path: string): string | undefined {
   let dot = path.lastIndexOf(".");
-  if (dot < 0) return DEFAULT_DOCUMENT_CONTENT_TYPE;
-  let ext = path.slice(dot + 1).toLowerCase();
-  return EXTENSION_CONTENT_TYPES[ext] ?? DEFAULT_DOCUMENT_CONTENT_TYPE;
+  if (dot < 0) return undefined;
+  return EXTENSION_CONTENT_TYPES[path.slice(dot + 1).toLowerCase()];
+}
+
+// Derive a MIME type from a path's file extension, defaulting to markdown. For in-app file
+// creation and read paths, where content is authored as text; upload paths must not use this
+// default for unknown extensions (see knownContentTypeFromPath).
+export function contentTypeFromPath(path: string): string {
+  return knownContentTypeFromPath(path) ?? DEFAULT_DOCUMENT_CONTENT_TYPE;
 }
 
 // Text bodies are literal/searchable; everything else is base64. SVG is treated as an image.

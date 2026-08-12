@@ -33,6 +33,10 @@
     }
   ],
 
+  // Markdown renditions for uploaded binary documents (document-conversion.ts) run on the
+  // Workers AI binding's toMarkdown() utility, free for the formats Drive converts.
+  "ai": { "binding": "WORKERS_AI" },
+
   // Optional: add an Artifacts binding named ARTIFACTS to enable Git-backed collections.
   "observability": {
     "enabled": true,
