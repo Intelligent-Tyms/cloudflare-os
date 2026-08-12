@@ -775,6 +775,20 @@ export type AdminSkill = {
   missing: boolean;
 };
 
+// One installable package in the deployment's skill marketplace (a catalog curated by the fleet
+// operator and served from the URL the deployment is configured with).
+export type SkillMarketplaceEntry = {
+  // Catalog id, passed to AdminApi.installSkillPackage().
+  id: string;
+  // Human title, also the shared Drive folder name an install creates.
+  name: string;
+  description: string;
+  // The skill names the package provides, so the panel can mark already-present ones.
+  skills: string[];
+  // Where the package's source lives, for the panel's "view source" link.
+  repoUrl: string;
+};
+
 // One promoted blueprint, as the admin Formats panel sees it: the deployment's curation plus
 // enough of the blueprint to show what is being curated.
 export type AdminFormat = {
@@ -902,6 +916,16 @@ export interface AdminApi {
   // refuses its invocation. Soft enforcement, like resources: a chat that already read the skill's
   // text keeps it. Re-enabling a `missing` skill simply clears the stale curation entry.
   setSkillEnabled(name: string, enabled: boolean): Promise<void>;
+
+  // The deployment's skill marketplace catalog, or null when this deployment has no marketplace
+  // configured. Fetched live from the configured catalog URL.
+  listSkillMarketplace(): Promise<SkillMarketplaceEntry[] | null>;
+
+  // Install one marketplace package: fetch its files from the marketplace and persist them as a
+  // shared skill folder, after which its skills surface (and can be curated) like any others.
+  // Throws if the marketplace isn't configured, the package doesn't validate, or a package with
+  // the same title is already installed. Uninstalling is deleting the folder in Drive.
+  installSkillPackage(id: string): Promise<void>;
 
   // --- Deployment AI models ---
   //

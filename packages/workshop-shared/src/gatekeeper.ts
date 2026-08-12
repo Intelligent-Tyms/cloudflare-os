@@ -73,7 +73,35 @@ export type VendorDescription = {
   // GatekeeperVendor.listDeploymentSkills(). Like createAccount, callers gate on this flag rather
   // than probing, since RPC stubs cannot report optional-method presence.
   providesAgentSkills?: boolean;
+
+  // If set, this vendor can persist a skill package for the whole deployment and implements
+  // GatekeeperVendor.installSkillPackage() (e.g. Drive stores it as a shared folder). Callers gate
+  // on this flag rather than probing.
+  installsSkillPackages?: boolean;
 }
+
+// One file of a skill package being installed (see GatekeeperVendor.installSkillPackage).
+export type SkillPackageFile = {
+  // Path within the package, e.g. "SKILL.md" or "references/formats.md". Forward slashes.
+  path: string;
+  // The file's full text. Skill packages are instructions, so binary content is not supported.
+  content: string;
+};
+
+// A skill package the deployment is installing: a titled set of instruction files, at least one
+// of which must be a valid SKILL.md manifest. Assembled by the Workshop from a curated
+// marketplace; the vendor persists it but grants nothing — the skills surface through the same
+// listing/curation channels as any other skill.
+export type SkillPackage = {
+  title: string;
+  description: string;
+  files: SkillPackageFile[];
+};
+
+// Bounds the Workshop enforces on a package before handing it to a vendor.
+export const SKILL_PACKAGE_MAX_FILES = 100;
+export const SKILL_PACKAGE_MAX_FILE_BYTES = 512 * 1024;
+export const SKILL_PACKAGE_MAX_TOTAL_BYTES = 3 * 1024 * 1024;
 
 // One deployment-wide Agent Skill a vendor hosts, as the admin skill curation panel sees it.
 // Purely descriptive: enablement is the Workshop's (AdminConfig.disabledSkills), not the vendor's.
@@ -525,6 +553,15 @@ export interface GatekeeperVendor extends WorkerEntrypoint {
   // sessions. Present only on vendors that set VendorDescription.providesAgentSkills; callers gate
   // on that flag rather than probing.
   listDeploymentSkills?(): Promise<DeploymentSkillInfo[]>;
+
+  // Persist a skill package deployment-wide (e.g. as a shared Drive folder named `pkg.title`).
+  // The Workshop calls this only from the admin capability, with content it fetched from the
+  // deployment's configured marketplace and validated against the SKILL_PACKAGE_* bounds; the
+  // vendor must still validate for itself (untrusted input at this boundary too). Must reject a
+  // package whose title is already installed, so retries can't duplicate. Present only on vendors
+  // that set VendorDescription.installsSkillPackages; callers gate on that flag rather than
+  // probing.
+  installSkillPackage?(pkg: SkillPackage): Promise<void>;
 }
 
 export interface GatekeeperConnectCallback extends WorkerEntrypoint {

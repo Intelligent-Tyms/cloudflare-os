@@ -5,11 +5,11 @@
 // in Drive (including folders synced from git repositories); this panel only curates which of them
 // are offered. Everything is enabled by default — disabling is the curation.
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Button, Switch, useKumoToastManager } from '@cloudflare/kumo'
-import { TriangleAlert } from 'lucide-react'
-import type { AdminApi, AdminSkill } from '@gadgets/workshop-shared/api'
+import { ArrowUpRight, Check, TriangleAlert } from 'lucide-react'
+import type { AdminApi, AdminSkill, SkillMarketplaceEntry } from '@gadgets/workshop-shared/api'
 import type { RpcStub } from 'capnweb'
 import { useGatekeeperApps } from '../useGatekeeperApps'
 
@@ -29,6 +29,25 @@ export default function AdminSkillsPanel({
   // The Drive management app, for the "add skills" pointer. Discovered, not hardcoded: any
   // skills-providing connector's app would do, but today that is Drive.
   const driveApp = useGatekeeperApps().find((app) => app.title === 'Drive')
+
+  // The marketplace catalog: undefined while loading, null when this deployment has none
+  // configured (the section hides), [] when configured but empty.
+  const [marketplace, setMarketplace] = useState<SkillMarketplaceEntry[] | null | undefined>(undefined)
+  useEffect(() => {
+    let cancelled = false
+    admin.listSkillMarketplace()
+      .then((entries) => { if (!cancelled) setMarketplace(entries) })
+      .catch((err) => {
+        console.error('Failed to load the skill marketplace:', err)
+        if (!cancelled) setMarketplace(null)
+      })
+    return () => { cancelled = true }
+  }, [admin])
+
+  const liveSkillNames = useMemo(
+    () => new Set(skills.filter((s) => !s.missing).map((s) => s.name)),
+    [skills],
+  )
 
   // Every mutation funnels through here, so the panel can't issue overlapping writes and always
   // re-reads the authoritative state afterwards.
@@ -89,6 +108,90 @@ export default function AdminSkillsPanel({
             />
           ))}
         </div>
+      )}
+
+      {/* Marketplace: hidden entirely when the deployment has no catalog configured. */}
+      {marketplace !== null && marketplace !== undefined && (
+        <div className="mt-8">
+          <h3 className="mb-1 text-[15px] font-semibold text-kumo-strong">Skills marketplace</h3>
+          <p className="mb-4 text-sm text-kumo-subtle">
+            Curated skill packages. Installing one adds it as a shared Drive folder; its skills
+            then appear above, where you can turn them off at any time. To uninstall, delete the
+            folder in Drive.
+          </p>
+          {marketplace.length === 0 ? (
+            <p className="text-sm text-kumo-inactive">Nothing in the marketplace yet.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {marketplace.map((entry) => (
+                <MarketplaceRow
+                  key={entry.id}
+                  entry={entry}
+                  busy={busy}
+                  installed={
+                    entry.skills.length > 0 &&
+                    entry.skills.every((name) => liveSkillNames.has(name))
+                  }
+                  onInstall={() => mutate(async () => {
+                    await admin.installSkillPackage(entry.id)
+                    toasts.add({ title: `Installed “${entry.name}”`, variant: 'success' })
+                  })}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MarketplaceRow({
+  entry,
+  busy,
+  installed,
+  onInstall,
+}: {
+  entry: SkillMarketplaceEntry
+  busy: boolean
+  installed: boolean
+  onInstall: () => void
+}) {
+  return (
+    <div className="flex items-start gap-4 rounded-lg border border-kumo-line bg-kumo-base px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className="text-[13px] font-medium text-kumo-strong">{entry.name}</span>
+          {entry.skills.length > 0 && (
+            <span className="font-mono text-[12px] text-kumo-inactive">
+              {entry.skills.map((name) => `/${name}`).join(' ')}
+            </span>
+          )}
+          {entry.repoUrl && (
+            <a
+              href={entry.repoUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-0.5 text-[12px] text-kumo-subtle underline"
+            >
+              source
+              <ArrowUpRight size={12} />
+            </a>
+          )}
+        </div>
+        {entry.description && (
+          <p className="mt-0.5 text-[13px] leading-[18px] text-kumo-subtle">{entry.description}</p>
+        )}
+      </div>
+      {installed ? (
+        <span className="inline-flex items-center gap-1 text-[13px] font-medium text-kumo-success">
+          <Check size={14} />
+          Installed
+        </span>
+      ) : (
+        <Button variant="secondary" disabled={busy} onClick={onInstall}>
+          Install
+        </Button>
       )}
     </div>
   )

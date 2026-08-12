@@ -6,12 +6,16 @@ import { WorkerEntrypoint, DurableObject, RpcStub as NativeRpcStub, RpcTarget as
 import { RpcStub } from "capnweb";
 import { validateRpc, skipRpcValidation } from "capnweb-validate";
 import { boundAgentCatalog, boundAgentSkillList } from "@gadgets/workshop-shared/gatekeeper";
+import {
+  SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES,
+} from "@gadgets/workshop-shared/gatekeeper";
 import type {
   VendorDescription, AccountDescription, AgentCatalog, AgentCatalogRequest,
   AgentSkillContent, AgentSkillList,
   AppUiContext, GatekeeperUser, GatekeeperUiFrame, ApprovalQueue, ObservationAuthorizer,
   GatekeeperConnectCallback, GatekeeperConnectOptions, SupportedResource,
   Gatekeeper, GatekeeperUserVerifier, ResourceDescription, ActionKind, DeploymentSkillInfo,
+  SkillPackage,
   SlashCommandDescriptor, SlashCommandProvider, SlashCommandResult,
 } from "@gadgets/workshop-shared/gatekeeper";
 import { LibraryReadSession } from "./library-read.js";
@@ -23,8 +27,9 @@ import {
   loadSkillsForCollections, parseSkillManifest,
   type CollectionSkills,
 } from "./agent-skill.js";
-import type { EnabledCollectionInfo } from "./context-types.js";
-import { listPublicCollectionsFromKv } from "./collection-kv.js";
+import type { ContextCollectionMetadata, EnabledCollectionInfo } from "./context-types.js";
+import { isSkillManifestPath } from "./agent-skill.js";
+import { listPublicCollectionsFromKv, metadataToSummary } from "./collection-kv.js";
 import { domainName, DEFAULT_SHARING_DOMAIN } from "./domain.js";
 import APP_HTML from "./generated/app.txt";
 
@@ -420,7 +425,79 @@ export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env, Gatekeepe
       autoProvisionsAccount: true,
       providesAuth: false,
       providesAgentSkills: true,
+      installsSkillPackages: true,
     };
+  }
+
+  // Persist a marketplace skill package as a public collection in this domain, so its skills
+  // surface (and are curated) exactly like admin-authored ones. Reached only through the
+  // Workshop's admin capability, but the content is untrusted here too: re-validate the bounds
+  // and require at least one parseable SKILL.md before anything is written.
+  async installSkillPackage(pkg: SkillPackage): Promise<void> {
+    let title = pkg.title.trim();
+    let description = pkg.description.trim();
+    if (!title || title.length > 120) throw new Error("Skill package title is invalid.");
+    if (description.length > 1024) throw new Error("Skill package description is too long.");
+    if (pkg.files.length === 0 || pkg.files.length > SKILL_PACKAGE_MAX_FILES) {
+      throw new Error(`Skill packages must have 1–${SKILL_PACKAGE_MAX_FILES} files.`);
+    }
+    let encoder = new TextEncoder();
+    let totalBytes = 0;
+    let hasSkill = false;
+    let seenPaths = new Set<string>();
+    for (let file of pkg.files) {
+      let bytes = encoder.encode(file.content).length;
+      totalBytes += bytes;
+      if (bytes > SKILL_PACKAGE_MAX_FILE_BYTES) {
+        throw new Error(`Skill package file is too large: ${file.path}`);
+      }
+      if (seenPaths.has(file.path)) throw new Error(`Skill package repeats a path: ${file.path}`);
+      seenPaths.add(file.path);
+      if (isSkillManifestPath(file.path)) {
+        parseSkillManifest(file.path, file.content);  // throws with the manifest's own error
+        hasSkill = true;
+      }
+    }
+    if (totalBytes > SKILL_PACKAGE_MAX_TOTAL_BYTES) {
+      throw new Error("Skill package is too large.");
+    }
+    if (!hasSkill) throw new Error("Skill packages must contain at least one SKILL.md.");
+
+    let sharingDomain = this.ctx.props.sharingDomain ?? DEFAULT_SHARING_DOMAIN;
+    // Title is the install identity: rejecting a duplicate makes installs idempotent-by-refusal
+    // (a retry after success fails loudly instead of duplicating the folder).
+    let existing = await listPublicCollectionsFromKv(this.env, sharingDomain);
+    if (existing.some(collection => collection.title === title)) {
+      throw new Error(`A shared folder named ${JSON.stringify(title)} already exists.`);
+    }
+
+    let collections = this.ctx.exports.ContextCollectionDurableObject;
+    let registries = this.ctx.exports.LibraryRegistryDurableObject;
+    let id = crypto.randomUUID();
+    let metadata: ContextCollectionMetadata = {
+      id,
+      title,
+      description,
+      visibility: "public",
+      created: new Date(),
+      lastUpdated: new Date(),
+      documentCount: 0,
+      content: { source: "web" },
+    };
+    let collection = collections.get(collections.idFromName(domainName(sharingDomain, id)));
+    metadata = await collection.initialize(metadata, sharingDomain, "");
+    try {
+      await registries.getByName(sharingDomain).addPublic(sharingDomain, metadataToSummary(metadata));
+    } catch (err) {
+      // Indexing failed; delete the now-unreachable collection (same recovery as the UI path).
+      await collection.deleteSelf().catch(() => {});
+      throw err;
+    }
+    // Written after the collection is reachable: a failure mid-loop leaves a visible, partially
+    // filled folder the admin can delete in Drive, not an orphan.
+    for (let file of pkg.files) {
+      await collection.putContextDocument(file.path, { description: "", body: file.content });
+    }
   }
 
   // The deployment-wide skills: every skill in this domain's public collections. Descriptive

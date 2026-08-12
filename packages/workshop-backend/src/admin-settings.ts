@@ -1,5 +1,5 @@
-import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, TeamRole, TeamView, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
-import { GatekeeperVendor } from '@gadgets/workshop-shared/gatekeeper';
+import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { GatekeeperVendor, SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES, SkillPackage, SkillPackageFile } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
 import { validateRpc } from 'capnweb-validate';
@@ -18,10 +18,15 @@ import * as teamDirectory from './team-directory.js';
 
 const logger = createWorkshopLogger("workshop.admin.settings");
 
-// listDeploymentSkills is optional on GatekeeperVendor (like createAccount): callers gate on
-// VendorDescription.providesAgentSkills and view the stub through the Required shape, since RPC
-// stub types don't narrow optional methods.
+// listDeploymentSkills/installSkillPackage are optional on GatekeeperVendor (like createAccount):
+// callers gate on the VendorDescription flags and view the stub through the Required shape, since
+// RPC stub types don't narrow optional methods.
 type SkillListerStub = Required<Pick<GatekeeperVendor, "listDeploymentSkills">>;
+type SkillInstallerStub = Required<Pick<GatekeeperVendor, "installSkillPackage">>;
+
+// Identifier shape for marketplace catalog ids (path-segment safe: interpolated into the
+// package-fetch URL).
+const MARKETPLACE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 function makeAdminSettingsStorage(storage: DurableObjectStorage) {
   return createTypedStorage(storage, {
@@ -558,6 +563,98 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
     });
   }
 
+  // --- Skill marketplace ---
+  //
+  // The marketplace is a catalog the fleet operator curates, served from the URL this deployment
+  // is configured with (SKILL_MARKETPLACE_URL). The catalog and package payloads are external
+  // input: everything is shape-checked and clamped before use, and install content additionally
+  // passes through the vendor's own validation.
+
+  async #fetchMarketplace(path: string): Promise<unknown> {
+    let base = this.env.SKILL_MARKETPLACE_URL?.trim();
+    if (!base) throw new Error("This deployment has no skill marketplace configured.");
+    let response = await fetch(`${base.replace(/\/$/, "")}${path}`, {
+      headers: { accept: "application/json" },
+    });
+    if (!response.ok) {
+      throw new Error(`The skill marketplace responded with status ${response.status}.`);
+    }
+    return await response.json();
+  }
+
+  // The catalog, or null when this deployment has no marketplace configured. Malformed entries
+  // are dropped rather than failing the panel.
+  async listSkillMarketplace(): Promise<SkillMarketplaceEntry[] | null> {
+    if (!this.env.SKILL_MARKETPLACE_URL?.trim()) return null;
+    let raw = await this.#fetchMarketplace("");
+    let list = (raw as { packages?: unknown })?.packages;
+    if (!Array.isArray(list)) throw new Error("The skill marketplace returned an invalid catalog.");
+    let entries: SkillMarketplaceEntry[] = [];
+    for (let item of list) {
+      let { id, name, description, skills, repoUrl } = (item ?? {}) as Partial<SkillMarketplaceEntry>;
+      if (typeof id !== "string" || !MARKETPLACE_ID_PATTERN.test(id)) continue;
+      if (typeof name !== "string" || !name.trim()) continue;
+      entries.push({
+        id,
+        name: name.trim().slice(0, 120),
+        description: (typeof description === "string" ? description : "").slice(0, 1024),
+        skills: Array.isArray(skills)
+            ? skills.filter((s): s is string => typeof s === "string").slice(0, 32)
+            : [],
+        repoUrl: typeof repoUrl === "string" && /^https:\/\//.test(repoUrl) ? repoUrl : "",
+      });
+    }
+    return entries;
+  }
+
+  // Fetch one package from the marketplace, validate it against the shared bounds, and hand it to
+  // the vendor that persists skill packages. The vendor's duplicate-title refusal is what makes a
+  // retried install safe.
+  async installSkillPackage(id: string): Promise<void> {
+    if (!MARKETPLACE_ID_PATTERN.test(id)) throw new Error("Invalid marketplace package id.");
+    let raw = await this.#fetchMarketplace(`/${id}/package`) as {
+      name?: unknown; description?: unknown; files?: unknown;
+    };
+    if (typeof raw?.name !== "string" || !raw.name.trim() || !Array.isArray(raw.files)) {
+      throw new Error("The skill marketplace returned an invalid package.");
+    }
+    let files: SkillPackageFile[] = [];
+    let totalBytes = 0;
+    let encoder = new TextEncoder();
+    for (let item of raw.files) {
+      let { path, content } = (item ?? {}) as Partial<SkillPackageFile>;
+      if (typeof path !== "string" || typeof content !== "string") {
+        throw new Error("The skill marketplace returned an invalid package file.");
+      }
+      let bytes = encoder.encode(content).length;
+      totalBytes += bytes;
+      if (bytes > SKILL_PACKAGE_MAX_FILE_BYTES || files.length >= SKILL_PACKAGE_MAX_FILES ||
+          totalBytes > SKILL_PACKAGE_MAX_TOTAL_BYTES) {
+        throw new Error("The skill package exceeds the size limits.");
+      }
+      files.push({ path, content });
+    }
+    let pkg: SkillPackage = {
+      title: raw.name.trim().slice(0, 120),
+      description: (typeof raw.description === "string" ? raw.description : "").slice(0, 1024),
+      files,
+    };
+
+    for (let [vendorId, vendor] of this.vendors) {
+      try {
+        if ((await vendor.describe()).installsSkillPackages !== true) continue;
+      } catch (err) {
+        logger.warn("failed to describe vendor while installing a skill package", {
+          event: "gatekeeper.skills.install.describe.failed", gatekeeperId: vendorId, error: err,
+        });
+        continue;
+      }
+      await (vendor as unknown as SkillInstallerStub).installSkillPackage(pkg);
+      return;
+    }
+    throw new Error("No connector on this deployment can store skill packages.");
+  }
+
   // Enable/disable a single gatekeeper resource type atomically (read-modify-write within the DO).
   async setResourceEnabled(vendorId: string, urlPattern: string, enabled: boolean): Promise<void> {
     vendorId = vendorId.toLowerCase();
@@ -807,6 +904,14 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
       throw new Error("Invalid skill name.");
     }
     await this.admin.setSkillEnabled(name, enabled);
+  }
+
+  listSkillMarketplace(): Promise<SkillMarketplaceEntry[] | null> {
+    return this.admin.listSkillMarketplace();
+  }
+
+  installSkillPackage(id: string): Promise<void> {
+    return this.admin.installSkillPackage(id);
   }
 
   addModel(profile: AiChatAuthorInfo, config: AiModelConfig): Promise<void> {

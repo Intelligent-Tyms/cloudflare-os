@@ -23,6 +23,11 @@ declare global {
       // Note: outside gateway mode, Workers AI (provider "cloudflare") is BYOK like every other
       // provider -- the account ID and API token live in the user's model config, not in env.
 
+      // Skill marketplace catalog URL (the fleet's curated skill-package catalog endpoint,
+      // e.g. https://start.tyms.ai/marketplace/skills). Absent ⇒ no marketplace: the admin
+      // Skills panel hides its marketplace section and installs are refused.
+      SKILL_MARKETPLACE_URL?: string;
+
       // Blueprint storage bindings.
       BLUEPRINTS: KVNamespace;             // Workers KV for blueprint metadata lookup
       BLUEPRINT_CONTENT: R2Bucket;         // R2 bucket for blueprint code snapshots
