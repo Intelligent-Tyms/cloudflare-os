@@ -1,45 +1,34 @@
-// Markdown renditions for binary documents uploaded to Drive.
+// Upload-as-import for binary documents in Drive.
 //
-// A stored .docx is opaque to full-text search and to agents reading the collection, so uploads
-// of convertible document types also store a sibling "<path>.md" rendition converted via the
-// Workers AI toMarkdown() utility (free for these formats — the same call webFetch and the chat
-// upload path use). The original bytes stay authoritative and byte-perfect for download; the
-// rendition is derived, regenerated on every re-upload, and follows the original on move/delete.
+// Drive's contract is that everything in it is agent-readable, so a .docx is a transport
+// container, not an artifact: uploading one converts it to Markdown via the Workers AI
+// toMarkdown() utility (free for these formats — the same call webFetch and the chat upload path
+// use) and stores ONLY the Markdown, the way Notion or Google Docs import a Word file. One file,
+// one format, nothing to diverge; byte-perfect file custody belongs to a real document store
+// reached through connectors.
 //
-// Conversion requires the optional WORKERS_AI binding; deployments without it simply store the
-// original alone, exactly as before.
+// Conversion requires the optional WORKERS_AI binding; deployments without it refuse the import.
 
 import { Buffer } from "node:buffer";
+import { isConvertibleDocumentContentType } from "./context-types.js";
 
-// MIME types worth a rendition: the binary document formats toMarkdown() converts for free.
-// Text types don't need one (they are already searchable), images are excluded (conversion would
-// invoke paid models), and PDF is deliberately left out for now: agents can read PDFs natively
-// through most model providers, and its rendition value is lower than its conversion cost.
-const CONVERTIBLE_DOCUMENT_CONTENT_TYPES = new Set([
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",       // .xlsx
-  "application/vnd.ms-excel",                                                // .xls
-  "application/vnd.ms-excel.sheet.macroenabled.12",                          // .xlsm
-  "application/vnd.ms-excel.sheet.binary.macroenabled.12",                   // .xlsb
-  "application/vnd.oasis.opendocument.text",                                 // .odt
-  "application/vnd.oasis.opendocument.spreadsheet",                          // .ods
-  "application/vnd.apple.numbers",                                           // .numbers
-]);
+// Which MIME types import: the toMarkdown()-convertible document set, declared in
+// context-types.ts (browser-safe) as CONVERTIBLE_DOCUMENT_CONTENT_TYPES. Text types need no
+// import (they store as themselves), images are excluded (conversion would invoke paid models;
+// they store as images), and PDF is deliberately left out: agents read PDFs natively through
+// most model providers, so PDFs also store as themselves.
+export { isConvertibleDocumentContentType };
 
-export function isConvertibleDocumentContentType(contentType: string): boolean {
-  return CONVERTIBLE_DOCUMENT_CONTENT_TYPES.has(
-    contentType.split(";", 1)[0].trim().toLowerCase());
+// Where an imported document lands: the same path with the source extension swapped for ".md"
+// ("reports/q3.docx" → "reports/q3.md") — the import IS the document, so it takes the name.
+export function importPathFor(path: string): string {
+  let slash = path.lastIndexOf("/");
+  let dot = path.lastIndexOf(".");
+  return (dot > slash ? path.slice(0, dot) : path) + ".md";
 }
 
-// Where a document's Markdown rendition lives: a sibling file named after the original,
-// extension included, so "report.docx" and "report.docx.md" sort together and the derivation
-// is obvious in the file list.
-export function renditionPathFor(path: string): string {
-  return `${path}.md`;
-}
-
-// Convert a stored document body (base64, as Drive stores binary) to Markdown. Throws when the
-// conversion fails; callers treat the rendition as best-effort.
+// Convert an uploaded document body (base64) to Markdown. Throws when the conversion fails; the
+// import then fails loudly rather than storing an agent-opaque blob.
 export async function convertStoredDocumentToMarkdown(
   ai: Ai,
   name: string,

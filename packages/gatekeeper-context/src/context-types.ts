@@ -293,6 +293,26 @@ export function contentTypeFromPath(path: string): string {
   return knownContentTypeFromPath(path) ?? DEFAULT_DOCUMENT_CONTENT_TYPE;
 }
 
+// The binary document formats upload imports by converting to Markdown (Workers AI toMarkdown's
+// free set, minus images and PDF — see document-conversion.ts for the rationale and the
+// conversion itself, which is server-only). Kept here so the browser app can test membership
+// without pulling in server dependencies.
+const CONVERTIBLE_DOCUMENT_CONTENT_TYPES = new Set([
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",       // .xlsx
+  "application/vnd.ms-excel",                                                // .xls
+  "application/vnd.ms-excel.sheet.macroenabled.12",                          // .xlsm
+  "application/vnd.ms-excel.sheet.binary.macroenabled.12",                   // .xlsb
+  "application/vnd.oasis.opendocument.text",                                 // .odt
+  "application/vnd.oasis.opendocument.spreadsheet",                          // .ods
+  "application/vnd.apple.numbers",                                           // .numbers
+]);
+
+export function isConvertibleDocumentContentType(contentType: string): boolean {
+  return CONVERTIBLE_DOCUMENT_CONTENT_TYPES.has(
+    contentType.split(";", 1)[0].trim().toLowerCase());
+}
+
 // Text bodies are literal/searchable; everything else is base64. SVG is treated as an image.
 export function isTextContentType(contentType: string): boolean {
   contentType = contentType.split(";", 1)[0].trim().toLowerCase();
@@ -344,6 +364,13 @@ export interface ContextApi extends RpcTarget {
   putContextDocument(collectionId: string, path: string, doc: {
     description: string; body: string; contentType?: string;
   }): Promise<void>;
+  // Import a binary document (Office/OpenDocument/Numbers) by converting it to Markdown and
+  // storing ONLY the Markdown — upload-as-import, like a Notion/Google Docs import. `base64Body`
+  // is the original file's bytes; the stored path swaps the extension for ".md" and is returned.
+  // Throws if the target path already exists, if the type isn't convertible, or if this
+  // deployment has no conversion binding.
+  importContextDocument(collectionId: string, path: string, base64Body: string,
+    contentType: string): Promise<{ path: string }>;
   deleteContextDocument(collectionId: string, path: string): Promise<void>;
   moveContextDocument(collectionId: string, fromPath: string, toPath: string): Promise<void>;
   // Own private collections plus every public one.

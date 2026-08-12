@@ -6,17 +6,12 @@ import { validateRpc } from "capnweb-validate";
 import {
   ContextApi, ContextCollectionContent, ContextCollectionMetadata, ContextCollectionVisibility,
   ContextDocument, ContextDocumentSummary, ContextGitTokenCreateResult, ContextGitTokenList,
-  DEFAULT_GIT_BRANCH, EnabledCollectionInfo, VENDOR_ID, knownContentTypeFromPath,
+  DEFAULT_GIT_BRANCH, EnabledCollectionInfo,
 } from "./context-types.js";
 import {
-  convertStoredDocumentToMarkdown, isConvertibleDocumentContentType, renditionPathFor,
+  convertStoredDocumentToMarkdown, importPathFor, isConvertibleDocumentContentType,
 } from "./document-conversion.js";
 import { extractDescription } from "./description-extractors.js";
-import { obsContext } from "./observability.js";
-
-const logger = obsContext.createLogger({
-  component: "gatekeeper.context", vendorId: VENDOR_ID,
-});
 import type { ContextCollectionDurableObject } from "./context-collection.js";
 import type { UserLibraryDurableObject } from "./user-library.js";
 import type { LibraryRegistryDurableObject } from "./registry-do.js";
@@ -252,58 +247,42 @@ export class ContextApiImpl extends RpcTarget implements ContextApi {
   }): Promise<void> {
     await this.#assertCanWrite(collectionId);
     await this.#collection(collectionId).putContextDocument(path, doc);
-    await this.#refreshDocumentRendition(collectionId, path, doc);
   }
 
-  // Store/refresh the Markdown rendition beside a convertible binary document, so search and
-  // agents can see inside it while the original stays byte-perfect for download. Best-effort:
-  // a failed conversion (or a deployment without the WORKERS_AI binding) leaves the original
-  // stored alone rather than failing the upload.
-  async #refreshDocumentRendition(collectionId: string, path: string, doc: {
-    body: string; contentType?: string;
-  }): Promise<void> {
-    let ai = this.env.WORKERS_AI;
-    if (!ai || !doc.contentType || !isConvertibleDocumentContentType(doc.contentType)) return;
-    try {
-      let name = path.split("/").pop() || path;
-      let markdown = await convertStoredDocumentToMarkdown(ai, name, doc.body, doc.contentType);
-      await this.#collection(collectionId).putContextDocument(renditionPathFor(path), {
-        description: extractDescription("text/markdown", markdown) ??
-            `Markdown rendition of ${name}`,
-        body: markdown,
-        contentType: "text/markdown",
-      });
-    } catch (error) {
-      logger.warn("failed to store document rendition", {
-        event: "context.document.rendition.failed", collectionId, error,
-      });
+  // Upload-as-import for binary documents: convert to Markdown and store ONLY the Markdown, at
+  // the source path with its extension swapped for ".md" (see document-conversion.ts). Fails
+  // loudly — an import that can't convert stores nothing, so everything in Drive stays
+  // agent-readable, and an existing document is never silently overwritten by a name collision.
+  async importContextDocument(collectionId: string, path: string, base64Body: string,
+      contentType: string): Promise<{ path: string }> {
+    await this.#assertCanWrite(collectionId);
+    if (!isConvertibleDocumentContentType(contentType)) {
+      throw new Error(`This file type cannot be imported: ${contentType}`);
     }
-  }
+    let ai = this.env.WORKERS_AI;
+    if (!ai) throw new Error("Document import is not enabled on this deployment.");
 
-  // Whether `path` plausibly has a derived rendition worth cleaning up alongside it.
-  async #hasRendition(collectionId: string, path: string): Promise<boolean> {
-    let contentType = knownContentTypeFromPath(path);
-    if (!contentType || !isConvertibleDocumentContentType(contentType)) return false;
-    return (await this.#collection(collectionId).getContextDocument(renditionPathFor(path))) !== null;
+    let name = path.split("/").pop() || path;
+    let markdown = await convertStoredDocumentToMarkdown(ai, name, base64Body, contentType);
+    let importedPath = importPathFor(path);
+    if (await this.#collection(collectionId).getContextDocument(importedPath) !== null) {
+      throw new Error(`${importedPath} already exists.`);
+    }
+    await this.#collection(collectionId).putContextDocument(importedPath, {
+      description: extractDescription("text/markdown", markdown) ?? `Imported from ${name}`,
+      body: markdown,
+      contentType: "text/markdown",
+    });
+    return { path: importedPath };
   }
 
   async deleteContextDocument(collectionId: string, path: string): Promise<void> {
     await this.#assertCanWrite(collectionId);
-    // The derived rendition follows its original; best-effort so a missing one never blocks.
-    if (await this.#hasRendition(collectionId, path).catch(() => false)) {
-      await this.#collection(collectionId).deleteContextDocument(renditionPathFor(path))
-          .catch(() => {});
-    }
     await this.#collection(collectionId).deleteContextDocument(path);
   }
 
   async moveContextDocument(collectionId: string, fromPath: string, toPath: string): Promise<void> {
     await this.#assertCanWrite(collectionId);
-    if (await this.#hasRendition(collectionId, fromPath).catch(() => false)) {
-      await this.#collection(collectionId)
-          .moveContextDocument(renditionPathFor(fromPath), renditionPathFor(toPath))
-          .catch(() => {});
-    }
     await this.#collection(collectionId).moveContextDocument(fromPath, toPath);
   }
 
