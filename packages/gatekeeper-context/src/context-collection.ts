@@ -10,7 +10,11 @@ import {
   DEFAULT_DOCUMENT_CONTENT_TYPE, DEFAULT_GIT_BRANCH, MAX_DOCUMENT_BODY_BYTES,
   contentTypeFromPath, isTextContentType, OkfInfo, VENDOR_ID,
 } from "./context-types.js";
-import { evaluateOkf, isOkfConceptPath } from "./okf.js";
+import { evaluateOkf, isOkfConceptPath, isUnderReferences } from "./okf.js";
+import {
+  appendLogEntry, generateIndexMarkdown, IndexEntry, LogEvent,
+  OKF_INDEX_PATH, OKF_LOG_PATH,
+} from "./okf-system-files.js";
 import { metadataToSummary } from "./collection-kv.js";
 import { domainName } from "./domain.js";
 import { readArtifactRepoDocuments } from "./artifact-sync.js";
@@ -342,6 +346,58 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     }
   }
 
+  #assertNotSystemFile(path: string): void {
+    if (path === OKF_INDEX_PATH || path === OKF_LOG_PATH) {
+      throw new Error(`${path} is system-maintained and cannot be edited directly.`);
+    }
+  }
+
+  // Regenerate the root index.md and append a log event, inside the caller's transaction.
+  // `meta` is the caller's in-flight metadata (its description feeds the index intro). Returns
+  // how many system records were newly created so the caller can adjust documentCount. Git
+  // collections carry their own bundle files and are skipped (the sync snapshot would clobber
+  // system writes anyway).
+  #updateSystemFiles(meta: ContextCollectionMetadata, event: LogEvent): number {
+    if (this.#isGitBased()) return 0;
+
+    let entries: IndexEntry[] = [];
+    for (let record of this.storage.documents.list()) {
+      if (record.path === OKF_INDEX_PATH || record.path === OKF_LOG_PATH) continue;
+      if (isUnderReferences(record.path)) continue;
+      let okf = this.#parseOkf(record);
+      entries.push({
+        path: record.path,
+        name: okf?.title ?? record.name,
+        ...(okf?.type ? { type: okf.type } : {}),
+        ...(okf?.description ?? record.description
+            ? { description: okf?.description ?? record.description }
+            : {}),
+      });
+    }
+
+    let created = 0;
+    let existingIndex = this.storage.documents.get(OKF_INDEX_PATH);
+    if (!existingIndex) created++;
+    this.storage.documents.put({
+      path: OKF_INDEX_PATH, name: OKF_INDEX_PATH,
+      description: "Folder contents grouped by type. System-maintained.",
+      contentType: "text/markdown",
+      body: generateIndexMarkdown(meta, entries, existingIndex?.body),
+      lastUpdated: event.at,
+    });
+
+    let existingLog = this.storage.documents.get(OKF_LOG_PATH);
+    if (!existingLog) created++;
+    this.storage.documents.put({
+      path: OKF_LOG_PATH, name: OKF_LOG_PATH,
+      description: "Chronological record of changes. System-maintained.",
+      contentType: "text/markdown",
+      body: appendLogEntry(existingLog?.body, meta.title, event),
+      lastUpdated: event.at,
+    });
+    return created;
+  }
+
   async listContextDocuments(prefix?: string): Promise<ContextDocumentSummary[]> {
     // Trigger git mirror revalidation in the background on reads.
     if (this.#isGitBased()) this.#startBackgroundArtifactRefresh();
@@ -388,9 +444,14 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
 
   async putContextDocument(
       path: string,
-      doc: { description: string; body: string; contentType?: string }): Promise<ContextPutResult> {
+      doc: { description: string; body: string; contentType?: string },
+      opts?: { actor?: string; system?: boolean }): Promise<ContextPutResult> {
     this.#assertWebWritable();
     validateDocumentPath(path);
+    // Trusted server-side callers (pack installs) may write the reserved files; the client-facing
+    // ContextApi never passes `system`, so users can't. Regeneration preserves an installed
+    // index's unknown frontmatter keys (pack versions) while taking over its body.
+    if (!opts?.system) this.#assertNotSystemFile(path);
     // Enforce real UTF-8 bytes, not UTF-16 code units.
     let byteLength = new TextEncoder().encode(doc.body).length;
     if (byteLength > MAX_DOCUMENT_BODY_BYTES) {
@@ -424,6 +485,12 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
 
       let meta = this.getMetadata();
       if (isNew) meta.documentCount++;
+      meta.documentCount += this.#updateSystemFiles(meta, {
+        at: record.lastUpdated,
+        action: isNew ? "Creation" : "Update",
+        detail: `[${path}](/${path})`,
+        actor: opts?.actor,
+      });
       meta.lastUpdated = record.lastUpdated;
       this.storage.metadata.put(meta);
     });
@@ -433,10 +500,11 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     return okf ? { okf } : {};
   }
 
-  async deleteContextDocument(path: string): Promise<void> {
+  async deleteContextDocument(path: string, opts?: { actor?: string }): Promise<void> {
     this.#assertWebWritable();
     // Mutations reject invalid paths; reads stay lenient.
     validateDocumentPath(path);
+    this.#assertNotSystemFile(path);
     let existing = this.storage.documents.get(path);
     if (!existing) throw new Error(`Document not found: ${path}`);
 
@@ -445,16 +513,25 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
 
       let meta = this.getMetadata();
       meta.documentCount = Math.max(0, meta.documentCount - 1);
-      meta.lastUpdated = new Date();
+      let now = new Date();
+      meta.documentCount += this.#updateSystemFiles(meta, {
+        at: now,
+        action: "Deletion",
+        detail: `[${path}](/${path})`,
+        actor: opts?.actor,
+      });
+      meta.lastUpdated = now;
       this.storage.metadata.put(meta);
     });
     await this.#propagate();
   }
 
-  async moveContextDocument(from: string, to: string): Promise<void> {
+  async moveContextDocument(from: string, to: string, opts?: { actor?: string }): Promise<void> {
     this.#assertWebWritable();
     validateDocumentPath(from);
     validateDocumentPath(to);
+    this.#assertNotSystemFile(from);
+    this.#assertNotSystemFile(to);
     if (from === to) return;
 
     // Reject moving a folder into one of its own descendants.
@@ -503,7 +580,14 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       }
 
       let meta = this.getMetadata();
-      meta.lastUpdated = new Date();
+      let now = new Date();
+      meta.documentCount += this.#updateSystemFiles(meta, {
+        at: now,
+        action: "Move",
+        detail: `[${from}](/${from}) → [${to}](/${to})`,
+        actor: opts?.actor,
+      });
+      meta.lastUpdated = now;
       this.storage.metadata.put(meta);
     });
     await this.#propagate();

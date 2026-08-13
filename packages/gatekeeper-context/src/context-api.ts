@@ -247,21 +247,27 @@ export class ContextApiImpl extends RpcTarget implements ContextApi {
     return this.#collection(collectionId).getContextDocument(path);
   }
 
+  // Actor attribution for the collection's system log. The Workshop's UI context carries no
+  // username (only isAdmin), so writes attribute to the account until that changes.
+  #actor(): { actor: string } {
+    return { actor: `account:${this.accountId}` };
+  }
+
   async putContextDocument(collectionId: string, path: string, doc: {
     description: string; body: string; contentType?: string;
   }): Promise<ContextPutResult> {
     await this.#assertCanWrite(collectionId);
-    return await this.#collection(collectionId).putContextDocument(path, doc);
+    return await this.#collection(collectionId).putContextDocument(path, doc, this.#actor());
   }
 
   async deleteContextDocument(collectionId: string, path: string): Promise<void> {
     await this.#assertCanWrite(collectionId);
-    await this.#collection(collectionId).deleteContextDocument(path);
+    await this.#collection(collectionId).deleteContextDocument(path, this.#actor());
   }
 
   async moveContextDocument(collectionId: string, fromPath: string, toPath: string): Promise<void> {
     await this.#assertCanWrite(collectionId);
-    await this.#collection(collectionId).moveContextDocument(fromPath, toPath);
+    await this.#collection(collectionId).moveContextDocument(fromPath, toPath, this.#actor());
   }
 
   // --- Listing & access ---

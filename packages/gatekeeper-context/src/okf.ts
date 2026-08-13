@@ -19,14 +19,18 @@ export const OKF_STATUSES = ["draft", "stable", "deprecated"] as const;
 // Reserved filenames are directory listings and history, not concept documents, at any level.
 const RESERVED_FILENAMES = new Set(["index.md", "log.md"]);
 
+// Originals under a references/ directory are byte-preserved source material (any depth).
+export function isUnderReferences(path: string): boolean {
+  return path.split("/").slice(0, -1).includes("references");
+}
+
 // Whether a stored document is an OKF concept file subject to frontmatter evaluation. Only
 // markdown carries frontmatter, so binaries and other text types are structurally exempt;
-// originals under a references/ directory are byte-preserved source material, also exempt.
+// references/ originals are exempt as source material.
 export function isOkfConceptPath(path: string, contentType: string): boolean {
   if (!isMarkdownContentType(contentType)) return false;
-  let segments = path.split("/");
-  if (segments.slice(0, -1).includes("references")) return false;
-  return !RESERVED_FILENAMES.has(segments.at(-1)!);
+  if (isUnderReferences(path)) return false;
+  return !RESERVED_FILENAMES.has(path.split("/").at(-1)!);
 }
 
 function isMapping(value: unknown): value is Record<string, unknown> {
@@ -71,6 +75,8 @@ export function evaluateOkf(body: string): OkfInfo {
 
   let type = fm && nonEmptyString(fm.type) ? fm.type.trim() : undefined;
   if (fm && !type) issues.push("Missing required `type` field.");
+  let title = fm && nonEmptyString(fm.title) ? fm.title.trim() : undefined;
+  let description = fm && nonEmptyString(fm.description) ? fm.description.trim() : undefined;
 
   if (!nonEmptyString(fm?.title)) strictIssues.push("Canonical files require a `title`.");
   if (!nonEmptyString(fm?.description)) {
@@ -92,6 +98,8 @@ export function evaluateOkf(body: string): OkfInfo {
 
   return {
     ...(type ? { type } : {}),
+    ...(title ? { title } : {}),
+    ...(description ? { description } : {}),
     ...(status ? { status } : {}),
     issues,
     strictIssues,

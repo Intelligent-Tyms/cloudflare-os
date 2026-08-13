@@ -495,7 +495,9 @@ export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env, Gatekeepe
     // Written after the collection is reachable: a failure mid-loop leaves a visible, partially
     // filled folder the admin can delete in Knowledge, not an orphan.
     for (let file of pkg.files) {
-      await collection.putContextDocument(file.path, { description: "", body: file.content });
+      await collection.putContextDocument(
+          file.path, { description: "", body: file.content },
+          { actor: "process:skill-install", system: true });
     }
   }
 

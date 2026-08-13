@@ -158,6 +158,9 @@ export type ContextCollectionSummary = {
 export type OkfInfo = {
   // Frontmatter `type`, when present and non-empty.
   type?: string;
+  // Frontmatter `title` and `description`, when present; the system index prefers these.
+  title?: string;
+  description?: string;
   // Lifecycle status, when explicitly draft | stable | deprecated.
   status?: string;
   // OKF baseline problems (frontmatter, `type`). The file is kept but flagged — never rejected.
