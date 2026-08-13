@@ -1,4 +1,4 @@
-import { Button, Dialog, DropdownMenu, Input, InputArea, useKumoToastManager } from "@cloudflare/kumo";
+import { Button, Dialog, DropdownMenu, Input, InputArea, Switch, useKumoToastManager } from "@cloudflare/kumo";
 import {
   Buildings,
   Clock,
@@ -23,6 +23,7 @@ import {
   FilePlus,
   FolderPlus,
   User,
+  WarningCircle,
   X,
 } from "@phosphor-icons/react";
 import {
@@ -42,6 +43,7 @@ import type {
   ContextGitTokenCreateResult,
   ContextGitTokenInfo,
   EnabledCollectionInfo,
+  OkfInfo,
 } from "../src/context-types";
 import {
   DEFAULT_GIT_BRANCH,
@@ -70,6 +72,30 @@ import { useContextApi, usePresentWhileOpen, useResolvedThemeMode } from "./brid
 import { extractDescription } from "../src/description-extractors";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+// Root reserved files the system maintains (OKF index.md / log.md); read-only in the UI.
+function isSystemPath(path: string): boolean {
+  return path === "index.md" || path === "log.md";
+}
+
+// The issues worth surfacing for a document: baseline OKF problems always, canonical-profile
+// requirements only inside canonical folders.
+function okfProblems(okf: OkfInfo | undefined | null, canonical: boolean): string[] {
+  if (!okf) return [];
+  return canonical ? [...okf.issues, ...okf.strictIssues] : okf.issues;
+}
+
+// Small uppercase chip used for canonical folders and system files.
+function LabelChip({ title, children }: { title?: string; children: ReactNode }) {
+  return (
+    <span
+      title={title}
+      className="shrink-0 rounded-full bg-kumo-tint px-1.5 py-0.5 text-[10px] font-medium uppercase leading-none tracking-[0.4px] text-kumo-subtle"
+    >
+      {children}
+    </span>
+  );
+}
 
 function baseName(path: string): string {
   const i = path.lastIndexOf("/");
@@ -247,8 +273,13 @@ function CollectionRow({
     >
       <CollectionIconTile size="sm" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium tracking-[-0.25px] text-kumo-default">
-          {collection.title}
+        <p className="flex items-center gap-1.5 text-sm font-medium tracking-[-0.25px] text-kumo-default">
+          <span className="min-w-0 truncate">{collection.title}</span>
+          {collection.canonical && (
+            <LabelChip title="Organization truth: verified files here take precedence for assistants">
+              Canonical
+            </LabelChip>
+          )}
         </p>
         <p
           className={`mt-0.5 line-clamp-1 text-[12px] leading-4 tracking-[-0.2px] ${
@@ -1152,6 +1183,7 @@ function CollectionSettingsModal({
   // Which step to open on. "delete" lands on the type-to-confirm step, not immediate deletion.
   initialMode,
   metadata,
+  isAdmin,
   supportsGitCollections,
   collectionId,
   onClose,
@@ -1161,6 +1193,8 @@ function CollectionSettingsModal({
   open: boolean;
   initialMode: "edit" | "delete";
   metadata: ContextCollectionMetadata;
+  // Deployment admin: may mark public folders canonical.
+  isAdmin: boolean;
   supportsGitCollections: boolean;
   collectionId: string;
   onClose: () => void;
@@ -1175,6 +1209,7 @@ function CollectionSettingsModal({
   const [title, setTitle] = useState(metadata.title);
   const [description, setDescription] = useState(metadata.description);
   const [branch, setBranch] = useState(metadata.content.source === "git" ? metadata.content.branch : DEFAULT_GIT_BRANCH);
+  const [canonical, setCanonical] = useState(!!metadata.canonical);
   const [confirmText, setConfirmText] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -1186,18 +1221,23 @@ function CollectionSettingsModal({
       setTitle(metadata.title);
       setDescription(metadata.description);
       setBranch(metadata.content.source === "git" ? metadata.content.branch : DEFAULT_GIT_BRANCH);
+      setCanonical(!!metadata.canonical);
       setConfirmText("");
       setSaving(false);
       setDeleting(false);
     }
-  }, [open, initialMode, metadata.title, metadata.description, metadata.content]);
+  }, [open, initialMode, metadata.title, metadata.description, metadata.content, metadata.canonical]);
 
   const busy = saving || deleting;
+
+  const canSetCanonical = isAdmin && metadata.visibility === "public";
+  const canonicalChanged = canSetCanonical && canonical !== !!metadata.canonical;
 
   // Save is only meaningful once something actually differs from the saved collection.
   const hasChanges =
     title.trim() !== metadata.title ||
     description.trim() !== metadata.description ||
+    canonicalChanged ||
     (metadata.content.source === "git" && supportsGitCollections &&
       branch.trim() !== metadata.content.branch);
 
@@ -1214,7 +1254,7 @@ function CollectionSettingsModal({
     if (metadata.content.source === "git" && supportsGitCollections &&
         branch.trim() !== metadata.content.branch)
       updates.branch = branch.trim();
-    if (Object.keys(updates).length === 0) {
+    if (Object.keys(updates).length === 0 && !canonicalChanged) {
       onClose();
       return;
     }
@@ -1224,7 +1264,12 @@ function CollectionSettingsModal({
     }
     setSaving(true);
     try {
-      await context.updateContextCollection(collectionId, updates);
+      if (Object.keys(updates).length > 0) {
+        await context.updateContextCollection(collectionId, updates);
+      }
+      if (canonicalChanged) {
+        await context.setContextCollectionCanonical(collectionId, canonical);
+      }
       toasts.add({ title: "Folder updated", variant: "success" });
       onUpdated();
       onClose();
@@ -1276,6 +1321,22 @@ function CollectionSettingsModal({
               <div>
                 <CollectionDescriptionField value={description} onChange={setDescription} />
               </div>
+              {canSetCanonical && (
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <FieldLabel>Canonical folder</FieldLabel>
+                    <p className="mt-1 text-[12px] leading-4 text-kumo-subtle">
+                      Organization truth. Assistants treat verified files here as overriding
+                      other sources, and files must meet the full OKF profile.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={canonical}
+                    disabled={busy}
+                    onCheckedChange={(next: boolean) => setCanonical(next)}
+                  />
+                </div>
+              )}
               {metadata.content.source === "git" && supportsGitCollections && (
                 <div>
                   <FieldLabel>Git branch</FieldLabel>
@@ -1640,6 +1701,8 @@ function buildTree(
 type TreeCtx = {
   // Hides row actions and drag-to-move when false.
   canWrite: boolean;
+  // Whether this collection is canonical; strict OKF issues only surface when true.
+  canonical: boolean;
   selectedPath: string | null;
   expanded: Set<string>;
   toggleFolder: (path: string) => void;
@@ -1926,9 +1989,11 @@ function FileView({
   const Icon = isImageContentType(doc.contentType) ? ImageIcon : FileText;
   const selected = ctx.selectedPath === doc.path;
   const isRenaming = ctx.renaming === doc.path;
+  const system = isSystemPath(doc.path);
+  const problems = okfProblems(doc.okf, ctx.canonical);
   return (
     <div
-      draggable={ctx.canWrite && !isRenaming}
+      draggable={ctx.canWrite && !isRenaming && !system}
       onDragStart={() => ctx.setDragPath(doc.path)}
       onDragEnd={() => {
         ctx.setDragPath(null);
@@ -1956,11 +2021,24 @@ function FileView({
           stopClickPropagation
         />
       ) : (
-        <span className={`min-w-0 flex-1 truncate ${selected ? "font-medium" : ""}`}>
-          {baseName(doc.path)}
-        </span>
+        <>
+          <span className={`min-w-0 flex-1 truncate ${selected ? "font-medium" : ""}`}>
+            {baseName(doc.path)}
+          </span>
+          {system && <LabelChip title="System-maintained; updated automatically">Auto</LabelChip>}
+          {problems.length > 0 && (
+            <WarningCircle
+              size={14}
+              weight="fill"
+              className="shrink-0 text-kumo-warning"
+              aria-label="OKF conformance issues"
+            >
+              <title>{problems.join(" ")}</title>
+            </WarningCircle>
+          )}
+        </>
       )}
-      {ctx.canWrite && !isRenaming && (
+      {ctx.canWrite && !isRenaming && !system && (
         <KebabMenu
           stopPropagation
           trigger={
@@ -2026,6 +2104,7 @@ function CollectionEditor({
   // Default read-only until access loads so edit controls never flash to viewers.
   const [canWrite, setCanWrite] = useState(false);
   const [supportsGitCollections, setSupportsGitCollections] = useState(false);
+  const [viewerIsAdmin, setViewerIsAdmin] = useState(false);
   const [refreshingSource, setRefreshingSource] = useState(false);
 
   // Tree ⋮ deletes route through the same in-app confirmation dialog the document toolbar uses,
@@ -2089,6 +2168,7 @@ function CollectionEditor({
       setDocs(list);
       setCanWrite(writable);
       setSupportsGitCollections(viewer.supportsGitCollections);
+      setViewerIsAdmin(viewer.isAdmin);
     } catch (err) {
       console.error("Failed to load documents:", err);
     } finally {
@@ -2296,7 +2376,8 @@ function CollectionEditor({
   const uploadFiles = async (files: FileList) => {
     let ok = 0,
       failed = 0,
-      unsupported = 0;
+      unsupported = 0,
+      flagged = 0;
     await runWithConcurrency(Array.from(files), 6, async (file) => {
       const rel = (file as any).webkitRelativePath || file.name;
       // Derive the type from the path (its extension), not the browser-reported file.type, so the
@@ -2315,13 +2396,14 @@ function CollectionEditor({
       try {
         const isText = isTextContentType(ct);
         const body = isText ? await file.text() : await fileToBase64(file);
-        await context.putContextDocument(collectionId, rel, {
+        const result = await context.putContextDocument(collectionId, rel, {
           // Self-describing files supply their own description; others start blank.
           description: extractDescription(ct, body) ?? "",
           body,
           contentType: ct,
         });
         ok++;
+        if (okfProblems(result.okf, !!metadata?.canonical).length > 0) flagged++;
       } catch {
         failed++;
       }
@@ -2331,7 +2413,8 @@ function CollectionEditor({
       unsupported ? `${pluralize(unsupported, "unsupported file type")} skipped` : "",
     ].filter(Boolean).join(", ");
     toasts.add({
-      title: `Uploaded ${pluralize(ok, "file")}${problems ? `, ${problems}` : ""}`,
+      title: `Uploaded ${pluralize(ok, "file")}${problems ? `, ${problems}` : ""}${
+        flagged ? `, ${flagged} with OKF issues` : ""}`,
       variant: problems ? "error" : "success",
     });
     await loadDocs();
@@ -2345,6 +2428,7 @@ function CollectionEditor({
 
   const ctx: TreeCtx = {
     canWrite: canEditDocuments,
+    canonical: !!metadata?.canonical,
     selectedPath,
     expanded,
     toggleFolder,
@@ -2405,6 +2489,7 @@ function CollectionEditor({
           open={settingsOpen}
           initialMode={settingsMode}
           metadata={metadata}
+          isAdmin={viewerIsAdmin}
           supportsGitCollections={supportsGitCollections}
           collectionId={collectionId}
           onClose={() => setSettingsOpen(false)}
@@ -2507,6 +2592,11 @@ function CollectionEditor({
                 <span className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-5 tracking-[-0.25px] text-kumo-default">
                   {metadata.title}
                 </span>
+                {metadata.canonical && (
+                  <LabelChip title="Organization truth: verified files here take precedence for assistants">
+                    Canonical
+                  </LabelChip>
+                )}
               </button>
             </div>
           )}
@@ -2617,7 +2707,8 @@ function CollectionEditor({
                   key={selectedPath}
                   collectionId={collectionId}
                   path={selectedPath}
-                  readOnly={!canEditDocuments}
+                  readOnly={!canEditDocuments || isSystemPath(selectedPath)}
+                  canonical={!!metadata?.canonical}
                   initialMode={editOnOpenPath === selectedPath ? "edit" : "read"}
                   onDirtyChange={setDirty}
                   onChanged={loadDocs}
@@ -2818,6 +2909,7 @@ function DocumentEditor({
   collectionId,
   path,
   readOnly,
+  canonical = false,
   initialMode = "read",
   onChanged,
   onRenamed,
@@ -2828,6 +2920,8 @@ function DocumentEditor({
   path: string;
   // Hide mutating controls and lock editors when true.
   readOnly: boolean;
+  // Canonical folder: surface strict OKF issues, not just baseline ones.
+  canonical?: boolean;
   initialMode?: "read" | "edit";
   onChanged: () => void;
   // Parent re-selects + reloads after rename.
@@ -2843,6 +2937,7 @@ function DocumentEditor({
   const [description, setDescription] = useState("");
   const [body, setBody] = useState("");
   const [skillName, setSkillName] = useState<string | null>(null);
+  const [okf, setOkf] = useState<OkfInfo | null>(null);
   // Content type is path-derived, so renames update rendering immediately.
   const contentType = contentTypeFromPath(path);
   const [loading, setLoading] = useState(true);
@@ -2883,6 +2978,7 @@ function DocumentEditor({
         setDescription(d.description);
         setBody(d.body);
         setSkillName(d.skillName ?? null);
+        setOkf(d.okf ?? null);
         setDirty(false);
         setMode(readOnly || initialMode !== "edit" ? "read" : "edit");
       }
@@ -2916,11 +3012,12 @@ function DocumentEditor({
     try {
       const savedBody = overrides?.body ?? body;
       const savedDescription = effectiveDescription.trim();
-      await context.putContextDocument(collectionId, path, {
+      const result = await context.putContextDocument(collectionId, path, {
         description: savedDescription,
         body: savedBody,
         contentType: overrides?.contentType ?? contentType,
       });
+      setOkf(result.okf ?? null);
       let saved = await context.getContextDocument(collectionId, path);
       savedDocumentRef.current = {
         description: saved?.description ?? savedDescription,
@@ -3068,6 +3165,23 @@ function DocumentEditor({
           </>
         )}
       </div>
+
+      {/* System files are maintained by the folder itself; explain the lock instead of hiding it. */}
+      {isSystemPath(path) && (
+        <div className="flex items-center gap-2 border-b border-kumo-line bg-kumo-tint px-6 py-2 text-[12px] leading-4 tracking-[-0.15px] text-kumo-subtle sm:px-10">
+          <Lock size={13} className="shrink-0" />
+          This file is system-maintained and updates automatically as the folder changes.
+        </div>
+      )}
+
+      {/* OKF conformance: saved fine, but the file falls short of the format (or, in canonical
+          folders, the truth profile). Passive notice — the tolerance rule means never blocking. */}
+      {!isSystemPath(path) && okfProblems(okf, canonical).length > 0 && (
+        <div className="flex items-start gap-2 border-b border-kumo-line px-6 py-2 text-[12px] leading-4 tracking-[-0.15px] text-kumo-warning sm:px-10">
+          <WarningCircle size={13} weight="fill" className="mt-0.5 shrink-0" />
+          <span>{okfProblems(okf, canonical).join(" ")}</span>
+        </div>
+      )}
 
       {/* "When to use this" — the agent-facing purpose (used for retrieval & search). Files that
           declare their own description show it read-only; otherwise the author writes it. */}
