@@ -145,6 +145,27 @@ export type ContextCollectionSummary = {
   lastUpdated: Date;
 };
 
+// Conformance of a markdown concept file against OKF v0.2 and the Tyms canonical profile.
+// Derived from the stored body on read/write, never persisted. Absent on non-concept files
+// (binaries, references/ originals, reserved index.md/log.md). See src/okf.ts.
+export type OkfInfo = {
+  // Frontmatter `type`, when present and non-empty.
+  type?: string;
+  // Lifecycle status, when explicitly draft | stable | deprecated.
+  status?: string;
+  // OKF baseline problems (frontmatter, `type`). The file is kept but flagged — never rejected.
+  issues: string[];
+  // Canonical-profile requirements (title, description, generated, sources, explicit status).
+  // Only meaningful for collections marked canonical.
+  strictIssues: string[];
+};
+
+// Result of saving a document.
+export type ContextPutResult = {
+  // Conformance of the saved file; absent when it is not an OKF concept document.
+  okf?: OkfInfo;
+};
+
 // Stored document. Text bodies are literal text; binary bodies are base64 without a data: prefix.
 export type ContextDocument = {
   // Primary key within the collection, using "/" separators.
@@ -171,6 +192,9 @@ export type ContextDocument = {
   // Set when this document is a valid skill.
   skillName?: string;
 
+  // Set when this document is an OKF concept file.
+  okf?: OkfInfo;
+
   lastUpdated: Date;
 };
 
@@ -181,6 +205,7 @@ export type ContextDocumentSummary = {
   description: string;
   contentType: string;
   skillName?: string;
+  okf?: OkfInfo;
   lastUpdated: Date;
 };
 
@@ -367,9 +392,10 @@ export interface ContextApi extends RpcTarget {
   listContextDocuments(collectionId: string, prefix?: string): Promise<ContextDocumentSummary[]>;
   getContextDocument(collectionId: string, path: string): Promise<ContextDocument | null>;
   // The document's display name is always derived from its path (the file name), so it's not passed.
+  // The result carries the saved file's OKF conformance so editors can warn without re-reading.
   putContextDocument(collectionId: string, path: string, doc: {
     description: string; body: string; contentType?: string;
-  }): Promise<void>;
+  }): Promise<ContextPutResult>;
   deleteContextDocument(collectionId: string, path: string): Promise<void>;
   moveContextDocument(collectionId: string, fromPath: string, toPath: string): Promise<void>;
   // Own private collections plus every public one.

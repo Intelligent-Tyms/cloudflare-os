@@ -6,7 +6,7 @@ import { validateRpc } from "capnweb-validate";
 import {
   ContextApi, ContextCollectionContent, ContextCollectionMetadata, ContextCollectionVisibility,
   ContextDocument, ContextDocumentSummary, ContextGitTokenCreateResult, ContextGitTokenList,
-  DEFAULT_GIT_BRANCH, EnabledCollectionInfo,
+  ContextPutResult, DEFAULT_GIT_BRANCH, EnabledCollectionInfo,
 } from "./context-types.js";
 import type { ContextCollectionDurableObject } from "./context-collection.js";
 import type { UserLibraryDurableObject } from "./user-library.js";
@@ -240,9 +240,9 @@ export class ContextApiImpl extends RpcTarget implements ContextApi {
 
   async putContextDocument(collectionId: string, path: string, doc: {
     description: string; body: string; contentType?: string;
-  }): Promise<void> {
+  }): Promise<ContextPutResult> {
     await this.#assertCanWrite(collectionId);
-    await this.#collection(collectionId).putContextDocument(path, doc);
+    return await this.#collection(collectionId).putContextDocument(path, doc);
   }
 
   async deleteContextDocument(collectionId: string, path: string): Promise<void> {

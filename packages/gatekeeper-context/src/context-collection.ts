@@ -5,11 +5,12 @@ import { DurableObject } from "cloudflare:workers";
 import { createTypedStorage, collection } from "@gadgets/typed-storage";
 import {
   ContextCollectionContent, ContextCollectionMetadata, ContextCollectionVisibility,
-  ContextDocument, ContextDocumentSummary,
+  ContextDocument, ContextDocumentSummary, ContextPutResult,
   ContextGitTokenCreateResult, ContextGitTokenList,
   DEFAULT_DOCUMENT_CONTENT_TYPE, DEFAULT_GIT_BRANCH, MAX_DOCUMENT_BODY_BYTES,
-  contentTypeFromPath, isTextContentType, VENDOR_ID,
+  contentTypeFromPath, isTextContentType, OkfInfo, VENDOR_ID,
 } from "./context-types.js";
+import { evaluateOkf, isOkfConceptPath } from "./okf.js";
 import { metadataToSummary } from "./collection-kv.js";
 import { domainName } from "./domain.js";
 import { readArtifactRepoDocuments } from "./artifact-sync.js";
@@ -214,6 +215,14 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     }
   }
 
+  // OKF conformance for concept files, derived on demand like #parseAgentSkill. Undefined for
+  // non-concept files (binaries, references/ originals, reserved index.md/log.md).
+  #parseOkf(record: ContextRecord): OkfInfo | undefined {
+    let contentType = record.contentType ?? DEFAULT_DOCUMENT_CONTENT_TYPE;
+    if (!isOkfConceptPath(record.path, contentType)) return undefined;
+    return evaluateOkf(record.body);
+  }
+
   // Update the skill entry after saving a document.
   #updateSkillIndex(record: ContextRecord): void {
     let manifest = this.#parseAgentSkill(record);
@@ -323,12 +332,14 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     let result: ContextDocumentSummary[] = [];
     for (let record of this.storage.documents.list(options)) {
       let manifest = this.#parseAgentSkill(record);
+      let okf = this.#parseOkf(record);
       result.push({
         path: record.path,
         name: record.name,
         description: manifest?.description ?? record.description,
         contentType: record.contentType ?? DEFAULT_DOCUMENT_CONTENT_TYPE,
         ...(manifest ? {skillName: manifest.name} : {}),
+        ...(okf ? {okf} : {}),
         lastUpdated: record.lastUpdated,
       });
     }
@@ -344,6 +355,7 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     if (!record) return null;
     let contentType = record.contentType ?? DEFAULT_DOCUMENT_CONTENT_TYPE;
     let manifest = this.#parseAgentSkill(record);
+    let okf = this.#parseOkf(record);
     return {
       path: record.path,
       name: record.name,
@@ -352,13 +364,14 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       body: record.body,
       ...(record.extractedText ? {extractedText: record.extractedText} : {}),
       ...(manifest ? {skillName: manifest.name} : {}),
+      ...(okf ? {okf} : {}),
       lastUpdated: record.lastUpdated,
     };
   }
 
   async putContextDocument(
       path: string,
-      doc: { description: string; body: string; contentType?: string }): Promise<void> {
+      doc: { description: string; body: string; contentType?: string }): Promise<ContextPutResult> {
     this.#assertWebWritable();
     validateDocumentPath(path);
     // Enforce real UTF-8 bytes, not UTF-16 code units.
@@ -398,6 +411,9 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       this.storage.metadata.put(meta);
     });
     await this.#propagate();
+
+    let okf = this.#parseOkf(record);
+    return okf ? { okf } : {};
   }
 
   async deleteContextDocument(path: string): Promise<void> {
