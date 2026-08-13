@@ -1,6 +1,6 @@
-// Text extraction for binary documents stored in Drive.
+// Text extraction for binary documents stored in Knowledge.
 //
-// Drive is a context store: uploads are preserved byte-perfect, and edit means download → edit →
+// Knowledge is a context store: uploads are preserved byte-perfect, and edit means download → edit →
 // re-upload. What makes a stored .docx useful to search and agents is a derived text extraction
 // (ContextDocument.extractedText), generated at write time via the Workers AI toMarkdown()
 // utility — free for these formats, the same call webFetch and the chat upload path use — and

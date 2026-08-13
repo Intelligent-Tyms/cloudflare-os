@@ -512,7 +512,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
   // --- Agent skills ---
 
   // Admin view of the deployment's agent skills: every skill hosted by a skills-providing vendor
-  // (e.g. public Drive folders), joined with the deployment's curation. Skills are keyed by name;
+  // (e.g. public Knowledge folders), joined with the deployment's curation. Skills are keyed by name;
   // the same name in several folders is one row (curation applies to all of them). A disabled name
   // whose skill has since disappeared is kept and flagged `missing` so the admin can clear it.
   async #listSkillConfig(config: AdminConfig): Promise<AdminSkill[]> {

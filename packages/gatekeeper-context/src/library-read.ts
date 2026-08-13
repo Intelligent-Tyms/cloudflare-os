@@ -171,7 +171,7 @@ export class LibraryReadSession extends RpcTarget {
     });
 
     // Binary documents with a derived extraction read as their text — that is what an agent
-    // wants from a .docx; the raw bytes stay available to humans via the Drive UI.
+    // wants from a .docx; the raw bytes stay available to humans via the Knowledge UI.
     let content = isTextContentType(doc.contentType)
       ? doc.body
       : doc.extractedText ?? `data:${doc.contentType};base64,${doc.body}`;

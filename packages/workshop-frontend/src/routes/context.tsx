@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { Folder, HardDrive, Sparkles, type LucideIcon } from 'lucide-react'
+import { BookOpen, Folder, Sparkles, type LucideIcon } from 'lucide-react'
 import { useDocumentTitle } from '../useDocumentTitle'
 import ComingSoonPreview from '../components/ComingSoonPreview'
 import { useSiteName } from '../ServerConfigContext'
@@ -56,20 +56,20 @@ function ContextRow({ item }: { item: ContextItem }) {
 }
 
 function ContextPage() {
-  useDocumentTitle('Drive')
+  useDocumentTitle('Knowledge')
   const siteName = useSiteName()
   return (
     <div className="mx-auto flex h-full w-full max-w-4xl flex-col px-6 sm:px-10">
       <header className="px-3 pb-4 pt-10">
-        <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">Drive</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">Knowledge</h1>
         <p className="mt-1 text-[13px] leading-[18px] tracking-[-0.25px] text-kumo-subtle">
           Folders of knowledge your agents read, plus reusable skills they can apply.
         </p>
       </header>
 
       <ComingSoonPreview
-        icon={HardDrive}
-        title={`Drive is coming soon to ${siteName}`}
+        icon={BookOpen}
+        title={`Knowledge is coming soon to ${siteName}`}
         description="A preview of how you'll author folders of knowledge and skills for your agents to draw on."
       >
         <div className="chat-panel min-h-0 flex-1 overflow-y-auto pb-8 pt-1">

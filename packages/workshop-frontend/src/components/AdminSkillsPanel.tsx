@@ -2,7 +2,7 @@
 // linking to its detail page (/admin/skills/$skillName) where the description, sources, and
 // enable/disable control live. The marketplace keeps a compact section below the list.
 //
-// A skill is a SKILL.md file in a shared Drive folder; skills are authored in Drive (or
+// A skill is a SKILL.md file in a shared Knowledge folder; skills are authored in Knowledge (or
 // installed from the marketplace) — this page only curates which ones are offered.
 
 import { useEffect, useMemo, useState } from 'react'
@@ -25,9 +25,9 @@ export default function AdminSkillsPanel({
 }) {
   const toasts = useKumoToastManager()
   const [busy, setBusy] = useState(false)
-  // The Drive management app, for the "add skills" pointer. Discovered, not hardcoded: any
-  // skills-providing connector's app would do, but today that is Drive.
-  const driveApp = useGatekeeperApps().find((app) => app.title === 'Drive')
+  // The Knowledge management app, for the "add skills" pointer. Discovered, not hardcoded: any
+  // skills-providing connector's app would do, but today that is Knowledge.
+  const driveApp = useGatekeeperApps().find((app) => app.title === 'Knowledge')
 
   // The marketplace catalog: undefined while loading, null when this deployment has none
   // configured (the section hides), [] when configured but empty.
@@ -81,10 +81,10 @@ export default function AdminSkillsPanel({
               params={{ appId: driveApp.id }}
               className="text-kumo-brand underline"
             >
-              Drive
+              Knowledge
             </Link>
           ) : (
-            'Drive'
+            'Knowledge'
           )}{' '}
           folder.
         </p>
@@ -127,7 +127,7 @@ export default function AdminSkillsPanel({
         <div className="rounded-xl border border-kumo-line bg-kumo-elevated p-6">
           <h2 className="mb-1 text-lg font-semibold text-kumo-strong">Marketplace</h2>
           <p className="mb-5 text-sm text-kumo-subtle">
-            Curated skill packages. Installing adds a shared Drive folder; delete the folder to
+            Curated skill packages. Installing adds a shared Knowledge folder; delete the folder to
             uninstall.
           </p>
           <div className="flex flex-col divide-y divide-kumo-line rounded-lg border border-kumo-line">

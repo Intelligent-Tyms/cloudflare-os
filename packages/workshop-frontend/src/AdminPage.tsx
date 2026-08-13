@@ -72,7 +72,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         title: 'Organization',
         blurb: 'Tell your assistants what your organization does, your terminology, and key facts.',
         description:
-          'Context about your organization added to every assistant’s system prompt: what you do, your terminology, key facts. Keep it short and put deeper reference material in shared Drive folders instead; the assistant will read it when it’s relevant.',
+          'Context about your organization added to every assistant’s system prompt: what you do, your terminology, key facts. Keep it short and put deeper reference material in shared Knowledge folders instead; the assistant will read it when it’s relevant.',
         icon: <Building2 size={18} />,
       },
       {
@@ -129,7 +129,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         title: 'Skills',
         blurb: 'Turn the skills your assistants can use on or off.',
         description:
-          'Skills teach assistants how to perform specific tasks, step by step. A skill is a SKILL.md file in a shared Drive folder (including folders synced from git); this page controls which ones are offered to everyone.',
+          'Skills teach assistants how to perform specific tasks, step by step. A skill is a SKILL.md file in a shared Knowledge folder (including folders synced from git); this page controls which ones are offered to everyone.',
         icon: <Sparkles size={18} />,
       },
       {
@@ -137,7 +137,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         title: 'Connectors',
         blurb: 'Turn connectors and their resources on or off for everyone.',
         description:
-          'Turn connectors and resource types on or off for each service. Auto-provisioned connectors (like Drive) have three modes: disabled, optional, or enabled for everyone. Changes are soft: they don’t revoke access an app already holds.',
+          'Turn connectors and resource types on or off for each service. Auto-provisioned connectors (like Knowledge) have three modes: disabled, optional, or enabled for everyone. Changes are soft: they don’t revoke access an app already holds.',
         icon: <Plug size={18} />,
       },
       {

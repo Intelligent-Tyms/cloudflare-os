@@ -25,7 +25,7 @@ export type AdminConfig = {
   // Extra instructions appended to the agent system prompt.
   instanceInstructions: string;
   // Organization context appended to the agent system prompt after the instructions: what the
-  // org does, its terminology, key facts. Kept short — deep org knowledge belongs in Drive
+  // org does, its terminology, key facts. Kept short — deep org knowledge belongs in Knowledge
   // folders the agent reads on demand.
   organizationProfile: string;
   // Centered top-bar notice. Markdown.
@@ -43,7 +43,7 @@ export type AdminConfig = {
   // vendors that declare autoProvisionsAccount.
   ambientGatekeeperModes: Record<string, AmbientGatekeeperMode>;
 
-  // Disabled agent skill names (SKILL.md `name`s, e.g. from public Drive folders). Skills are
+  // Disabled agent skill names (SKILL.md `name`s, e.g. from public Knowledge folders). Skills are
   // enabled by default, matching this config's opt-out philosophy; a disabled skill is hidden from
   // the slash-command picker and the agent's catalog, and its invocation is refused. Soft
   // enforcement, like disabledResources: a chat that already read the skill's text keeps it.

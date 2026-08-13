@@ -626,7 +626,7 @@ function CreateCollectionView({
           className="press mb-3 -ml-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[13px] font-medium tracking-[-0.25px] text-kumo-subtle transition-colors hover:text-kumo-default"
         >
           <CaretLeft size={14} />
-          Drive
+          Knowledge
         </button>
         <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">
           New folder
@@ -873,7 +873,7 @@ export default function ContextLibraryPage() {
       <header className="flex items-end justify-between gap-4 px-3 pb-3 pt-10">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">
-            Drive
+            Knowledge
           </h1>
           <p className="mt-1 max-w-2xl text-[13px] leading-[18px] tracking-[-0.25px] text-kumo-subtle">
             Folders of files and skills your agents can use.
@@ -1014,7 +1014,7 @@ function CollectionOverview({
                   {metadata.title}
                 </h1>
                 <p className="mt-1 text-[13px] leading-[18px] tracking-[-0.2px] text-kumo-subtle">
-                  Drive folder
+                  Knowledge folder
                 </p>
               </div>
             </div>
@@ -2382,7 +2382,7 @@ function CollectionEditor({
             className="press -ml-1 mb-4 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[13px] font-medium tracking-[-0.25px] text-kumo-subtle transition-colors hover:text-kumo-default"
           >
             <CaretLeft size={14} />
-            Drive
+            Knowledge
           </button>
           <div className="rounded-xl border border-kumo-line bg-kumo-base px-5 py-10 text-center shadow-[0_1px_2px_rgba(20,17,16,0.03)]">
             <Folder size={32} className="mx-auto mb-3 text-kumo-subtle" />
@@ -2488,7 +2488,7 @@ function CollectionEditor({
             className="press -ml-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[13px] font-medium tracking-[-0.25px] text-kumo-subtle transition-colors hover:text-kumo-default"
           >
             <CaretLeft size={14} />
-            Drive
+            Knowledge
           </button>
         </div>
           {metadata && (

@@ -33,17 +33,14 @@ import { listPublicCollectionsFromKv, metadataToSummary } from "./collection-kv.
 import { domainName, DEFAULT_SHARING_DOMAIN } from "./domain.js";
 import APP_HTML from "./generated/app.txt";
 
-// The Drive icon: the Lucide "HardDrive" glyph (same set as the sidebar's built-in icons) as a
+// The Knowledge icon: the Lucide "BookOpen" glyph (same set as the sidebar's built-in icons) as a
 // self-contained SVG data URI (no external/branded asset), matching AvatarImage's { url } shape.
 const LIBRARY_ICON = {
   url: "data:image/svg+xml," + encodeURIComponent(
     "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' " +
     "stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>" +
-    "<line x1='22' x2='2' y1='12' y2='12'/>" +
-    "<path d='M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89" +
-    "A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z'/>" +
-    "<line x1='6' x2='6.01' y1='16' y2='16'/>" +
-    "<line x1='10' x2='10.01' y1='16' y2='16'/>" +
+    "<path d='M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z'/>" +
+    "<path d='M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z'/>" +
     "</svg>"),
 };
 
@@ -141,10 +138,10 @@ export class ContextAccount
 
   async describe(): Promise<AccountDescription> {
     return {
-      displayName: "Drive",
+      displayName: "Knowledge",
       avatar: LIBRARY_ICON,
       singleton: { tsType: "ContextLibrary" },
-      providesUi: { title: "Drive", icon: LIBRARY_ICON },
+      providesUi: { title: "Knowledge", icon: LIBRARY_ICON },
     };
   }
 
@@ -245,8 +242,8 @@ export class ContextGatekeeper
   async describe(): Promise<ResourceDescription> {
     return {
       url: "context://library",
-      title: "Drive",
-      snippet: "Search and read your team's shared Drive folders.",
+      title: "Knowledge",
+      snippet: "Search and read your team's shared Knowledge folders.",
       suggestedBindingName: "CONTEXT",
       tsType: "ContextLibrary",
       hasSlashCommands: true,
@@ -416,12 +413,12 @@ type GatekeeperVendorProps = {
 export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env, GatekeeperVendorProps> {
   async describe(): Promise<VendorDescription> {
     return {
-      displayName: "Drive",
+      displayName: "Knowledge",
       url: "https://workers.cloudflare.com/",
       logo: LIBRARY_ICON,
       tagline: "Author and share folders of files for your agents",
       description:
-        "Drive lets you and your team author folders of files " +
+        "Knowledge lets you and your team author folders of files " +
         "that agents can consult to learn how to perform tasks. It is always available — no " +
         "connection needed.",
       autoProvisionsAccount: true,
@@ -496,7 +493,7 @@ export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env, Gatekeepe
       throw err;
     }
     // Written after the collection is reachable: a failure mid-loop leaves a visible, partially
-    // filled folder the admin can delete in Drive, not an orphan.
+    // filled folder the admin can delete in Knowledge, not an orphan.
     for (let file of pkg.files) {
       await collection.putContextDocument(file.path, { description: "", body: file.content });
     }

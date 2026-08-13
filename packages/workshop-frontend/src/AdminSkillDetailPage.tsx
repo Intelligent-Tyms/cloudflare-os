@@ -17,7 +17,7 @@ export default function AdminSkillDetailPage({ skillName }: { skillName: string 
   const toasts = useKumoToastManager()
   const navigate = useNavigate()
   useDocumentTitle(`/${skillName} · Skills · Admin`)
-  const driveApp = useGatekeeperApps().find((app) => app.title === 'Drive')
+  const driveApp = useGatekeeperApps().find((app) => app.title === 'Knowledge')
 
   // The admin capability (minted once, like AdminPage). Wrapped in an object so useState doesn't
   // treat the (callable) RPC stub as a state updater function.
@@ -139,7 +139,7 @@ export default function AdminSkillDetailPage({ skillName }: { skillName: string 
         <div className="flex items-start gap-3 rounded-xl border border-kumo-line bg-kumo-elevated p-6">
           <TriangleAlert size={18} className="mt-0.5 shrink-0 text-kumo-warning" />
           <div className="flex-1">
-            <h2 className="text-lg font-semibold text-kumo-strong">No longer in Drive</h2>
+            <h2 className="text-lg font-semibold text-kumo-strong">No longer in Knowledge</h2>
             <p className="mt-0.5 text-sm text-kumo-subtle">
               This skill was turned off and its file has since been removed. It stays off; clear
               the setting to forget it.
@@ -184,7 +184,7 @@ export default function AdminSkillDetailPage({ skillName }: { skillName: string 
                       params={{ appId: driveApp.id }}
                       className="text-kumo-brand underline"
                     >
-                      Drive
+                      Knowledge
                     </Link>
                     .
                   </>

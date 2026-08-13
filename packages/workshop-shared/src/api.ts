@@ -704,7 +704,7 @@ export const MAX_INSTANCE_INSTRUCTIONS_LENGTH = 8000;
 
 // Maximum length (characters) of the admin-authored organization profile. Like the instructions,
 // it is included in every agent turn's system prompt, so this is a budget; deep org knowledge
-// belongs in Drive folders the agent reads on demand, not here.
+// belongs in Knowledge folders the agent reads on demand, not here.
 export const MAX_ORGANIZATION_PROFILE_LENGTH = 8000;
 
 // Maximum length (characters) of the admin-authored site name shown next to the top-bar logo.
@@ -754,7 +754,7 @@ export type AdminSettingsView = {
 
 // One deployment-wide agent skill, as the admin Skills panel sees it: the skill's own metadata
 // joined with the deployment's curation. Skills are authored as SKILL.md files in shared (public)
-// Drive folders; this panel only curates which ones are offered.
+// Knowledge folders; this panel only curates which ones are offered.
 export type AdminSkill = {
   // The skill name (lowercase kebab-case): the identity curation keys on, and what users type
   // after `/`.
@@ -763,7 +763,7 @@ export type AdminSkill = {
   // The skill's own description of when to use it.
   description: string;
 
-  // Where the skill lives (e.g. Drive folder titles). Multiple when the same name appears in more
+  // Where the skill lives (e.g. Knowledge folder titles). Multiple when the same name appears in more
   // than one folder — curation applies to all of them.
   sources: string[];
 
@@ -780,7 +780,7 @@ export type AdminSkill = {
 export type SkillMarketplaceEntry = {
   // Catalog id, passed to AdminApi.installSkillPackage().
   id: string;
-  // Human title, also the shared Drive folder name an install creates.
+  // Human title, also the shared Knowledge folder name an install creates.
   name: string;
   description: string;
   // The skill names the package provides, so the panel can mark already-present ones.
@@ -924,7 +924,7 @@ export interface AdminApi {
   // Install one marketplace package: fetch its files from the marketplace and persist them as a
   // shared skill folder, after which its skills surface (and can be curated) like any others.
   // Throws if the marketplace isn't configured, the package doesn't validate, or a package with
-  // the same title is already installed. Uninstalling is deleting the folder in Drive.
+  // the same title is already installed. Uninstalling is deleting the folder in Knowledge.
   installSkillPackage(id: string): Promise<void>;
 
   // --- Deployment AI models ---

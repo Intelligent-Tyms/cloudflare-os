@@ -75,7 +75,7 @@ export type VendorDescription = {
   providesAgentSkills?: boolean;
 
   // If set, this vendor can persist a skill package for the whole deployment and implements
-  // GatekeeperVendor.installSkillPackage() (e.g. Drive stores it as a shared folder). Callers gate
+  // GatekeeperVendor.installSkillPackage() (e.g. Knowledge stores it as a shared folder). Callers gate
   // on this flag rather than probing.
   installsSkillPackages?: boolean;
 }
@@ -111,7 +111,7 @@ export type DeploymentSkillInfo = {
   name: string;
   // The skill's own description of when to use it (frontmatter `description`).
   description: string;
-  // Human-readable label of where the skill lives (e.g. a Drive folder title), for the admin panel.
+  // Human-readable label of where the skill lives (e.g. a Knowledge folder title), for the admin panel.
   source: string;
 };
 
@@ -547,14 +547,14 @@ export interface GatekeeperVendor extends WorkerEntrypoint {
   // RPC stubs cannot report optional-method presence.
   createAccount?(): Promise<Fetcher<GatekeeperUser>>;
 
-  // List the deployment-wide Agent Skills this vendor hosts (e.g. skills in public Drive folders),
+  // List the deployment-wide Agent Skills this vendor hosts (e.g. skills in public Knowledge folders),
   // for the admin skills panel. Descriptive only — no per-user data, and returning a skill grants
   // nothing: what the agent sees is still decided by the Workshop's curation and each account's own
   // sessions. Present only on vendors that set VendorDescription.providesAgentSkills; callers gate
   // on that flag rather than probing.
   listDeploymentSkills?(): Promise<DeploymentSkillInfo[]>;
 
-  // Persist a skill package deployment-wide (e.g. as a shared Drive folder named `pkg.title`).
+  // Persist a skill package deployment-wide (e.g. as a shared Knowledge folder named `pkg.title`).
   // The Workshop calls this only from the admin capability, with content it fetched from the
   // deployment's configured marketplace and validated against the SKILL_PACKAGE_* bounds; the
   // vendor must still validate for itself (untrusted input at this boundary too). Must reject a
