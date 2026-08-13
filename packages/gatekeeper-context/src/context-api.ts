@@ -48,6 +48,7 @@ export async function loadEnabledContextCollections(
       description: collection.description,
       icon: collection.icon,
       source: "public",
+      ...(collection.canonical ? { canonical: true } : {}),
       lastUpdated: collection.lastUpdated,
     });
   }
@@ -177,6 +178,14 @@ export class ContextApiImpl extends RpcTarget implements ContextApi {
     await this.#assertCanWrite(collectionId);
     if (options.branch !== undefined) this.#assertArtifactsAvailable();
     await this.#collection(collectionId).updateMetadata(options);
+  }
+
+  async setContextCollectionCanonical(collectionId: string, canonical: boolean): Promise<void> {
+    this.#assertAdmin();
+    if (!(await this.#registry().isPublic(collectionId))) {
+      throw new Error("Only public collections can be marked canonical.");
+    }
+    await this.#collection(collectionId).setCanonical(canonical);
   }
 
   async syncContextCollectionArtifactSource(collectionId: string): Promise<void> {

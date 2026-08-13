@@ -110,6 +110,12 @@ export type ContextCollectionMetadata = {
 
   visibility: ContextCollectionVisibility;
 
+  // Marks this collection as organization truth: its files take precedence in assistant
+  // context once verified, and the canonical profile (OkfInfo.strictIssues) applies. Set only
+  // by deployment admins on public collections via ContextApi.setContextCollectionCanonical —
+  // never by the collection itself or its creation path.
+  canonical?: boolean;
+
   created: Date;
   lastUpdated: Date;
 
@@ -141,6 +147,7 @@ export type ContextCollectionSummary = {
   description: string;
   icon?: string;
   visibility: ContextCollectionVisibility;
+  canonical?: boolean;
   documentCount: number;
   lastUpdated: Date;
 };
@@ -225,6 +232,8 @@ export type EnabledCollectionInfo = {
   description: string;
   icon?: string;
   source: "private" | "public";
+  // Organization truth (always public; private collections can't be canonical).
+  canonical?: boolean;
   lastUpdated: Date;
 };
 
@@ -383,6 +392,9 @@ export interface ContextApi extends RpcTarget {
   updateContextCollection(collectionId: string, options: {
     title?: string; description?: string; icon?: string; branch?: string;
   }): Promise<void>;
+  // Mark a public collection as organization truth, or clear the mark. Admin-only; deliberately
+  // separate from updateContextCollection, which any collection owner may call.
+  setContextCollectionCanonical(collectionId: string, canonical: boolean): Promise<void>;
   syncContextCollectionArtifactSource(collectionId: string): Promise<void>;
   createContextCollectionGitToken(collectionId: string): Promise<ContextGitTokenCreateResult>;
   listContextCollectionGitTokens(collectionId: string): Promise<ContextGitTokenList>;

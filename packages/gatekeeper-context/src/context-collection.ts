@@ -180,6 +180,9 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     if (this.getMetadata().id) {
       throw new Error("Collection already exists.");
     }
+    // A collection can never be born canonical: the mark is granted post-creation by a
+    // deployment admin (setCanonical), so no creation path can self-assert authority.
+    delete metadata.canonical;
     this.storage.sharingDomain.put(sharingDomain);
     this.storage.ownerAccountId.put(ownerAccountId);
     if (metadata.content.source === "git") {
@@ -315,6 +318,20 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       this.storage.metadata.put(meta);
       await this.#propagate();
     }
+  }
+
+  // Mark or unmark this collection as organization truth. Admin-gated at the API layer and kept
+  // out of updateMetadata so collection owners can't set it. Must bump lastUpdated: the registry's
+  // staleness guard skips the KV rewrite for an unchanged timestamp, and the flag only reaches
+  // consumers through that snapshot.
+  async setCanonical(canonical: boolean): Promise<void> {
+    let meta = this.getMetadata();
+    if (!!meta.canonical === canonical) return;
+    if (canonical) meta.canonical = true;
+    else delete meta.canonical;
+    meta.lastUpdated = new Date();
+    this.storage.metadata.put(meta);
+    await this.#propagate();
   }
 
   // --- Document CRUD ---
