@@ -163,3 +163,19 @@ export function appendVerification(body: string, actor: string, at: Date): strin
   let serialized = stringifyYaml(parsed).trimEnd();
   return `---\n${serialized}\n---\n\n${content.replace(/^\s*\n/, "")}`;
 }
+
+// Retract verification: drop all `verified` stamps and return the file to draft, so it
+// immediately loses precedence. The log records the retraction; the stamps themselves are
+// attestations that no longer hold, so they don't stay in the frontmatter.
+export function removeVerification(body: string): string {
+  let { frontmatter, content } = splitFrontmatter(body);
+  if (frontmatter === null) throw new Error("Cannot unverify a file without frontmatter.");
+  let parsed = parseYaml(frontmatter) as unknown;
+  if (!isMapping(parsed)) throw new Error("Cannot unverify a file without a frontmatter mapping.");
+
+  delete parsed.verified;
+  parsed.status = "draft";
+
+  let serialized = stringifyYaml(parsed).trimEnd();
+  return `---\n${serialized}\n---\n\n${content.replace(/^\s*\n/, "")}`;
+}

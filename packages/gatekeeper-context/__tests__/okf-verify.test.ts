@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendVerification, deriveOkfTier, evaluateOkf } from "../src/okf";
+import { appendVerification, deriveOkfTier, evaluateOkf, removeVerification } from "../src/okf";
 import { generateIndexMarkdown } from "../src/okf-system-files";
 
 const CHANGE = new Date("2026-08-14T10:00:00Z");
@@ -74,6 +74,36 @@ Content stays.
   it("rejects files without a frontmatter mapping", () => {
     expect(() => appendVerification("# No frontmatter\n", "account:a", new Date()))
         .toThrow(/frontmatter/);
+  });
+});
+
+describe("removeVerification", () => {
+  const SOURCE = `---
+type: Policy
+title: Expense policy
+description: What can be expensed.
+generated: { by: "human:allan", at: "2026-08-01T00:00:00Z" }
+sources:
+  - resource: human-attestation
+status: draft
+custom_key: kept
+---
+Content stays.
+`;
+
+  it("drops all stamps, returns the file to draft, and preserves everything else", () => {
+    let verified = appendVerification(SOURCE, "account:one", new Date("2026-08-14T12:00:00Z"));
+    let retracted = removeVerification(verified);
+    let evaluation = evaluateOkf(retracted);
+    expect(evaluation.verified).toBeUndefined();
+    expect(evaluation.status).toBe("draft");
+    expect(evaluation.strictIssues).toEqual([]);
+    expect(retracted).toContain("custom_key: kept");
+    expect(retracted).toContain("Content stays.");
+  });
+
+  it("rejects files without a frontmatter mapping", () => {
+    expect(() => removeVerification("# No frontmatter\n")).toThrow(/frontmatter/);
   });
 });
 

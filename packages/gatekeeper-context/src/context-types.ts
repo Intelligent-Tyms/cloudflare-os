@@ -428,6 +428,9 @@ export interface ContextApi extends RpcTarget {
   // promotes a draft to stable. Rejects files with outstanding OKF issues (strict issues too, in
   // canonical collections) — verification is the gate those requirements guard.
   verifyContextDocument(collectionId: string, path: string): Promise<ContextPutResult>;
+  // Retract verification: drops the `verified` stamps and returns the file to draft, so it
+  // immediately loses precedence. Logged as its own event.
+  unverifyContextDocument(collectionId: string, path: string): Promise<ContextPutResult>;
   moveContextDocument(collectionId: string, fromPath: string, toPath: string): Promise<void>;
   // Own private collections plus every public one.
   listEnabledContextCollections(): Promise<EnabledCollectionInfo[]>;

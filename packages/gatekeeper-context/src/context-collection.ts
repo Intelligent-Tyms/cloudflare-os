@@ -12,6 +12,7 @@ import {
 } from "./context-types.js";
 import {
   appendVerification, deriveOkfTier, evaluateOkf, isOkfConceptPath, isUnderReferences,
+  removeVerification,
 } from "./okf.js";
 import {
   appendLogEntry, generateIndexMarkdown, IndexEntry, LogEvent,
@@ -598,6 +599,45 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       meta.documentCount += this.#updateSystemFiles(meta, {
         at: now,
         action: "Verification",
+        detail: `[${path}](/${path})`,
+        actor: opts?.actor,
+      });
+      meta.lastUpdated = now;
+      this.storage.metadata.put(meta);
+    });
+    await this.#propagate();
+    await this.#armLintAlarm();
+
+    let okf = this.#parseOkf(updated);
+    return okf ? { okf } : {};
+  }
+
+  // Retract verification: verified stamps are dropped and the file returns to draft, losing
+  // precedence immediately. Same gates as verify; the retraction is logged with its actor.
+  async unverifyContextDocument(
+      path: string, opts?: { actor?: string }): Promise<ContextPutResult> {
+    this.#assertWebWritable();
+    validateDocumentPath(path);
+    this.#assertNotSystemFile(path);
+    let record = this.storage.documents.get(path);
+    if (!record) throw new Error(`Document not found: ${path}`);
+    let contentType = record.contentType ?? DEFAULT_DOCUMENT_CONTENT_TYPE;
+    if (!isOkfConceptPath(path, contentType)) {
+      throw new Error("Only markdown concept files can be unverified.");
+    }
+
+    let now = new Date();
+    let updated: ContextRecord = {
+      ...record,
+      body: removeVerification(record.body),
+      lastUpdated: now,
+    };
+    this.storage.transaction(() => {
+      this.#putDocument(updated);
+      let meta = this.getMetadata();
+      meta.documentCount += this.#updateSystemFiles(meta, {
+        at: now,
+        action: "Unverification",
         detail: `[${path}](/${path})`,
         actor: opts?.actor,
       });

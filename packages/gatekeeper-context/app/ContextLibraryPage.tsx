@@ -259,9 +259,12 @@ function handleCardKeyDown(e: React.KeyboardEvent, onClick: () => void) {
 function CollectionRow({
   collection,
   onClick,
+  onDelete,
 }: {
   collection: EnabledCollectionInfo;
   onClick: () => void;
+  // Present when the viewer may delete this folder; renders the row's ⋮ menu.
+  onDelete?: () => void;
 }) {
   const hasDescription = collection.description.trim().length > 0;
   return (
@@ -298,6 +301,29 @@ function CollectionRow({
           {formatRelativeTime(collection.lastUpdated)}
         </span>
       </div>
+      {onDelete && (
+        <KebabMenu
+          stopPropagation
+          trigger={
+            <WorkshopIconButton
+              aria-label={`Options for ${collection.title}`}
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+              className="!h-7 !w-7 shrink-0 text-kumo-inactive hover:text-kumo-default data-[popup-open]:bg-kumo-tint data-[popup-open]:text-kumo-default"
+            >
+              <DotsThree size={14} weight="bold" />
+            </WorkshopIconButton>
+          }
+        >
+          <DropdownMenu.Item
+            icon={<Trash size={12} className="mr-2" />}
+            variant="danger"
+            onClick={onDelete}
+            className={MENU_ITEM_DANGER}
+          >
+            Delete folder
+          </DropdownMenu.Item>
+        </KebabMenu>
+      )}
     </div>
   );
 }
@@ -851,6 +877,9 @@ export default function ContextLibraryPage() {
 
   const [enabled, setEnabled] = useState<EnabledCollectionInfo[]>([]);
   const [enabledLoaded, setEnabledLoaded] = useState(false);
+  const [viewerIsAdmin, setViewerIsAdmin] = useState(false);
+  // Home-row delete: the target's full metadata feeds the shared type-to-confirm modal.
+  const [deleteTarget, setDeleteTarget] = useState<ContextCollectionMetadata | null>(null);
 
   const loadAll = useCallback(async () => {
     const enabledResult = await context
@@ -860,6 +889,12 @@ export default function ContextLibraryPage() {
       setEnabled(enabledResult);
       setEnabledLoaded(true);
     }
+    context.getViewerInfo().then((v) => setViewerIsAdmin(v.isAdmin)).catch(() => {});
+  }, [context]);
+
+  const startDeleteCollection = useCallback(async (id: string) => {
+    const meta = await context.getContextCollectionMetadata(id).catch(() => null);
+    if (meta) setDeleteTarget(meta);
   }, [context]);
 
   useEffect(() => {
@@ -993,11 +1028,30 @@ export default function ContextLibraryPage() {
                 key={c.id}
                 collection={c}
                 onClick={() => goToCollection(c.id)}
+                onDelete={c.source === "private" || viewerIsAdmin
+                    ? () => startDeleteCollection(c.id)
+                    : undefined}
               />
             ))}
           </div>
         )}
       </div>
+      {deleteTarget && (
+        <CollectionSettingsModal
+          open
+          initialMode="delete"
+          metadata={deleteTarget}
+          isAdmin={viewerIsAdmin}
+          supportsGitCollections={false}
+          collectionId={deleteTarget.id}
+          onClose={() => setDeleteTarget(null)}
+          onUpdated={loadAll}
+          onDeleted={() => {
+            setDeleteTarget(null);
+            loadAll();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -2515,6 +2569,7 @@ function CollectionEditor({
       failed = 0,
       unsupported = 0,
       flagged = 0;
+    const failures: string[] = [];
     await runWithConcurrency(Array.from(files), 6, async (file) => {
       const rel = (file as any).webkitRelativePath || file.name;
       // Derive the type from the path (its extension), not the browser-reported file.type, so the
@@ -2541,8 +2596,13 @@ function CollectionEditor({
         });
         ok++;
         if (okfProblems(result.okf, !!metadata?.canonical).length > 0) flagged++;
-      } catch {
+      } catch (err) {
         failed++;
+        if (failures.length < 2) {
+          let message = err instanceof Error ? err.message : String(err);
+          if (/too large/i.test(message)) message = "too large (max ~1 MB per file)";
+          failures.push(`${baseName(rel)}: ${message}`);
+        }
       }
     });
     const problems = [
@@ -2551,7 +2611,8 @@ function CollectionEditor({
     ].filter(Boolean).join(", ");
     toasts.add({
       title: `Uploaded ${pluralize(ok, "file")}${problems ? `, ${problems}` : ""}${
-        flagged ? `, ${flagged} with OKF issues` : ""}`,
+        flagged ? `, ${flagged} with OKF issues` : ""}${
+        failures.length ? `. ${failures.join("; ")}` : ""}`,
       variant: problems ? "error" : "success",
     });
     await loadDocs();
@@ -2979,6 +3040,8 @@ type DocumentBodyRenderProps = {
   body: string;
   collectionId: string;
   contentType: string;
+  // Derived markdown rendition of a binary original, previewed in place of the raw bytes.
+  extractedText: string | null;
   filename: string;
   isImage: boolean;
   isMarkdown: boolean;
@@ -2993,6 +3056,7 @@ function renderDocumentBody({
   body,
   collectionId,
   contentType,
+  extractedText,
   filename,
   isImage,
   isMarkdown,
@@ -3015,10 +3079,28 @@ function renderDocumentBody({
   }
 
   if (!isText) {
+    const sizeKb = Math.round((body.length * 3) / 4 / 1024);
+    if (extractedText) {
+      return (
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="shrink-0 border-b border-kumo-line bg-kumo-tint px-6 py-2 text-[12px] leading-4 tracking-[-0.15px] text-kumo-subtle sm:px-10">
+            Preview of what assistants read. The original is stored exactly as uploaded
+            ({sizeKb} KB).
+          </div>
+          <div className="min-h-0 flex-1">
+            <MarkdownPreview
+              body={extractedText}
+              collectionId={collectionId}
+              documentPath={path}
+            />
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="p-4 text-[13px] text-kumo-subtle">
-        Binary file ({contentType}, {Math.round((body.length * 3) / 4 / 1024)} KB). Use Replace to
-        update it.
+        This file is stored exactly as uploaded ({sizeKb} KB). Assistants read it directly; use
+        Replace in Edit to update it.
       </div>
     );
   }
@@ -3081,6 +3163,8 @@ function DocumentEditor({
   const [skillName, setSkillName] = useState<string | null>(null);
   const [okf, setOkf] = useState<OkfInfo | null>(null);
   const [verifying, setVerifying] = useState(false);
+  // Derived markdown rendition of a binary original (what search and assistants read).
+  const [extractedText, setExtractedText] = useState<string | null>(null);
   // Content type is path-derived, so renames update rendering immediately.
   const contentType = contentTypeFromPath(path);
   const [loading, setLoading] = useState(true);
@@ -3122,6 +3206,7 @@ function DocumentEditor({
         setBody(d.body);
         setSkillName(d.skillName ?? null);
         setOkf(d.okf ?? null);
+        setExtractedText(d.extractedText ?? null);
         setDirty(false);
         setMode(readOnly || initialMode !== "edit" ? "read" : "edit");
       }
@@ -3167,6 +3252,7 @@ function DocumentEditor({
         body: saved?.body ?? savedBody,
       };
       setSkillName(saved?.skillName ?? null);
+      setExtractedText(saved?.extractedText ?? null);
       setDirty(false);
       toasts.add({ title: "Saved", variant: "success" });
       onChanged();
@@ -3196,6 +3282,31 @@ function DocumentEditor({
     } catch (err) {
       toasts.add({
         title: (err as Error).message || "Failed to verify",
+        variant: "error",
+      });
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  // Retract verification: the record returns to draft and stops overriding other sources.
+  const unverify = async () => {
+    setVerifying(true);
+    try {
+      const result = await context.unverifyContextDocument(collectionId, path);
+      setOkf(result.okf ?? null);
+      const saved = await context.getContextDocument(collectionId, path);
+      if (saved) {
+        savedDocumentRef.current = { description: saved.description, body: saved.body };
+        setDescription(saved.description);
+        setBody(saved.body);
+      }
+      setDirty(false);
+      toasts.add({ title: "Verification removed", variant: "success" });
+      onChanged();
+    } catch (err) {
+      toasts.add({
+        title: (err as Error).message || "Failed to unverify",
         variant: "error",
       });
     } finally {
@@ -3274,12 +3385,25 @@ function DocumentEditor({
           const state = recordPresentation(okf, Date.now());
           if (state.kind === "verified") {
             return (
-              <span
-                title={`Verified by ${okf.verified?.at(-1)?.by ?? "unknown"}`}
-                className="shrink-0 rounded-full bg-kumo-success-tint px-2 py-0.5 text-[11px] font-medium leading-4 text-kumo-success"
-              >
-                ✓ Verified
-              </span>
+              <>
+                <span
+                  title={`Verified by ${okf.verified?.at(-1)?.by ?? "unknown"}`}
+                  className="shrink-0 rounded-full bg-kumo-success-tint px-2 py-0.5 text-[11px] font-medium leading-4 text-kumo-success"
+                >
+                  ✓ Verified
+                </span>
+                {!readOnly && (
+                  <WorkshopButton
+                    tone="secondary"
+                    className="!h-8"
+                    onClick={unverify}
+                    loading={verifying}
+                    title="Retract verification: this record returns to draft and stops overriding other sources"
+                  >
+                    Unverify
+                  </WorkshopButton>
+                )}
+              </>
             );
           }
           return (
@@ -3438,6 +3562,7 @@ function DocumentEditor({
           body,
           collectionId,
           contentType,
+          extractedText,
           filename,
           isImage,
           isMarkdown,
