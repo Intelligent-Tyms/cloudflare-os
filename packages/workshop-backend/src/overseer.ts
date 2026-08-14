@@ -32,6 +32,7 @@ import { recordAnalytics } from "./analytics";
 import { reportIssue } from "@gadgets/backend-utils/error-reporting";
 import type { ProductAnalyticsConnectionType, ProductAnalyticsGadgetInput } from "./analytics";
 import { checkUsageAndBalance } from "./ai-gateway-billing/limits/usage-checker";
+import { dollarsToMicroUsd, recordUsage, usageCollector } from "./usage-collector";
 import { completeAgentCatalogSnapshot, completeAgentPromptContextSnapshot, completeAgentSkillSnapshot, normalizeAgentCatalog, normalizeAgentPromptContext, normalizeAgentSkillList, removeDisabledSkillEntries, removeDisabledSkills } from "./agent-catalog";
 import { refreshCachedBalance } from "./ai-gateway-billing/cloudflare/connection-service";
 import { SharingManager, SharingCaller, CollaboratorRecord, ShareKeyRecord } from "./sharing";
@@ -3671,6 +3672,18 @@ class OverseerImpl implements AgentHooks {
   deliverExternalMessageResponse(record: ExternalMessageRecord, text: string): void {
     if (record.status === "delivered") return;
 
+    // Meter the outbound reply exactly once, at the waiting→ready transition. Counting in
+    // the delivery worker instead would over-count at-least-once retries; the idempotency
+    // key keeps even a re-entered transition single-billed.
+    if (record.status === "waiting") {
+      recordUsage(this.ctx, this.env, [{
+        sourceKey: `msg:out:${record.idempotencyKey}`,
+        kind: "message",
+        channel: record.deliveryKey.split(":")[0],
+        direction: "outbound",
+      }]);
+    }
+
     let readyRecord: ExternalMessageRecord = { ...record, status: "ready", responseText: text };
     this.storage.gadgetResponseDeliveries.put(readyRecord);
     this.#updateExternalMessageResponseDeliveryAlarm();
@@ -3932,6 +3945,39 @@ class OverseerImpl implements AgentHooks {
       // When the Cloudflare limits flow is disabled, checkUsageAndBalance() always allows.
       // (This runs inside the try so the `finally` below still clears the active-agent state and
       // emits a stream "clear" — otherwise the UI would spin forever on a block.)
+      // Tenant credit enforcement (central billing). Paid plans need a positive AI credit
+      // balance; the free plan is gated by the per-user daily counter instead. Callback
+      // continuations stay exempt (same reasoning as the gate below), and everything fails
+      // open when no billing directory is configured or reachable — a billing outage must
+      // never brick a tenant.
+      if (!callbackInitiated) {
+        let billing = await usageCollector(this.ctx).getBillingState().catch(() => null);
+        if (billing) {
+          let blockMessage: string | undefined;
+          if (billing.freeDailyLlmCalls != null && this.ownerId) {
+            let ownerStub = this.users.get(this.users.idFromString(this.ownerId));
+            let quota = await ownerStub.consumeDailyLlmCall(billing.freeDailyLlmCalls);
+            if (!quota.withinLimits) {
+              blockMessage = `You've reached the free plan's daily limit of ${quota.limit} AI ` +
+                  `requests. It resets at midnight UTC, or upgrade for a monthly AI credit ` +
+                  `allowance.`;
+            }
+          } else if (billing.freeDailyLlmCalls == null && billing.tier !== "enterprise"
+              && billing.aiBalanceMicroUsd <= 0) {
+            blockMessage = "This workspace is out of AI credits. An admin can top up under " +
+                "Admin → Billing and usage, and your monthly allowance renews automatically.";
+          }
+          if (blockMessage) {
+            this.postAgentErrorMessage(chatId, aiModel.profile, blockMessage, "usage_limit");
+            turnLogger.debug("agent run finished", {
+              event: "agent.run.finished", outcome: "usage_limit",
+              durationMs: Date.now() - startedAt,
+            });
+            return;
+          }
+        }
+      }
+
       let byokRouting: UserGatewayRouting | undefined;
       if (!callbackInitiated && this.ownerId) {
         let ownerStub = this.users.get(this.users.idFromString(this.ownerId));
@@ -4519,6 +4565,11 @@ class OverseerImpl implements AgentHooks {
       let model = getModel(this.env, quick.config, quick.initiator);
       let result = await completeText(model, {
         signal: AbortSignal.timeout(10_000),
+        onUsage: usage => recordUsage(this.ctx, this.env, [{
+          sourceKey: `ai:${crypto.randomUUID()}`, kind: "ai",
+          costMicroUsd: dollarsToMicroUsd(usage.cost.total),
+          meta: { gadgetId: this.ctx.id.toString(), source: "binding-name" },
+        }]),
         prompt:
             `Choose a short, meaningful JavaScript identifier in ALL_CAPS_WITH_UNDERSCORES ` +
             `style (like an environment variable name) to serve as the binding name for the ` +
@@ -5285,6 +5336,11 @@ class OverseerImpl implements AgentHooks {
       });
 
       let result = await completeText(model, {
+        onUsage: usage => recordUsage(this.ctx, this.env, [{
+          sourceKey: `ai:${crypto.randomUUID()}`, kind: "ai",
+          costMicroUsd: dollarsToMicroUsd(usage.cost.total),
+          meta: { gadgetId: this.ctx.id.toString(), chatId, source: "thread-title" },
+        }]),
         // TODO: Is there a better way to convince the LLM just to summarize and not to follow
         //   instructions in the user message? I tried putting the paragraph in the system
         //   prompt and putting the initial message into `prompt` and also into `messages` and
@@ -5315,8 +5371,6 @@ class OverseerImpl implements AgentHooks {
         let owner = this.users.get(this.users.idFromString(this.ownerId));
         await owner.updateTitle(this.ctx.id.toString(), result);
       }
-
-      // TODO: Should we track costs for title generation? It's pretty negligible.
     } catch (err) {
       // Oh well, just leave the title as "New Chat".
       this.logger.warn("error generating chat title", {
@@ -5342,6 +5396,11 @@ class OverseerImpl implements AgentHooks {
       });
 
       let gadgetTitle = await completeText(model, {
+        onUsage: usage => recordUsage(this.ctx, this.env, [{
+          sourceKey: `ai:${crypto.randomUUID()}`, kind: "ai",
+          costMicroUsd: dollarsToMicroUsd(usage.cost.total),
+          meta: { gadgetId: this.ctx.id.toString(), chatId, source: "gadget-title" },
+        }]),
         prompt: "Below is the log of a chat session that led to a coding agent writing " +
                 "code for a small application. Based on the conversation, please generate " +
                 "a short name (2-5 words) for the app or tool the user is trying to build. " +
@@ -5462,6 +5521,16 @@ class OverseerImpl implements AgentHooks {
 
     this.storage.chatMeta.put(meta);
     this.storage.totalCost.put(this.storage.totalCost.get() + cost);
+
+    // Billing: every resolved inference cost (gateway-authoritative or catalog estimate)
+    // funnels through here, so this is the AI metering point. The random sourceKey is fine —
+    // each cost is reported once; idempotency protects the flush path, not this call.
+    recordUsage(this.ctx, this.env, [{
+      sourceKey: `ai:${crypto.randomUUID()}`,
+      kind: "ai",
+      costMicroUsd: dollarsToMicroUsd(cost),
+      meta: { gadgetId: this.ctx.id.toString(), chatId },
+    }]);
   }
 
   // Fetches an AI Gateway log entry and adds the cost to the given chat ID's cost indicator.

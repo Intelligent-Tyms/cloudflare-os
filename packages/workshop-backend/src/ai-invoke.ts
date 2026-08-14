@@ -56,6 +56,9 @@ export async function completeText(handle: ModelHandle, args: {
   messages?: Message[];
   maxTokens?: number;
   signal?: AbortSignal;
+  // Fires with the request's usage on success, for metering (one-shot calls otherwise
+  // discard usage with the message).
+  onUsage?: (usage: Usage) => void;
 }): Promise<string> {
   const messages: Message[] = args.messages ??
       [{ role: "user", content: args.prompt ?? "", timestamp: Date.now() }];
@@ -74,6 +77,7 @@ export async function completeText(handle: ModelHandle, args: {
     const errorMessage = message.errorMessage ?? "The model request failed.";
     throw new AgentTurnError(errorMessage, httpStatusFromError(errorMessage, handle));
   }
+  args.onUsage?.(message.usage);
   return message.content
       .filter(block => block.type === "text")
       .map(block => block.text)

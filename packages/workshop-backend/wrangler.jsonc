@@ -56,6 +56,12 @@
       // login back to the waiting browser.
       "tag": "v2",
       "new_sqlite_classes": [ "PendingLogin" ]
+    },
+    {
+      // Billing: a single "default"-named collector buffers usage events and flushes them to
+      // the control plane.
+      "tag": "v3",
+      "new_sqlite_classes": [ "UsageCollectorDurableObject" ]
     }
   ],
 

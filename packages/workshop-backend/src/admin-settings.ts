@@ -1,4 +1,4 @@
-import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BillingCreditType, BillingOverview, BlueprintPublicInfo, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor, SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES, SkillPackage, SkillPackageFile } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
@@ -15,6 +15,7 @@ import { getAiGatewayConfig } from './ai-gateway.js';
 import { formatBlueprintsManifestVersion, installFormatBlueprints } from './format-blueprints.js';
 import { FORMAT_BLUEPRINTS } from './generated/format-blueprints.js';
 import * as teamDirectory from './team-directory.js';
+import * as billingDirectory from './billing-directory.js';
 
 const logger = createWorkshopLogger("workshop.admin.settings");
 
@@ -1019,5 +1020,35 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
   async removeTeammate(email: string): Promise<TeamView> {
     this.#requireTeamDirectory();
     return teamDirectory.removeTeamMember(this.env, email.trim().toLowerCase(), this.adminUserId);
+  }
+
+  // --- Billing (central billing directory; see billing-directory.ts) ---
+
+  async getBillingOverview(): Promise<BillingOverview | null> {
+    if (!billingDirectory.hasBillingDirectory(this.env)) return null;
+    let {entitlements, usage} = await billingDirectory.fetchBillingSummary(this.env);
+    return {...entitlements, usage: usage.rows};
+  }
+
+  async createTopupCheckout(creditType: BillingCreditType, amountCents: number,
+                            successUrl: string, cancelUrl: string): Promise<string> {
+    if (!billingDirectory.hasBillingDirectory(this.env)) {
+      throw new Error("This deployment has no central billing configured.");
+    }
+    if (creditType !== "ai" && creditType !== "messaging") {
+      throw new Error(`Invalid credit type: ${creditType}`);
+    }
+    if (!Number.isInteger(amountCents) || amountCents <= 0) {
+      throw new Error("The top-up amount must be a positive whole number of cents.");
+    }
+    for (let url of [successUrl, cancelUrl]) {
+      let parsed = URL.parse(url);
+      if (!parsed || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
+        throw new Error("Return URLs must be http(s) URLs.");
+      }
+    }
+    // Amount bounds are enforced by the billing directory, which owns the policy.
+    return billingDirectory.createTopupCheckout(
+        this.env, {creditType, amountCents, successUrl, cancelUrl});
   }
 }

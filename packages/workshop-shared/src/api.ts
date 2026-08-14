@@ -996,7 +996,67 @@ export interface AdminApi {
   // Remove a member. Refused for the workspace owner and for the calling admin themselves.
   // Removal blocks new sign-ins; an already-open session ends on its own schedule.
   removeTeammate(email: string): Promise<TeamView>;
+
+  // --- Billing ---
+  //
+  // On deployments with a central billing directory, the plan, credit balances, and usage
+  // live there; these methods proxy to it (Admin → Billing and usage).
+
+  // Plan, credit balances, and usage for the current credit period, or null when this
+  // deployment has no central billing configured.
+  getBillingOverview(): Promise<BillingOverview | null>;
+
+  // Start a Stripe Checkout for a one-time credit top-up and return the checkout URL to
+  // send the browser to. Amounts are whole USD cents.
+  createTopupCheckout(creditType: BillingCreditType, amountCents: number,
+                      successUrl: string, cancelUrl: string): Promise<string>;
 }
+
+// The two credit pools a workspace plan grants monthly.
+export type BillingCreditType = "ai" | "messaging";
+
+// One credit pool: the plan's monthly allowance (expires at each credit-period rollover)
+// plus purchased top-ups (roll over). All amounts are integer micro-USD (1e-6 USD).
+export type BillingCreditBucket = {
+  monthlyGrantMicroUsd: number;
+  allowanceMicroUsd: number;
+  topupMicroUsd: number;
+  balanceMicroUsd: number;
+};
+
+// Aggregated usage for the current credit period, grouped by kind/channel/direction.
+export type BillingUsageRow = {
+  kind: string;
+  channel: string | null;
+  direction: string | null;
+  events: number;
+  quantity: number;
+  costMicroUsd: number;
+};
+
+// The Admin → Billing and usage snapshot, assembled from the central billing directory.
+export type BillingOverview = {
+  planCode: string;
+  planName: string;
+  // 'enterprise' plans have custom volumes and are exempt from credit enforcement.
+  tier: string;
+  subscriptionStatus: string;
+  billingPeriod: string;
+  // What the subscription bills (per month or per year, per billingPeriod); cents.
+  priceCents: number | null;
+  seatLimit: number | null;
+  agentLimit: number | null;
+  ai: BillingCreditBucket;
+  messaging: BillingCreditBucket;
+  // Current credit period (ms since epoch); allowances reset at periodEnd.
+  periodStart: number;
+  periodEnd: number;
+  // Per-message rates by channel (micro-USD); channels at 0 never consume credits.
+  channelRatesMicroUsd: {[channel: string]: number};
+  // Non-null on the free plan: AI turns per user per UTC day instead of credits.
+  freeDailyLlmCalls: number | null;
+  usage: BillingUsageRow[];
+};
 
 // Role an invited teammate gets in the central team directory. "admin" also unlocks this
 // deployment's /admin area: the directory asserts the role in its signed sign-in handoff,

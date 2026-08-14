@@ -13,6 +13,7 @@ import { deploymentOutputForBlueprint, listFormatOffers, readAdminConfig } from 
 
 // Re-export the optional-feature Durable Objects + entrypoints so they can be bound in wrangler.
 export { PendingLogin, LoginConnectCallbackImpl };
+export { UsageCollectorDurableObject } from "./usage-collector.js";
 import { GatekeeperUiFrame } from "@gadgets/workshop-shared/gatekeeper";
 import { LanguageModelGatekeeper } from "./ai-models";
 import { getAiGatewayConfig } from "./ai-gateway.js";

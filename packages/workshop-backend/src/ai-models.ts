@@ -2,7 +2,7 @@ import { DurableObject, RpcStub, RpcTarget } from "cloudflare:workers";
 import { validateRpc } from "capnweb-validate";
 import type {
   AnthropicMessagesCompat, Api, AssistantMessageEventStream, Context, Model, ModelCost,
-  OpenAICompletionsCompat, ProviderHeaders, SimpleStreamOptions, StreamFunction,
+  OpenAICompletionsCompat, ProviderHeaders, SimpleStreamOptions, StreamFunction, Usage,
 } from "@earendil-works/pi-ai";
 import { stream as anthropicMessagesStream } from "@earendil-works/pi-ai/api/anthropic-messages";
 import { stream as googleGenerativeAiStream } from "@earendil-works/pi-ai/api/google-generative-ai";
@@ -19,6 +19,7 @@ import { AiChatAuthorInfo, AiModelConfig, SUGGESTED_MODELS, WORKERS_AI_OUTPUT_LI
   from "@gadgets/workshop-shared/api";
 import { AiGatewayConfig, getAiGatewayConfig, type AiGatewayLogRoute } from "./ai-gateway.js";
 import { completeText } from "./ai-invoke.js";
+import { dollarsToMicroUsd, recordUsage } from "./usage-collector.js";
 import { bridgePdfAttachments } from "./chat-attachment-pdf.js";
 
  // Routing to bill a user's own Cloudflare account for inference (BYOK path once the free tier is
@@ -635,7 +636,17 @@ export class LanguageModelGatekeeper
     let model = getModel(this.env, this.ctx.props.config, this.ctx.props.initiator, {
       metadata: this.ctx.props.metadata,
     });
-    return new LanguageModelBindingImpl(model);
+    // Meter gadget-invoked model calls against the tenant's AI credits (catalog estimate;
+    // zero for uncataloged models).
+    let onUsage = (usage: Usage) => {
+      recordUsage(this.ctx, this.env, [{
+        sourceKey: `ai:${crypto.randomUUID()}`,
+        kind: "ai",
+        costMicroUsd: dollarsToMicroUsd(usage.cost.total),
+        meta: { source: "model-binding", gadgetId: this.ctx.props.metadata?.gadgetId },
+      }]);
+    };
+    return new LanguageModelBindingImpl(model, onUsage);
   }
 
   applyAction(action: number): Promise<void> {
@@ -661,17 +672,17 @@ export class LanguageModelGatekeeper
 
 @validateRpc()
 class LanguageModelBindingImpl extends RpcTarget implements LanguageModelBinding {
-  constructor(private model: ModelHandle) {
+  constructor(private model: ModelHandle, private onUsage?: (usage: Usage) => void) {
     super();
   }
 
   async run(options: {prompt: string, systemPrompt?: string}): Promise<string> {
     // TODO: Should we be calling authorizeObservation() here? It's not really observing anything,
     //   but you might want the audit logs?
-    // TODO: Account LLM costs back to the calling gadget.
     return await completeText(this.model, {
       prompt: options.prompt,
       systemPrompt: options.systemPrompt,
+      onUsage: this.onUsage,
     });
   }
 }

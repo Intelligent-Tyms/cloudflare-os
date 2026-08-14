@@ -8,6 +8,7 @@ import {
 import { resolveSiteName } from "@gadgets/workshop-shared/api";
 import { readAdminConfig } from "./admin-config.js";
 import { HOME_WORKSPACE_TITLE } from "./user.js";
+import { recordUsage, usageCollector } from "./usage-collector.js";
 
 type ExternalMessageGatewayProps = {
   source: string;
@@ -33,12 +34,26 @@ export class ExternalMessageGateway extends WorkerEntrypoint<Cloudflare.Env, Ext
       };
     }
 
+    // Messaging credits: channels with a real per-message delivery cost (per the central
+    // rate card) need a positive messaging balance. Free channels are never blocked, and
+    // the check fails open when billing is unconfigured or unreachable.
+    let billing = await usageCollector(this.ctx).getBillingState().catch(() => null);
+    if (billing && billing.tier !== "enterprise"
+        && (billing.channelRatesMicroUsd[source] ?? 0) > 0
+        && billing.messagingBalanceMicroUsd <= 0) {
+      return {
+        accepted: false,
+        message: "This workspace is out of messaging credits. " +
+            "Ask a workspace admin to top up under Admin → Billing and usage.",
+      };
+    }
+
     // External chat and message keys are prefixed with the binding-owned source, preventing
     // collisions between gateways that happen to pick the same conversation keys.
     let overseers = this.ctx.exports.OverseerDurableObject;
     let overseer = overseers.get(overseers.idFromString(workspaceId));
 
-    return await overseer.receiveExternalMessage({
+    let result = await overseer.receiveExternalMessage({
       callerEmail,
       externalChatKey: `${source}:${input.chatKey}`,
       idempotencyKey: `${source}:${input.messageKey}`,
@@ -47,5 +62,17 @@ export class ExternalMessageGateway extends WorkerEntrypoint<Cloudflare.Env, Ext
       deliveryKey: input.deliveryKey,
       title: HOME_WORKSPACE_TITLE,
     });
+
+    // Meter accepted inbound messages. The webhook-derived messageKey makes redelivered
+    // webhooks bill once.
+    if (result.accepted !== false) {
+      recordUsage(this.ctx, this.env, [{
+        sourceKey: `msg:in:${source}:${input.messageKey}`,
+        kind: "message",
+        channel: source,
+        direction: "inbound",
+      }]);
+    }
+    return result;
   }
 }

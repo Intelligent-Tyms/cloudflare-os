@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Bot,
   Building2,
+  CreditCard,
   FileText,
   Hexagon,
   Megaphone,
@@ -25,6 +26,7 @@ import { applyAccentColor, DEFAULT_ACCENT_COLOR } from './theme'
 import { cacheBustSiteLogoUrl, prepareSiteLogo } from './siteLogoUtils'
 import SiteLogo from './components/SiteLogo'
 import { useDocumentTitle } from './useDocumentTitle'
+import AdminBillingPanel from './components/AdminBillingPanel'
 import AdminChannelsPanel from './components/AdminChannelsPanel'
 import AdminFormatsPanel from './components/format/AdminFormatsPanel'
 import AdminProvidersPanel from './components/AdminProvidersPanel'
@@ -48,6 +50,7 @@ const ACCENT_PRESETS: { label: string; value: string }[] = [
 export type AdminSectionId =
   | 'organization'
   | 'teammates'
+  | 'billing'
   | 'brand'
   | 'announcements'
   | 'access'
@@ -85,6 +88,14 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         description:
           'Invite teammates by email, see who hasn’t joined yet, and remove members. Membership controls who can sign in to this workspace.',
         icon: <Users size={18} />,
+      },
+      {
+        id: 'billing',
+        title: 'Billing & usage',
+        blurb: 'Your plan, credit balances, and usage.',
+        description:
+          'Your workspace plan, teammate and assistant limits, AI and channel messaging credit balances, and usage for the current period. Top up credits any time; monthly allowances renew automatically.',
+        icon: <CreditCard size={18} />,
       },
       {
         id: 'brand',
@@ -649,6 +660,9 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
 
       {/* Messaging channels */}
       {section === 'channels' && <AdminChannelsPanel channels={channels} />}
+
+      {/* Billing & usage */}
+      {section === 'billing' && admin && <AdminBillingPanel admin={admin.api} />}
 
       {/* Sign-ups */}
       {section === 'access' && (
