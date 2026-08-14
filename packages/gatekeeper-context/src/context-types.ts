@@ -152,6 +152,10 @@ export type ContextCollectionSummary = {
   lastUpdated: Date;
 };
 
+// OKF trust tier, derived from `verified` stamps that postdate the last content change: no valid
+// stamp, a non-human stamp only, or at least one human-grade stamp.
+export type OkfTier = "unverified" | "machine-confirmed" | "human-reviewed";
+
 // Conformance of a markdown concept file against OKF v0.2 and the Tyms canonical profile.
 // Derived from the stored body on read/write, never persisted. Absent on non-concept files
 // (binaries, references/ originals, reserved index.md/log.md). See src/okf.ts.
@@ -163,6 +167,11 @@ export type OkfInfo = {
   description?: string;
   // Lifecycle status, when explicitly draft | stable | deprecated.
   status?: string;
+  // Valid `verified` stamps from the frontmatter, as written (staleness is judged by the tier).
+  verified?: { by: string; at: string }[];
+  // Trust tier; stamps older than the document's last content change don't count, so any edit
+  // drops the document back to its pre-review tier until re-verified.
+  tier?: OkfTier;
   // OKF baseline problems (frontmatter, `type`). The file is kept but flagged — never rejected.
   issues: string[];
   // Canonical-profile requirements (title, description, generated, sources, explicit status).
@@ -412,6 +421,10 @@ export interface ContextApi extends RpcTarget {
     description: string; body: string; contentType?: string;
   }): Promise<ContextPutResult>;
   deleteContextDocument(collectionId: string, path: string): Promise<void>;
+  // Record that the viewer confirmed this concept file's content: appends a `verified` stamp and
+  // promotes a draft to stable. Rejects files with outstanding OKF issues (strict issues too, in
+  // canonical collections) — verification is the gate those requirements guard.
+  verifyContextDocument(collectionId: string, path: string): Promise<ContextPutResult>;
   moveContextDocument(collectionId: string, fromPath: string, toPath: string): Promise<void>;
   // Own private collections plus every public one.
   listEnabledContextCollections(): Promise<EnabledCollectionInfo[]>;

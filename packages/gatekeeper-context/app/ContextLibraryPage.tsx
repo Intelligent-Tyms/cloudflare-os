@@ -2955,6 +2955,7 @@ function DocumentEditor({
   const [body, setBody] = useState("");
   const [skillName, setSkillName] = useState<string | null>(null);
   const [okf, setOkf] = useState<OkfInfo | null>(null);
+  const [verifying, setVerifying] = useState(false);
   // Content type is path-derived, so renames update rendering immediately.
   const contentType = contentTypeFromPath(path);
   const [loading, setLoading] = useState(true);
@@ -3051,6 +3052,32 @@ function DocumentEditor({
     }
   };
 
+  // Confirm the file's content: appends a verified stamp and promotes a draft to stable. The
+  // server rewrites the frontmatter, so reload the stored body afterwards.
+  const verify = async () => {
+    setVerifying(true);
+    try {
+      const result = await context.verifyContextDocument(collectionId, path);
+      setOkf(result.okf ?? null);
+      const saved = await context.getContextDocument(collectionId, path);
+      if (saved) {
+        savedDocumentRef.current = { description: saved.description, body: saved.body };
+        setDescription(saved.description);
+        setBody(saved.body);
+      }
+      setDirty(false);
+      toasts.add({ title: "Verified", variant: "success" });
+      onChanged();
+    } catch (err) {
+      toasts.add({
+        title: (err as Error).message || "Failed to verify",
+        variant: "error",
+      });
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   // Rename within the same directory; save dirty text first.
   const commitRename = async () => {
     const trimmed = filename.trim();
@@ -3116,6 +3143,37 @@ function DocumentEditor({
           />
 
         </div>
+        {/* Trust state, canonical folders only: verified concept files earn the green chip;
+            everything else is pending and, once conformant and saved, offers the Verify action. */}
+        {canonical && okf && (
+          okf.status === "stable" && okf.tier === "human-reviewed" ? (
+            <span
+              title={`Verified by ${okf.verified?.at(-1)?.by ?? "unknown"}`}
+              className="shrink-0 rounded-full bg-kumo-success-tint px-2 py-0.5 text-[11px] font-medium leading-4 text-kumo-success"
+            >
+              Verified
+            </span>
+          ) : (
+            <>
+              <span
+                title="Not yet organization truth: needs a human verification (and stable status) to take precedence"
+                className="shrink-0 rounded-full bg-kumo-warning-tint px-2 py-0.5 text-[11px] font-medium leading-4 text-kumo-warning"
+              >
+                Pending review
+              </span>
+              {!readOnly && !dirty && okfProblems(okf, canonical).length === 0 && (
+                <WorkshopButton
+                  tone="secondary"
+                  className="!h-8"
+                  onClick={verify}
+                  loading={verifying}
+                >
+                  Verify
+                </WorkshopButton>
+              )}
+            </>
+          )
+        )}
         {/* Contextual actions sit left of the toggle so the always-present toggle/delete cluster
             stays right-anchored — toggling View/Edit never shifts the toggle. */}
         {!readOnly && dirty && (

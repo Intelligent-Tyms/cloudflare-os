@@ -10,7 +10,9 @@ import {
   DEFAULT_DOCUMENT_CONTENT_TYPE, DEFAULT_GIT_BRANCH, MAX_DOCUMENT_BODY_BYTES,
   contentTypeFromPath, isTextContentType, OkfInfo, VENDOR_ID,
 } from "./context-types.js";
-import { evaluateOkf, isOkfConceptPath, isUnderReferences } from "./okf.js";
+import {
+  appendVerification, deriveOkfTier, evaluateOkf, isOkfConceptPath, isUnderReferences,
+} from "./okf.js";
 import {
   appendLogEntry, generateIndexMarkdown, IndexEntry, LogEvent,
   OKF_INDEX_PATH, OKF_LOG_PATH,
@@ -223,11 +225,13 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
   }
 
   // OKF conformance for concept files, derived on demand like #parseAgentSkill. Undefined for
-  // non-concept files (binaries, references/ originals, reserved index.md/log.md).
+  // non-concept files (binaries, references/ originals, reserved index.md/log.md). The tier is
+  // judged against the record's last update, so any edit outdates prior verification.
   #parseOkf(record: ContextRecord): OkfInfo | undefined {
     let contentType = record.contentType ?? DEFAULT_DOCUMENT_CONTENT_TYPE;
     if (!isOkfConceptPath(record.path, contentType)) return undefined;
-    return evaluateOkf(record.body);
+    let okf = evaluateOkf(record.body);
+    return { ...okf, tier: deriveOkfTier(okf.verified, record.lastUpdated) };
   }
 
   // Update the skill entry after saving a document.
@@ -365,6 +369,10 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       if (record.path === OKF_INDEX_PATH || record.path === OKF_LOG_PATH) continue;
       if (isUnderReferences(record.path)) continue;
       let okf = this.#parseOkf(record);
+      // In canonical folders the index reaches assistant context as authoritative, so entries
+      // that don't meet the precedence bar (stable + human-reviewed) are marked pending.
+      let pendingReview = !!meta.canonical && !!okf &&
+          (okf.status !== "stable" || okf.tier !== "human-reviewed");
       entries.push({
         path: record.path,
         name: okf?.title ?? record.name,
@@ -372,6 +380,7 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
         ...(okf?.description ?? record.description
             ? { description: okf?.description ?? record.description }
             : {}),
+        ...(pendingReview ? { pendingReview: true } : {}),
       });
     }
 
@@ -497,6 +506,54 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     await this.#propagate();
 
     let okf = this.#parseOkf(record);
+    return okf ? { okf } : {};
+  }
+
+  // Record that a person confirmed this concept file's content: append a `verified` stamp and
+  // promote a draft to stable. Verification is the gate the profile's requirements guard, so a
+  // file with outstanding OKF issues (strict issues too, when this collection is canonical) is
+  // rejected rather than stamped. The rewritten record's lastUpdated equals the stamp's `at`, so
+  // the new verification counts while any later edit outdates it again.
+  async verifyContextDocument(path: string, opts?: { actor?: string }): Promise<ContextPutResult> {
+    this.#assertWebWritable();
+    validateDocumentPath(path);
+    this.#assertNotSystemFile(path);
+    let record = this.storage.documents.get(path);
+    if (!record) throw new Error(`Document not found: ${path}`);
+    let contentType = record.contentType ?? DEFAULT_DOCUMENT_CONTENT_TYPE;
+    if (!isOkfConceptPath(path, contentType)) {
+      throw new Error("Only markdown concept files can be verified.");
+    }
+
+    let evaluation = evaluateOkf(record.body);
+    let blocking = [...evaluation.issues,
+                    ...(this.getMetadata().canonical ? evaluation.strictIssues : [])];
+    if (blocking.length > 0) {
+      throw new Error(`Resolve OKF issues before verifying: ${blocking[0]}`);
+    }
+
+    let now = new Date();
+    let actor = opts?.actor ?? "human:unknown";
+    let updated: ContextRecord = {
+      ...record,
+      body: appendVerification(record.body, actor, now),
+      lastUpdated: now,
+    };
+    this.storage.transaction(() => {
+      this.#putDocument(updated);
+      let meta = this.getMetadata();
+      meta.documentCount += this.#updateSystemFiles(meta, {
+        at: now,
+        action: "Verification",
+        detail: `[${path}](/${path})`,
+        actor: opts?.actor,
+      });
+      meta.lastUpdated = now;
+      this.storage.metadata.put(meta);
+    });
+    await this.#propagate();
+
+    let okf = this.#parseOkf(updated);
     return okf ? { okf } : {};
   }
 

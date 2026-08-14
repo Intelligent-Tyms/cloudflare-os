@@ -8,9 +8,9 @@
 //
 // Pure and browser-safe so the management app can reuse it for live conformance hints.
 
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { splitFrontmatter } from "./description-extractors.js";
-import { isMarkdownContentType, type OkfInfo } from "./context-types.js";
+import { isMarkdownContentType, type OkfInfo, type OkfTier } from "./context-types.js";
 
 // Lifecycle states the profile accepts. Anything else is treated as unset (and flagged for
 // canonical files), not rejected.
@@ -49,6 +49,35 @@ function hasValue(value: unknown): boolean {
 // Actor stamps are `{ by, at }` mappings (OKF trust family).
 function isActorStamp(value: unknown): boolean {
   return isMapping(value) && nonEmptyString(value.by) && hasValue(value.at);
+}
+
+// Valid `verified` stamps, normalized. Accepts a bare mapping as a one-element list per OKF.
+function parseVerified(value: unknown): { by: string; at: string }[] {
+  let entries = Array.isArray(value) ? value : value !== undefined ? [value] : [];
+  return entries
+      .filter(isActorStamp)
+      .map(entry => {
+        let stamp = entry as Record<string, unknown>;
+        return { by: String(stamp.by).trim(), at: String(stamp.at) };
+      });
+}
+
+// Human-grade actors per the Tyms profile: `human:<id>`, plus `account:<id>` until the Workshop's
+// UI context carries a username (accounts are people; assistants and jobs use other prefixes).
+const HUMAN_ACTOR_RE = /^(human|account):/;
+
+// Trust tier per OKF §5.2, with the profile's invalidation rule: a verification attests to the
+// content that was reviewed, so stamps older than the document's last content change don't count.
+export function deriveOkfTier(
+    verified: { by: string; at: string }[] | undefined,
+    contentChangedAt: Date): OkfTier {
+  let current = (verified ?? []).filter(stamp => {
+    let at = Date.parse(stamp.at);
+    return Number.isFinite(at) && at >= contentChangedAt.getTime();
+  });
+  if (current.some(stamp => HUMAN_ACTOR_RE.test(stamp.by))) return "human-reviewed";
+  if (current.length > 0) return "machine-confirmed";
+  return "unverified";
 }
 
 // Evaluate one markdown body. `issues` are OKF baseline problems; `strictIssues` only matter
@@ -96,12 +125,33 @@ export function evaluateOkf(body: string): OkfInfo {
     strictIssues.push("Canonical files must set `status` explicitly (draft | stable | deprecated).");
   }
 
+  let verified = parseVerified(fm?.verified);
+
   return {
     ...(type ? { type } : {}),
     ...(title ? { title } : {}),
     ...(description ? { description } : {}),
     ...(status ? { status } : {}),
+    ...(verified.length > 0 ? { verified } : {}),
     issues,
     strictIssues,
   };
+}
+
+// Append a verification stamp to a concept file and promote a draft to stable. The frontmatter is
+// re-serialized, so YAML comments are lost — acceptable at this point in the lifecycle, since the
+// pack templates' guidance comments have served their purpose once a human confirms the content.
+// Throws when the file has no parseable frontmatter mapping; callers gate on evaluateOkf first.
+export function appendVerification(body: string, actor: string, at: Date): string {
+  let { frontmatter, content } = splitFrontmatter(body);
+  if (frontmatter === null) throw new Error("Cannot verify a file without frontmatter.");
+  let parsed = parseYaml(frontmatter) as unknown;
+  if (!isMapping(parsed)) throw new Error("Cannot verify a file without a frontmatter mapping.");
+
+  let existing = parseVerified(parsed.verified);
+  parsed.verified = [...existing, { by: actor, at: at.toISOString() }];
+  if (parsed.status === "draft") parsed.status = "stable";
+
+  let serialized = stringifyYaml(parsed).trimEnd();
+  return `---\n${serialized}\n---\n\n${content.replace(/^\s*\n/, "")}`;
 }

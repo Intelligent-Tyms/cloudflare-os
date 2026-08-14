@@ -265,6 +265,11 @@ export class ContextApiImpl extends RpcTarget implements ContextApi {
     await this.#collection(collectionId).deleteContextDocument(path, this.#actor());
   }
 
+  async verifyContextDocument(collectionId: string, path: string): Promise<ContextPutResult> {
+    await this.#assertCanWrite(collectionId);
+    return await this.#collection(collectionId).verifyContextDocument(path, this.#actor());
+  }
+
   async moveContextDocument(collectionId: string, fromPath: string, toPath: string): Promise<void> {
     await this.#assertCanWrite(collectionId);
     await this.#collection(collectionId).moveContextDocument(fromPath, toPath, this.#actor());

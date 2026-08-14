@@ -20,11 +20,14 @@ export type IndexEntry = {
   name: string;
   type?: string;
   description?: string;
+  // Canonical folders only: the entry does not meet the precedence bar (stable + human-reviewed),
+  // so the index marks it and readers know it never overrides.
+  pendingReview?: boolean;
 };
 
 export type LogEvent = {
   at: Date;
-  action: "Creation" | "Update" | "Deletion" | "Move";
+  action: "Creation" | "Update" | "Deletion" | "Move" | "Verification";
   // Markdown fragment naming what changed, e.g. "[a.md](/a.md)" or "[a.md](/a.md) → [b.md](/b.md)".
   detail: string;
   actor?: string;
@@ -66,7 +69,8 @@ export function generateIndexMarkdown(
   let sections = headings.map(heading => {
     let lines = groups.get(heading)!
         .sort((a, b) => a.path.localeCompare(b.path))
-        .map(e => `* [${e.name}](/${e.path})${e.description ? ` - ${e.description}` : ""}`);
+        .map(e => `* [${e.name}](/${e.path})${e.description ? ` - ${e.description}` : ""}${
+            e.pendingReview ? " (pending review; does not override)" : ""}`);
     return `# ${heading}\n${lines.join("\n")}`;
   });
 
