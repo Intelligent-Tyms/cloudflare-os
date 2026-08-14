@@ -1027,10 +1027,121 @@ function MetaField({
   );
 }
 
+// One record's presentation state in the canonical checklist: the plain-language status and the
+// single next action. Derived entirely from the summary's okf field.
+function recordPresentation(okf: OkfInfo, now: number): {
+  kind: "incomplete" | "stale" | "ready" | "verified";
+  pill: string;
+  hint: string | null;
+  action: string | null;
+} {
+  let problems = okfProblems(okf, true);
+  if (problems.length > 0) {
+    return {
+      kind: "incomplete",
+      pill: "Needs your input",
+      hint: problems.length === 1
+          ? "One required field is still blank."
+          : `${problems.length} required fields are still blank.`,
+      action: "Fill in",
+    };
+  }
+  let stalePast = okf.staleAfter !== undefined && Date.parse(okf.staleAfter) < now;
+  let verified = okf.status === "stable" && okf.tier === "human-reviewed";
+  if (verified && stalePast) {
+    return {
+      kind: "stale",
+      pill: "Due for re-check",
+      hint: `The check-by date (${okf.staleAfter}) has passed. Confirm it is still correct.`,
+      action: "Re-verify",
+    };
+  }
+  if (verified) return { kind: "verified", pill: "Verified", hint: null, action: null };
+  return {
+    kind: "ready",
+    pill: "Ready to verify",
+    hint: "Complete. Verify it so assistants treat it as fact.",
+    action: "Review & verify",
+  };
+}
+
+// The canonical folder's main content: concept files as records with a completion state and one
+// next action each (the "checklist, not a file tree" view). Clicking anywhere opens the record;
+// verification itself happens in the editor.
+function RecordsChecklist({
+  docs,
+  onOpenDoc,
+}: {
+  docs: ContextDocumentSummary[];
+  onOpenDoc: (path: string) => void;
+}) {
+  const now = Date.now();
+  const records = docs.filter((doc) => doc.okf);
+  if (records.length === 0) return null;
+  const verifiedCount = records.filter(
+      (doc) => recordPresentation(doc.okf!, now).kind === "verified").length;
+  return (
+    <section className="mt-9 border-t border-kumo-line pt-8">
+      <div className="mb-1 flex items-baseline justify-between gap-4">
+        <p className="text-[13px] font-medium leading-none tracking-[-0.2px] text-kumo-subtle">
+          Records
+        </p>
+        <p className="text-[12px] leading-4 text-kumo-inactive">
+          {verifiedCount} of {records.length} verified
+        </p>
+      </div>
+      <p className="mb-4 text-[13px] leading-5 tracking-[-0.2px] text-kumo-subtle">
+        Facts your assistants rely on and cite. Verified records override anything else an
+        assistant reads.
+      </p>
+      <div className="divide-y divide-kumo-line rounded-xl border border-kumo-line">
+        {records.map((doc) => {
+          const state = recordPresentation(doc.okf!, now);
+          return (
+            <div
+              key={doc.path}
+              role="button"
+              tabIndex={0}
+              onClick={() => onOpenDoc(doc.path)}
+              onKeyDown={(e) => handleCardKeyDown(e, () => onOpenDoc(doc.path))}
+              className="group flex cursor-pointer items-center gap-4 px-5 py-3.5 transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-kumo-tint"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[14px] font-medium tracking-[-0.2px] text-kumo-default">
+                  {doc.okf!.title ?? baseName(doc.path)}
+                </p>
+                <p className="mt-0.5 truncate text-[12.5px] leading-4 tracking-[-0.2px] text-kumo-subtle">
+                  {state.hint ?? doc.okf!.description ?? doc.description}
+                </p>
+              </div>
+              {state.kind === "verified" ? (
+                <span className="shrink-0 rounded-full bg-kumo-success-tint px-2.5 py-0.5 text-[11.5px] font-medium leading-4 text-kumo-success">
+                  ✓ Verified · {formatRelativeTime(new Date(doc.okf!.verified!.at(-1)!.at))}
+                </span>
+              ) : (
+                <>
+                  <span className="shrink-0 rounded-full bg-kumo-warning-tint px-2.5 py-0.5 text-[11.5px] font-medium leading-4 text-kumo-warning">
+                    {state.pill}
+                  </span>
+                  <span className="hidden shrink-0 rounded-lg border border-kumo-line px-2.5 py-1 text-[12px] font-medium text-kumo-subtle transition-colors group-hover:bg-kumo-base group-hover:text-kumo-default sm:inline-block">
+                    {state.action}
+                  </span>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 // The collection overview — identity, description, and metadata shown in the detail pane when no
 // file is selected. Collection-level actions (edit/delete) live on the index's ⋮ menu.
 function CollectionOverview({
   metadata,
+  docs,
+  onOpenDoc,
   canWrite,
   supportsGitCollections,
   refreshingSource,
@@ -1040,6 +1151,8 @@ function CollectionOverview({
   onDelete,
 }: {
   metadata: ContextCollectionMetadata;
+  docs: ContextDocumentSummary[];
+  onOpenDoc: (path: string) => void;
   canWrite: boolean;
   supportsGitCollections: boolean;
   refreshingSource: boolean;
@@ -1058,8 +1171,13 @@ function CollectionOverview({
             <div className="flex min-w-0 items-start gap-4">
               <CollectionIconTile size="lg" />
               <div className="min-w-0 pt-0.5">
-                <h1 className="truncate text-2xl font-semibold leading-8 tracking-tight text-kumo-default">
+                <h1 className="flex items-center gap-2.5 truncate text-2xl font-semibold leading-8 tracking-tight text-kumo-default">
                   {metadata.title}
+                  {metadata.canonical && (
+                    <LabelChip title="Verified records here override anything else an assistant reads">
+                      Organization truth
+                    </LabelChip>
+                  )}
                 </h1>
                 <p className="mt-1 text-[13px] leading-[18px] tracking-[-0.2px] text-kumo-subtle">
                   Knowledge folder
@@ -1136,6 +1254,8 @@ function CollectionOverview({
             </MetaField>
           </div>
         </header>
+
+        {metadata.canonical && <RecordsChecklist docs={docs} onOpenDoc={onOpenDoc} />}
 
         {isSynced && !supportsGitCollections && (
           <section className="mt-8 rounded-xl border border-kumo-line bg-kumo-elevated/60 px-5 py-4">
@@ -2741,6 +2861,11 @@ function CollectionEditor({
           ) : metadata ? (
             <CollectionOverview
               metadata={metadata}
+              docs={docs}
+              onOpenDoc={(path) => {
+                setEditOnOpenPath(null);
+                setSelectedPath(path);
+              }}
               canWrite={canWrite}
               supportsGitCollections={supportsGitCollections}
               refreshingSource={refreshingSource}
@@ -3145,21 +3270,26 @@ function DocumentEditor({
         </div>
         {/* Trust state, canonical folders only: verified concept files earn the green chip;
             everything else is pending and, once conformant and saved, offers the Verify action. */}
-        {canonical && okf && (
-          okf.status === "stable" && okf.tier === "human-reviewed" ? (
-            <span
-              title={`Verified by ${okf.verified?.at(-1)?.by ?? "unknown"}`}
-              className="shrink-0 rounded-full bg-kumo-success-tint px-2 py-0.5 text-[11px] font-medium leading-4 text-kumo-success"
-            >
-              Verified
-            </span>
-          ) : (
+        {canonical && okf && (() => {
+          const state = recordPresentation(okf, Date.now());
+          if (state.kind === "verified") {
+            return (
+              <span
+                title={`Verified by ${okf.verified?.at(-1)?.by ?? "unknown"}`}
+                className="shrink-0 rounded-full bg-kumo-success-tint px-2 py-0.5 text-[11px] font-medium leading-4 text-kumo-success"
+              >
+                ✓ Verified
+              </span>
+            );
+          }
+          return (
             <>
               <span
-                title="Not yet organization truth: needs a human verification (and stable status) to take precedence"
+                title={state.hint ?? undefined}
                 className="shrink-0 rounded-full bg-kumo-warning-tint px-2 py-0.5 text-[11px] font-medium leading-4 text-kumo-warning"
               >
-                Pending review
+                {state.kind === "incomplete" ? "Needs your input" :
+                 state.kind === "stale" ? "Due for re-check" : "Not yet verified"}
               </span>
               {!readOnly && !dirty && okfProblems(okf, canonical).length === 0 && (
                 <WorkshopButton
@@ -3167,13 +3297,14 @@ function DocumentEditor({
                   className="!h-8"
                   onClick={verify}
                   loading={verifying}
+                  title="Assistants will rely on this record, cite it in answers, and flag anything that contradicts it"
                 >
                   Verify
                 </WorkshopButton>
               )}
             </>
-          )
-        )}
+          );
+        })()}
         {/* Contextual actions sit left of the toggle so the always-present toggle/delete cluster
             stays right-anchored — toggling View/Edit never shifts the toggle. */}
         {!readOnly && dirty && (
