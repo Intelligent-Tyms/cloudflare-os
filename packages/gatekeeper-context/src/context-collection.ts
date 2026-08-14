@@ -17,6 +17,8 @@ import {
   appendLogEntry, generateIndexMarkdown, IndexEntry, LogEvent,
   OKF_INDEX_PATH, OKF_LOG_PATH,
 } from "./okf-system-files.js";
+import { lintCollection } from "./okf-lint.js";
+import { KNOWLEDGE_PACKS } from "./generated/knowledge-packs.js";
 import { metadataToSummary } from "./collection-kv.js";
 import { domainName } from "./domain.js";
 import { readArtifactRepoDocuments } from "./artifact-sync.js";
@@ -43,6 +45,10 @@ const GIT_BRANCH_RE = /^(?!\/)(?!.*\/$)[A-Za-z0-9/._-]{1,255}$/;
 // Older collections build this path list on first use. Increase the version when parsing rules
 // change.
 const SKILL_INDEX_VERSION = 1;
+
+// Canonical collections run the OKF health pass (okf-lint.ts) on a daily alarm, armed on the
+// canonical grant and re-armed after each run and mutation.
+const LINT_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 // Validate a document path before using it as a storage key.
 function validateDocumentPath(path: string): void {
@@ -340,6 +346,52 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     meta.lastUpdated = new Date();
     this.storage.metadata.put(meta);
     await this.#propagate();
+    await this.#armLintAlarm();
+  }
+
+  // Arm the daily health pass for canonical web collections; idempotent (an armed alarm stays).
+  // Demotion doesn't cancel: the next firing sees the flag gone and lets the alarm lapse.
+  async #armLintAlarm(): Promise<void> {
+    if (!this.getMetadata().canonical || this.#isGitBased()) return;
+    if (await this.ctx.storage.getAlarm() === null) {
+      await this.ctx.storage.setAlarm(Date.now() + LINT_INTERVAL_MS);
+    }
+  }
+
+  // The OKF health pass. Findings append to log.md as one Lint event; a clean run stays silent
+  // (a daily "no findings" line would bury the history the log exists to keep).
+  async alarm(): Promise<void> {
+    let meta = this.getMetadata();
+    if (!meta.id || !meta.canonical || this.#isGitBased()) return;
+
+    let findings = lintCollection({
+      records: [...this.storage.documents.list()].map(record => ({
+        path: record.path,
+        contentType: record.contentType ?? DEFAULT_DOCUMENT_CONTENT_TYPE,
+        body: record.body,
+        lastUpdated: record.lastUpdated,
+      })),
+      canonical: true,
+      now: new Date(),
+      bundledPackVersions: new Map(KNOWLEDGE_PACKS.map(pack => [pack.id, pack.version])),
+    });
+
+    if (findings.length > 0) {
+      let now = new Date();
+      this.storage.transaction(() => {
+        let current = this.getMetadata();
+        current.documentCount += this.#updateSystemFiles(current, {
+          at: now,
+          action: "Lint",
+          detail: findings.join(" "),
+          actor: "process:knowledge-lint",
+        });
+        current.lastUpdated = now;
+        this.storage.metadata.put(current);
+      });
+      await this.#propagate();
+    }
+    await this.ctx.storage.setAlarm(Date.now() + LINT_INTERVAL_MS);
   }
 
   // --- Document CRUD ---
@@ -504,6 +556,7 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       this.storage.metadata.put(meta);
     });
     await this.#propagate();
+    await this.#armLintAlarm();
 
     let okf = this.#parseOkf(record);
     return okf ? { okf } : {};
@@ -552,6 +605,7 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       this.storage.metadata.put(meta);
     });
     await this.#propagate();
+    await this.#armLintAlarm();
 
     let okf = this.#parseOkf(updated);
     return okf ? { okf } : {};
@@ -581,6 +635,7 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       this.storage.metadata.put(meta);
     });
     await this.#propagate();
+    await this.#armLintAlarm();
   }
 
   async moveContextDocument(from: string, to: string, opts?: { actor?: string }): Promise<void> {
@@ -648,6 +703,7 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       this.storage.metadata.put(meta);
     });
     await this.#propagate();
+    await this.#armLintAlarm();
   }
 
   // --- Artifact-backed projection ---

@@ -126,6 +126,13 @@ export function evaluateOkf(body: string): OkfInfo {
   }
 
   let verified = parseVerified(fm?.verified);
+  // stale_after is a plain date per OKF; anything unparseable is treated as unset (and the
+  // canonical requirement for date-bound types is lint's concern, not conformance's).
+  let staleAfterRaw = fm?.stale_after;
+  let staleAfter =
+      typeof staleAfterRaw === "string" && Number.isFinite(Date.parse(staleAfterRaw))
+          ? staleAfterRaw.trim()
+          : undefined;
 
   return {
     ...(type ? { type } : {}),
@@ -133,6 +140,7 @@ export function evaluateOkf(body: string): OkfInfo {
     ...(description ? { description } : {}),
     ...(status ? { status } : {}),
     ...(verified.length > 0 ? { verified } : {}),
+    ...(staleAfter ? { staleAfter } : {}),
     issues,
     strictIssues,
   };

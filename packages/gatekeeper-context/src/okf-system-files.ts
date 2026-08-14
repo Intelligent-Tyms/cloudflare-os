@@ -27,7 +27,7 @@ export type IndexEntry = {
 
 export type LogEvent = {
   at: Date;
-  action: "Creation" | "Update" | "Deletion" | "Move" | "Verification";
+  action: "Creation" | "Update" | "Deletion" | "Move" | "Verification" | "Lint";
   // Markdown fragment naming what changed, e.g. "[a.md](/a.md)" or "[a.md](/a.md) → [b.md](/b.md)".
   detail: string;
   actor?: string;

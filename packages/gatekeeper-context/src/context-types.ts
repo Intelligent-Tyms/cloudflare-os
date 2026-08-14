@@ -169,6 +169,9 @@ export type OkfInfo = {
   status?: string;
   // Valid `verified` stamps from the frontmatter, as written (staleness is judged by the tier).
   verified?: { by: string; at: string }[];
+  // Frontmatter `stale_after`, when it parses as a date. Past dates drop the file from
+  // precedence and are flagged by lint.
+  staleAfter?: string;
   // Trust tier; stamps older than the document's last content change don't count, so any edit
   // drops the document back to its pre-review tier until re-verified.
   tier?: OkfTier;
