@@ -32,7 +32,8 @@ export class ExternalMessageGateway extends WorkerEntrypoint<Cloudflare.Env, Ext
       externalChatKey: externalKeys.chat,
       idempotencyKey: externalKeys.message,
       prompt: input.prompt,
-      chatGatewayRpcTarget: input.chatGatewayRpcTarget,
+      replyBinding: input.replyBinding,
+      deliveryKey: input.deliveryKey,
       title: input.gadgetTitle,
     });
   }

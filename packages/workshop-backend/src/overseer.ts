@@ -38,7 +38,7 @@ import { SharingManager, SharingCaller, CollaboratorRecord, ShareKeyRecord } fro
 import { AutoApprovalDrainer } from "./auto-approval";
 import { collectSlashCommands, invokeSlashCommand } from "./slash-commands";
 import { createWorkshopLogger, obsContext } from "./observability";
-import type { ChatGatewayRpcTarget, SubmitExternalMessageResult } from "@gadgets/workshop-shared/external-message-gateway";
+import type { ExternalMessageDelivery, SubmitExternalMessageResult } from "@gadgets/workshop-shared/external-message-gateway";
 import {
   MAX_CHAT_ATTACHMENT_BYTES,
   assertChatAttachmentSupportedByProvider,
@@ -533,11 +533,13 @@ type ExternalMessageRecord = {
 } & (
   | {
       status: "waiting";
-      chatGatewayRpcTarget: NativeRpcStub<ChatGatewayRpcTarget>;
+      replyBinding: string;
+      deliveryKey: string;
     }
   | {
       status: "ready";
-      chatGatewayRpcTarget: NativeRpcStub<ChatGatewayRpcTarget>;
+      replyBinding: string;
+      deliveryKey: string;
       responseText: string;
     }
   | {
@@ -548,7 +550,8 @@ type ExternalMessageRecord = {
 
 type ExternalMessageResponseTargetRegistration = {
   idempotencyKey: string;
-  chatGatewayRpcTarget: NativeRpcStub<ChatGatewayRpcTarget>;
+  replyBinding: string;
+  deliveryKey: string;
 };
 
 type ExternalMessageResponseTargetRegistrationDecision =
@@ -565,9 +568,23 @@ type ExternalMessageSubmitInput = {
   externalChatKey: string;
   idempotencyKey: string;
   prompt: string;
-  chatGatewayRpcTarget: NativeRpcStub<ChatGatewayRpcTarget>;
+  replyBinding: string;
+  deliveryKey: string;
   title: string;
 };
+
+// Resolve the service binding a chat gateway named as its reply route. Bindings are
+// deploy-injected (like GATEKEEPER_*), so they are looked up dynamically rather than
+// declared in env.d.ts; gateways are trusted callers, this just fails loudly on miswiring.
+function resolveExternalMessageDelivery(
+  env: Cloudflare.Env, replyBinding: string,
+): ExternalMessageDelivery {
+  let binding = (env as unknown as Record<string, unknown>)[replyBinding];
+  if (!binding || typeof binding !== "object") {
+    throw new Error(`External message reply binding is not available: ${replyBinding}`);
+  }
+  return binding as ExternalMessageDelivery;
+}
 
 type ExternalChatRecord = {
   externalChatKey: string;
@@ -1252,9 +1269,6 @@ class OverseerImpl implements AgentHooks {
 
   #deleteExternalMessageResponseDeliveryRecord(record: ExternalMessageRecord): void {
     this.storage.gadgetResponseDeliveries.delete(record.idempotencyKey);
-    if (record.status !== "delivered") {
-      record.chatGatewayRpcTarget[Symbol.dispose]();
-    }
   }
 
   #sweepDeliveredExternalMessageResponses(): void {
@@ -3477,7 +3491,8 @@ class OverseerImpl implements AgentHooks {
           responseTargetRegistration.idempotencyKey,
           chatId,
           promptSequence,
-          responseTargetRegistration.chatGatewayRpcTarget,
+          responseTargetRegistration.replyBinding,
+          responseTargetRegistration.deliveryKey,
         );
       }
       if (externalChatKey) {
@@ -3555,7 +3570,8 @@ class OverseerImpl implements AgentHooks {
           responseTargetRegistration.idempotencyKey,
           chatId,
           promptSequence,
-          responseTargetRegistration.chatGatewayRpcTarget,
+          responseTargetRegistration.replyBinding,
+          responseTargetRegistration.deliveryKey,
         );
       }
     });
@@ -3577,24 +3593,20 @@ class OverseerImpl implements AgentHooks {
     idempotencyKey: string,
     chatId: number,
     promptSequence: number,
-    chatGatewayRpcTarget: NativeRpcStub<ChatGatewayRpcTarget>,
+    replyBinding: string,
+    deliveryKey: string,
   ): void {
     if (this.storage.gadgetResponseDeliveries.undeliveredByChatId.get(chatId)) {
       throw new Error("This chat already has an undelivered workspace response target.");
     }
-    // Store the received stub as-is. Do NOT call .dup() first: on a stub received over RPC
-    // (e.g. a Durable Object stub passed in by a chat gateway worker), only Symbol-keyed
-    // members are local -- a string-keyed property like `dup` is proxied as a remote RPC
-    // call returning an RpcPromise, which cannot be persisted (observed live as a
-    // DataCloneError). Durable storage itself makes the stored stub irrevocable
-    // (allow_irrevocable_stub_storage), which is the lifetime extension dup() would
-    // otherwise have provided; the runtime disposing the parameter stub after this RPC
-    // returns does not revoke the stored copy.
+    // The reply route is stored by value (binding name + opaque key), never as an RPC stub:
+    // production workerd refuses to persist stubs, and plain strings survive restarts anyway.
     this.storage.gadgetResponseDeliveries.put({
       idempotencyKey,
       chatId,
       promptSequence,
-      chatGatewayRpcTarget,
+      replyBinding,
+      deliveryKey,
       createdAt: Date.now(),
       status: "waiting",
     });
@@ -3665,7 +3677,8 @@ class OverseerImpl implements AgentHooks {
     if (record.status !== "ready") return;
 
     try {
-      await record.chatGatewayRpcTarget.onGadgetResponse({
+      let delivery = resolveExternalMessageDelivery(this.env, record.replyBinding);
+      await delivery.deliverGadgetResponse(record.deliveryKey, {
         text: record.responseText,
       });
     } catch (err) {
@@ -3684,7 +3697,6 @@ class OverseerImpl implements AgentHooks {
       createdAt: record.createdAt,
       deliveredAt: Date.now(),
     });
-    record.chatGatewayRpcTarget[Symbol.dispose]();
   }
 
   async deliverReadyExternalMessageResponses(): Promise<void> {
@@ -6727,10 +6739,15 @@ export class OverseerDurableObject extends DurableObject<Cloudflare.Env> {
     // Re-check because another request may have created the external chat while resolving the model.
     externalChat = this.#getExternalChat(input.externalChatKey);
 
+    // The reply route must resolve before we accept: a gateway naming a binding this
+    // deployment doesn't carry is a wiring error, best surfaced at submit time.
+    resolveExternalMessageDelivery(this.impl.env, input.replyBinding);
+
     // Submit the prompt to the existing external chat, or start a new external chat.
     let responseTargetRegistration: ExternalMessageResponseTargetRegistration = {
       idempotencyKey: input.idempotencyKey,
-      chatGatewayRpcTarget: input.chatGatewayRpcTarget,
+      replyBinding: input.replyBinding,
+      deliveryKey: input.deliveryKey,
     };
     let chatId: number;
     if (externalChat) {

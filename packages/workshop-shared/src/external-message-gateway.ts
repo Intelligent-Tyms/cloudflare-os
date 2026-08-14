@@ -1,17 +1,16 @@
-import type { RpcStub, RpcTarget } from "cloudflare:workers";
-
 /** A completed Gadget response that should be delivered back to the chat gateway. */
 export type GadgetResponse = {
   text: string;
 };
 
-/** RPC target provided by the chat gateway for the backend's eventual response. */
-export interface ChatGatewayRpcTarget extends RpcTarget {
-  /**
-   * Deliver the completed Gadget response. Implementations must be idempotent because delivery is
-   * at-least-once when response target acknowledgements fail.
-   */
-  onGadgetResponse(response: GadgetResponse): Promise<void>;
+/**
+ * Service-binding RPC interface a chat gateway worker exposes for reply delivery. The
+ * workshop calls it when the agent turn a gateway submitted completes. Implementations
+ * must be idempotent because delivery is at-least-once when acknowledgements fail.
+ */
+export interface ExternalMessageDelivery {
+  /** Deliver the completed Gadget response for the conversation deliveryKey addresses. */
+  deliverGadgetResponse(deliveryKey: string, response: GadgetResponse): Promise<void>;
 }
 
 /** External message submission accepted by the backend gateway. */
@@ -29,8 +28,13 @@ export type SubmitExternalMessageInput = {
   gadgetTitle: string;
   // User text sent to Gadgets.
   prompt: string;
-  // Persistent target invoked when the Gadget response is ready.
-  chatGatewayRpcTarget: RpcStub<ChatGatewayRpcTarget>;
+  // Names a service binding on the workshop worker that implements ExternalMessageDelivery
+  // (injected by deploy tooling alongside the gateway's own binding). Stored durably with
+  // deliveryKey as the reply route: plain strings survive restarts, unlike RPC stubs, which
+  // production workerd refuses to persist.
+  replyBinding: string;
+  // Opaque address the gateway uses to route the reply to the right conversation.
+  deliveryKey: string;
 };
 
 /** Submission result returned by the backend gateway. */
