@@ -292,3 +292,29 @@ export function PresentationProvider({
     createElement(PresentationActiveContext.Provider, { value: ready }, box),
   )
 }
+
+// ---------------------------------------------------------------------------
+// Host-pushed in-app location (deep links)
+//
+// The host forwards the route's opaque `p` search param (see main.tsx subscribeLocation); the
+// page subscribes and maps it onto its selection state. For Knowledge the value is a doc id
+// ("collectionId/path") or a bare collection id.
+// ---------------------------------------------------------------------------
+
+let appLocation: string | null = null
+const appLocationListeners = new Set<() => void>()
+
+export function setAppLocation(location: string | null): void {
+  if (appLocation === location) return
+  appLocation = location
+  for (const listener of appLocationListeners) listener()
+}
+
+function subscribeAppLocation(listener: () => void): () => void {
+  appLocationListeners.add(listener)
+  return () => appLocationListeners.delete(listener)
+}
+
+export function useAppLocation(): string | null {
+  return useSyncExternalStore(subscribeAppLocation, () => appLocation)
+}

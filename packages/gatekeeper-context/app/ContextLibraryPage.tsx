@@ -48,6 +48,7 @@ import type {
 import {
   DEFAULT_GIT_BRANCH,
   contentTypeFromPath,
+  decodeDocId,
   isImageContentType,
   isMarkdownContentType,
   isTextContentType,
@@ -68,7 +69,7 @@ import { json } from "@codemirror/lang-json";
 import { yaml } from "@codemirror/lang-yaml";
 import { tags as t } from "@lezer/highlight";
 import type { Extension } from "@codemirror/state";
-import { useContextApi, usePresentWhileOpen, useResolvedThemeMode } from "./bridge";
+import { useAppLocation, useContextApi, usePresentWhileOpen, useResolvedThemeMode } from "./bridge";
 import { extractDescription } from "../src/description-extractors";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -828,6 +829,22 @@ export default function ContextLibraryPage() {
   const goToDoc = useCallback((path: string | null) => {
     setSelectedDoc(path);
   }, []);
+
+  // Host-pushed deep link (a chat citation, or /gatekeepers/context?p=...): a doc id selects the
+  // file inside its collection; a bare collection id opens the collection root. A dead id is
+  // harmless — the editor shows its ordinary not-found state.
+  const appLocation = useAppLocation();
+  useEffect(() => {
+    if (appLocation === null) return;
+    const decoded = decodeDocId(appLocation);
+    if (decoded) {
+      setSelectedCollection(decoded.collectionId);
+      setSelectedDoc(decoded.path);
+    } else {
+      setSelectedCollection(appLocation);
+      setSelectedDoc(null);
+    }
+  }, [appLocation]);
 
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);

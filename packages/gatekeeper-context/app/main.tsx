@@ -7,7 +7,7 @@ import { RpcTarget, newMessagePortRpcSession } from 'capnweb'
 import type { RpcStub } from 'capnweb'
 import type { ContextApi } from '../src/context-types'
 import ContextLibraryPage from './ContextLibraryPage'
-import { ContextApiProvider, PresentationProvider, type PresentAck } from './bridge'
+import { ContextApiProvider, PresentationProvider, setAppLocation, type PresentAck } from './bridge'
 import { applyThemeMode, type ResolvedThemeMode } from './theme'
 import './styles.css'
 import ErrorBoundary from './ErrorBoundary'
@@ -15,10 +15,14 @@ import { installErrorReporting, reportIssue } from './error-reporting'
 
 installErrorReporting()
 
-// The only capability the iframe exposes back to the host: a receiver for theme-mode pushes.
+// The capability the iframe exposes back to the host: receivers for theme-mode and location pushes.
 class AppIframe extends RpcTarget {
   setThemeMode(mode: ResolvedThemeMode): void {
     applyThemeMode(mode)
+  }
+
+  setLocation(location: string | null): void {
+    setAppLocation(typeof location === 'string' ? location : null)
   }
 }
 
@@ -28,6 +32,9 @@ interface HostCapability extends RpcTarget {
   setPresenting(active: boolean): Promise<PresentAck>
   // Returns the current resolved theme mode and calls back on `receiver` whenever it changes.
   subscribeTheme(receiver: AppIframe): Promise<ResolvedThemeMode>
+  // Returns the current in-app location (deep link) and calls back on `receiver` on changes.
+  // Absent on older hosts; callers tolerate the missing-method rejection.
+  subscribeLocation(receiver: AppIframe): Promise<string | null>
 }
 
 function main() {
@@ -42,6 +49,8 @@ function main() {
   const host = newMessagePortRpcSession<HostCapability>(port1, iframe)
   // The initial mode comes back from the call; later changes arrive via iframe.setThemeMode().
   host.subscribeTheme(iframe).then(applyThemeMode).catch(() => {})
+  // Same shape for deep links; older hosts without the method reject, which is fine.
+  host.subscribeLocation(iframe).then(setAppLocation).catch(() => {})
 
   createRoot(root, {
     onUncaughtError: (error) => reportIssue('context.react-root', error, {

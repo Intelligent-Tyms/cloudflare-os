@@ -19,6 +19,15 @@ interface ThemeReceiver extends RpcTarget {
   setThemeMode(mode: ResolvedThemeMode): void
 }
 
+// A receiver, defined by the sandboxed app, that the host calls to push in-app location changes
+// (the route's opaque `p` search param) into the frame. Apps without deep-linking never subscribe.
+interface LocationReceiver extends RpcTarget {
+  setLocation(location: string | null): void
+}
+
+// Cap on the opaque location string pushed into the frame; matches the route's search cap.
+const MAX_APP_LOCATION_LENGTH = 512
+
 // The content-pane rect, in viewport coordinates, that the app pins its page to while the iframe
 // is full-viewport.
 type OverlayRect = { left: number; top: number; width: number; height: number }
@@ -85,6 +94,8 @@ class GatekeeperAppHostImpl extends RpcTarget {
   #presenting = false
   #themeMode: ResolvedThemeMode
   #themeReceiver: RpcStub<ThemeReceiver> | null = null
+  #appLocation: string | null
+  #locationReceiver: RpcStub<LocationReceiver> | null = null
   // Presentation changes are coalesced to a single apply per animation frame (see #applyPending).
   #pendingActive: boolean | null = null
   #pendingResolvers: ((ack: PresentAck) => void)[] = []
@@ -97,9 +108,11 @@ class GatekeeperAppHostImpl extends RpcTarget {
     openTarget: OpenTarget,
     openPrompt: OpenPrompt,
     resolveWorkspaceTitles: ResolveWorkspaceTitles,
+    appLocation: string | null,
   ) {
     super()
     this.#themeMode = themeMode
+    this.#appLocation = appLocation
     const { capability: ui, dispose } = createRateLimitedCapability(capability, {
       maxConcurrency: 8,
       maxCallsPerMinute: 600,
@@ -166,6 +179,35 @@ class GatekeeperAppHostImpl extends RpcTarget {
     }
   }
 
+  // The app calls this once to learn the current in-app location (the route's opaque `p` search
+  // param) and register a receiver for later changes. Mirrors subscribeTheme.
+  subscribeLocation(receiver: RpcStub<LocationReceiver>): string | null {
+    this.#locationReceiver?.[Symbol.dispose]?.()
+    this.#locationReceiver = receiver.dup()
+    return this.#appLocation
+  }
+
+  #dropLocationReceiver(receiver: RpcStub<LocationReceiver>) {
+    if (this.#locationReceiver !== receiver) return
+    receiver[Symbol.dispose]?.()
+    this.#locationReceiver = null
+  }
+
+  // Push a new location to a subscribed app; a no-op until (and unless) the app subscribes.
+  updateLocation(location: string | null) {
+    const bounded = location === null ? null : location.slice(0, MAX_APP_LOCATION_LENGTH)
+    this.#appLocation = bounded
+    const receiver = this.#locationReceiver
+    if (!receiver) return
+
+    try {
+      Promise.resolve(receiver.setLocation(bounded))
+        .catch(() => this.#dropLocationReceiver(receiver))
+    } catch {
+      this.#dropLocationReceiver(receiver)
+    }
+  }
+
   // Queue a presentation change; the latest requested state is applied on the next frame.
   setPresenting(active: boolean): Promise<PresentAck> {
     return new Promise((resolve) => {
@@ -194,6 +236,8 @@ class GatekeeperAppHostImpl extends RpcTarget {
     this.#disposeRateLimiter()
     this.#themeReceiver?.[Symbol.dispose]?.()
     this.#themeReceiver = null
+    this.#locationReceiver?.[Symbol.dispose]?.()
+    this.#locationReceiver = null
     if (this.#frameId !== null) {
       cancelAnimationFrame(this.#frameId)
       this.#frameId = null
@@ -211,9 +255,11 @@ class GatekeeperAppHostImpl extends RpcTarget {
 // Hosts a gatekeeper's full-page management SPA in a sandboxed, network-isolated iframe. The app
 // talks to the gatekeeper only through the `ui` capability carried over the MessagePort RPC session.
 // The iframe fills its parent container.
-export default function SandboxedGatekeeperApp({ frame, gatekeeperVendorId }: {
+export default function SandboxedGatekeeperApp({ frame, gatekeeperVendorId, appLocation = null }: {
   frame: GatekeeperUiFrame,
   gatekeeperVendorId: string,
+  // Opaque in-app location (the route's `p` search param), forwarded to the app unparsed.
+  appLocation?: string | null,
 }) {
   const navigate = useNavigate()
   const { authenticatedApi } = useAuthenticatedApi()
@@ -231,6 +277,12 @@ export default function SandboxedGatekeeperApp({ frame, gatekeeperVendorId }: {
   useEffect(() => {
     hostRef.current?.updateTheme(resolvedThemeMode)
   }, [resolvedThemeMode])
+  // Push the current in-app location the same way.
+  const appLocationRef = useRef(appLocation)
+  appLocationRef.current = appLocation
+  useEffect(() => {
+    hostRef.current?.updateLocation(appLocation)
+  }, [appLocation])
 
   const setOverlayPhase = useCallback((next: OverlayState) => {
     if (overlayRef.current === next) return
@@ -316,6 +368,7 @@ export default function SandboxedGatekeeperApp({ frame, gatekeeperVendorId }: {
         openTarget,
         openPrompt,
         resolveWorkspaceTitles,
+        appLocationRef.current,
       )
       hostRef.current = host
       sessionRef.current = newMessagePortRpcSession(port, host)

@@ -54,6 +54,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { RpcStub, RpcTarget } from "capnweb";
+import { useNavigate } from "@tanstack/react-router";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import * as Y from "yjs";
@@ -421,6 +422,48 @@ const URL_REGEX = /https?:\/\/[^\s)>\]]*/g;
 const CAPSULE_LINK_PREFIX = "/__gadgets_capsule__/";
 const CAPSULE_TOKEN_PREFIX = "GADGETS_CAPSULE_";
 const CAPSULE_TOKEN_SUFFIX = "_TOKEN";
+
+// Citation links into gatekeeper apps (e.g. Knowledge doc references the assistant reproduces
+// from its authoritative context). Only exact /gatekeepers/<id> paths with an optional query
+// navigate in-app; anything else still goes through safeExternalUrl. Length-capped because the
+// href is model-authored.
+const INTERNAL_APP_LINK_RE = /^\/gatekeepers\/([A-Za-z0-9_-]{1,64})(?:\?([^#]*))?$/;
+const INTERNAL_APP_LINK_MAX_LENGTH = 600;
+
+function parseInternalAppLink(
+    href: string | undefined): { appId: string, search: Record<string, string> } | null {
+  if (!href || href.length > INTERNAL_APP_LINK_MAX_LENGTH) return null;
+  const match = INTERNAL_APP_LINK_RE.exec(href);
+  if (!match) return null;
+  const search: Record<string, string> = {};
+  if (match[2]) {
+    for (const [key, value] of new URLSearchParams(match[2])) search[key] = value;
+  }
+  return { appId: match[1], search };
+}
+
+// An in-app citation link: renders as a normal anchor (so copy/open-in-new-tab still work via the
+// real href) but navigates with the router instead of a full page load.
+function InternalAppLink({ href, appId, search, children, ...props }: {
+  href: string,
+  appId: string,
+  search: Record<string, string>,
+  children?: React.ReactNode,
+} & React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+  const navigate = useNavigate();
+  return (
+    <a
+      {...props}
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        navigate({ to: "/gatekeepers/$appId", params: { appId }, search });
+      }}
+    >
+      {children}
+    </a>
+  );
+}
 
 type MarkdownAstNode = {
   type: string;
@@ -1167,6 +1210,15 @@ function getMarkdownComponents(
               ? <CapsuleMention capsule={mention.capsule} />
               : <FormatMention format={mention.format} />;
         }
+      }
+
+      const internal = parseInternalAppLink(href);
+      if (internal) {
+        return (
+          <InternalAppLink href={href!} appId={internal.appId} search={internal.search} {...props}>
+            {children}
+          </InternalAppLink>
+        );
       }
 
       const safeHref = safeExternalUrl(href);

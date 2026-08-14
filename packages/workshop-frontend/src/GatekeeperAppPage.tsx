@@ -11,7 +11,11 @@ function disposeFrame(frame: GatekeeperUiFrame | null) {
 
 // Renders a gatekeeper's full-page management app (a sandboxed SPA the gatekeeper serves).
 // Fetches the app frame (iframe HTML + `ui` capability) from the backend and hosts it.
-export default function GatekeeperAppPage({ appId }: { appId: string }) {
+export default function GatekeeperAppPage({ appId, appLocation = null }: {
+  appId: string
+  // Opaque in-app location from the route's `p` search param, forwarded to the app.
+  appLocation?: string | null
+}) {
   const { authenticatedApi } = useAuthenticatedApi()
   // Wrap the frame in an object: it holds a `ui` RPC stub, and we never want useState's setter to
   // treat a stored value as an updater function.
@@ -60,7 +64,7 @@ export default function GatekeeperAppPage({ appId }: { appId: string }) {
   // Fill the viewport below the header so the embedded app can manage its own internal layout.
   return (
     <div style={{ height: 'calc(100vh - 56px)' }}>
-      <SandboxedGatekeeperApp frame={state.frame} gatekeeperVendorId={appId} />
+      <SandboxedGatekeeperApp frame={state.frame} gatekeeperVendorId={appId} appLocation={appLocation} />
     </div>
   )
 }
