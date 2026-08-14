@@ -2271,7 +2271,19 @@ export async function runAgent(
     // reflexes into messaging shape: it must come before the workspace/app sections so the
     // reply-style framing is established first.
     let messagingPrompt = "";
-    if (agentContext.externalSource) {
+    if (agentContext.externalSource === "email") {
+      messagingPrompt =
+          `# Email conversation\n` +
+          `The user is corresponding with you by email; your reply is sent as the body of an ` +
+          `email from your own address, so:\n` +
+          `* Write a normal email reply: answer first, keep it reasonably short, no subject ` +
+          `line and no signature block.\n` +
+          `* Plain text only -- email clients will not render markdown.\n` +
+          `* You keep all your abilities, including building and editing apps, but do that ` +
+          `only when clearly asked. Most emails are questions or requests -- just answer them.\n` +
+          `* When you do create or change an app, say so in one sentence and mention it is in ` +
+          `their workspace on the web.`;
+    } else if (agentContext.externalSource) {
       let channelName = MESSAGING_CHANNEL_NAMES[agentContext.externalSource]
           ?? agentContext.externalSource;
       messagingPrompt =

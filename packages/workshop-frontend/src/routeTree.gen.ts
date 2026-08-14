@@ -26,6 +26,7 @@ import { Route as BlueprintIdRouteImport } from './routes/blueprint.$id'
 import { Route as GadgetIdRouteImport } from './routes/gadget.$id'
 import { Route as GatekeepersAppIdRouteImport } from './routes/gatekeepers_.$appId'
 import { Route as WorkspaceIdRouteImport } from './routes/workspace.$id'
+import { Route as AdminChannelsChannelRouteImport } from './routes/admin_.channels.$channel'
 import { Route as AdminSkillsSkillNameRouteImport } from './routes/admin_.skills.$skillName'
 
 const IndexRoute = IndexRouteImport.update({
@@ -113,6 +114,11 @@ const WorkspaceIdRoute = WorkspaceIdRouteImport.update({
   path: '/workspace/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminChannelsChannelRoute = AdminChannelsChannelRouteImport.update({
+  id: '/admin_/channels/$channel',
+  path: '/admin/channels/$channel',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminSkillsSkillNameRoute = AdminSkillsSkillNameRouteImport.update({
   id: '/admin_/skills/$skillName',
   path: '/admin/skills/$skillName',
@@ -137,6 +143,7 @@ export interface FileRoutesByFullPath {
   '/gadget/$id': typeof GadgetIdRoute
   '/gatekeepers/$appId': typeof GatekeepersAppIdRoute
   '/workspace/$id': typeof WorkspaceIdRoute
+  '/admin/channels/$channel': typeof AdminChannelsChannelRoute
   '/admin/skills/$skillName': typeof AdminSkillsSkillNameRoute
 }
 export interface FileRoutesByTo {
@@ -157,6 +164,7 @@ export interface FileRoutesByTo {
   '/gadget/$id': typeof GadgetIdRoute
   '/gatekeepers/$appId': typeof GatekeepersAppIdRoute
   '/workspace/$id': typeof WorkspaceIdRoute
+  '/admin/channels/$channel': typeof AdminChannelsChannelRoute
   '/admin/skills/$skillName': typeof AdminSkillsSkillNameRoute
 }
 export interface FileRoutesById {
@@ -178,6 +186,7 @@ export interface FileRoutesById {
   '/gadget/$id': typeof GadgetIdRoute
   '/gatekeepers_/$appId': typeof GatekeepersAppIdRoute
   '/workspace/$id': typeof WorkspaceIdRoute
+  '/admin_/channels/$channel': typeof AdminChannelsChannelRoute
   '/admin_/skills/$skillName': typeof AdminSkillsSkillNameRoute
 }
 export interface FileRouteTypes {
@@ -200,6 +209,7 @@ export interface FileRouteTypes {
     | '/gadget/$id'
     | '/gatekeepers/$appId'
     | '/workspace/$id'
+    | '/admin/channels/$channel'
     | '/admin/skills/$skillName'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -220,6 +230,7 @@ export interface FileRouteTypes {
     | '/gadget/$id'
     | '/gatekeepers/$appId'
     | '/workspace/$id'
+    | '/admin/channels/$channel'
     | '/admin/skills/$skillName'
   id:
     | '__root__'
@@ -240,6 +251,7 @@ export interface FileRouteTypes {
     | '/gadget/$id'
     | '/gatekeepers_/$appId'
     | '/workspace/$id'
+    | '/admin_/channels/$channel'
     | '/admin_/skills/$skillName'
   fileRoutesById: FileRoutesById
 }
@@ -261,6 +273,7 @@ export interface RootRouteChildren {
   GadgetIdRoute: typeof GadgetIdRoute
   GatekeepersAppIdRoute: typeof GatekeepersAppIdRoute
   WorkspaceIdRoute: typeof WorkspaceIdRoute
+  AdminChannelsChannelRoute: typeof AdminChannelsChannelRoute
   AdminSkillsSkillNameRoute: typeof AdminSkillsSkillNameRoute
 }
 
@@ -385,6 +398,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin_/channels/$channel': {
+      id: '/admin_/channels/$channel'
+      path: '/admin/channels/$channel'
+      fullPath: '/admin/channels/$channel'
+      preLoaderRoute: typeof AdminChannelsChannelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin_/skills/$skillName': {
       id: '/admin_/skills/$skillName'
       path: '/admin/skills/$skillName'
@@ -413,6 +433,7 @@ const rootRouteChildren: RootRouteChildren = {
   GadgetIdRoute: GadgetIdRoute,
   GatekeepersAppIdRoute: GatekeepersAppIdRoute,
   WorkspaceIdRoute: WorkspaceIdRoute,
+  AdminChannelsChannelRoute: AdminChannelsChannelRoute,
   AdminSkillsSkillNameRoute: AdminSkillsSkillNameRoute,
 }
 export const routeTree = rootRouteImport

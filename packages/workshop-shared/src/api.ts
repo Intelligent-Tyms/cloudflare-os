@@ -26,9 +26,9 @@
 import { RpcCompatible, RpcStub, RpcTarget } from "capnweb";
 import { AccountDescription, ActionKind, ActionDescription, AvatarImage, GatekeeperUiFrame, ObservationDescription, ResourceDescription, ResourceConfiguratorFrame, SupportedResource, VendorDescription, HookDescription } from "./gatekeeper.js";
 import type { UiFeatureFlags } from "./feature-flags.js";
-import type { ChannelsDescription, TelegramBinding, TelegramLinkCode } from "./channels-admin.js";
+import type { ChannelsDescription, EmailInbox, TelegramBinding, TelegramLinkCode } from "./channels-admin.js";
 
-export type { ChannelsDescription, TelegramBinding, TelegramLinkCode } from "./channels-admin.js";
+export type { ChannelsDescription, EmailInbox, TelegramBinding, TelegramLinkCode } from "./channels-admin.js";
 
 export const SERVICE_SALT = new Uint8Array([
   0xd9, 0x4e, 0x54, 0x1d, 0x29, 0xc1, 0x03, 0x74, 0x73, 0x7e, 0xb3, 0xe3, 0x34, 0x6d, 0x8f, 0x21
@@ -948,6 +948,16 @@ export interface AdminApi {
 
   // Remove the Telegram link for email; returns false when none exists.
   unlinkTelegram(email: string): Promise<boolean>;
+
+  // Create (or return the existing) assistant email inbox for a teammate. `username`
+  // overrides the address local part, which otherwise derives from the teammate's email.
+  provisionEmailInbox(userEmail: string, username?: string): Promise<EmailInbox>;
+
+  // The assistant email inboxes provisioned on this deployment.
+  listEmailInboxes(): Promise<EmailInbox[]>;
+
+  // Delete a teammate's assistant inbox (provider-side too); false when none exists.
+  deleteEmailInbox(userEmail: string): Promise<boolean>;
 
   // --- Deployment AI models ---
   //

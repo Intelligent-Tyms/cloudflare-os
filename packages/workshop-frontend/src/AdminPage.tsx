@@ -648,9 +648,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
       )}
 
       {/* Messaging channels */}
-      {section === 'channels' && admin && (
-        <AdminChannelsPanel admin={admin.api} channels={channels} />
-      )}
+      {section === 'channels' && <AdminChannelsPanel channels={channels} />}
 
       {/* Sign-ups */}
       {section === 'access' && (

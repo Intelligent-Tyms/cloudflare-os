@@ -1,4 +1,4 @@
-import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, ChannelsDescription, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor, SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES, SkillPackage, SkillPackageFile } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
@@ -952,6 +952,25 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
     let normalized = email.trim().toLowerCase();
     if (!normalized.includes("@")) throw new Error("A valid email address is required.");
     return await this.#requireChannels().unlinkTelegram(normalized);
+  }
+
+  async provisionEmailInbox(userEmail: string, username?: string): Promise<EmailInbox> {
+    let normalized = userEmail.trim().toLowerCase();
+    if (!normalized.includes("@")) throw new Error("A valid email address is required.");
+    if (username !== undefined && (username.length > 64 || !username.trim())) {
+      throw new Error("Invalid inbox username.");
+    }
+    return await this.#requireChannels().provisionEmailInbox(normalized, username);
+  }
+
+  async listEmailInboxes(): Promise<EmailInbox[]> {
+    return await this.#requireChannels().listEmailInboxes();
+  }
+
+  async deleteEmailInbox(userEmail: string): Promise<boolean> {
+    let normalized = userEmail.trim().toLowerCase();
+    if (!normalized.includes("@")) throw new Error("A valid email address is required.");
+    return await this.#requireChannels().deleteEmailInbox(normalized);
   }
 
   addModel(profile: AiChatAuthorInfo, config: AiModelConfig): Promise<void> {
