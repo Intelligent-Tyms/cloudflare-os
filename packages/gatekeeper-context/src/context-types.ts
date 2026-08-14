@@ -349,10 +349,11 @@ export function contentTypeFromPath(path: string): string {
 }
 
 // The binary document formats upload imports by converting to Markdown (Workers AI toMarkdown's
-// free set, minus images and PDF — see document-conversion.ts for the rationale and the
-// conversion itself, which is server-only). Kept here so the browser app can test membership
-// without pulling in server dependencies.
+// free set, minus images — see document-conversion.ts for the rationale and the conversion
+// itself, which is server-only). Kept here so the browser app can test membership without
+// pulling in server dependencies.
 const CONVERTIBLE_DOCUMENT_CONTENT_TYPES = new Set([
+  "application/pdf",                                                         // .pdf
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",       // .xlsx
   "application/vnd.ms-excel",                                                // .xls

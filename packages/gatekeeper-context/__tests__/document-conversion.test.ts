@@ -28,11 +28,12 @@ describe("document text extraction", () => {
     expect(isConvertibleDocumentContentType(knownContentTypeFromPath("a.docx")!)).toBe(true);
     expect(isConvertibleDocumentContentType(knownContentTypeFromPath("a.ods")!)).toBe(true);
     expect(isConvertibleDocumentContentType("application/vnd.ms-excel; charset=x")).toBe(true);
-    // Text needs no extraction, images would invoke paid models, and PDF reads natively through
-    // most providers — none get extractions.
+    // PDFs extract too: assistants read them natively, but the rendition is what the viewer
+    // previews and search indexes.
+    expect(isConvertibleDocumentContentType("application/pdf")).toBe(true);
+    // Text needs no extraction and images would invoke paid models — neither gets extractions.
     expect(isConvertibleDocumentContentType("text/markdown")).toBe(false);
     expect(isConvertibleDocumentContentType("image/png")).toBe(false);
-    expect(isConvertibleDocumentContentType("application/pdf")).toBe(false);
     // PowerPoint isn't in toMarkdown's supported set: stored intact, no extraction.
     expect(isConvertibleDocumentContentType(knownContentTypeFromPath("a.pptx")!)).toBe(false);
   });

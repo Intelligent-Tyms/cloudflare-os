@@ -1911,6 +1911,8 @@ type TreeCtx = {
   commitRename: () => void;
   cancelRename: () => void;
   deletePath: (path: string, isDir: boolean) => void;
+  // Save a copy of the file as stored (the byte-perfect original for binaries).
+  downloadPath: (path: string) => void;
   dragPath: string | null;
   setDragPath: (p: string | null) => void;
   dragOverDir: string | null;
@@ -2229,7 +2231,7 @@ function FileView({
           )}
         </>
       )}
-      {ctx.canWrite && !isRenaming && !system && (
+      {!isRenaming && !system && (
         <KebabMenu
           stopPropagation
           trigger={
@@ -2243,20 +2245,31 @@ function FileView({
           }
         >
           <DropdownMenu.Item
-            icon={<PencilSimple size={12} className="mr-2" />}
-            onClick={() => ctx.startRename(doc.path)}
+            icon={<UploadSimple size={12} className="mr-2 rotate-180" />}
+            onClick={() => ctx.downloadPath(doc.path)}
             className={MENU_ITEM}
           >
-            Rename
+            Download
           </DropdownMenu.Item>
-          <DropdownMenu.Item
-            icon={<Trash size={12} className="mr-2" />}
-            variant="danger"
-            onClick={() => ctx.deletePath(doc.path, false)}
-            className={MENU_ITEM_DANGER}
-          >
-            Delete
-          </DropdownMenu.Item>
+          {ctx.canWrite && (
+            <>
+              <DropdownMenu.Item
+                icon={<PencilSimple size={12} className="mr-2" />}
+                onClick={() => ctx.startRename(doc.path)}
+                className={MENU_ITEM}
+              >
+                Rename
+              </DropdownMenu.Item>
+              <DropdownMenu.Item
+                icon={<Trash size={12} className="mr-2" />}
+                variant="danger"
+                onClick={() => ctx.deletePath(doc.path, false)}
+                className={MENU_ITEM_DANGER}
+              >
+                Delete
+              </DropdownMenu.Item>
+            </>
+          )}
         </KebabMenu>
       )}
     </div>
@@ -2513,6 +2526,31 @@ function CollectionEditor({
 
   // Open the confirmation dialog. Locally-created empty folders are state-only, so remove them
   // instantly without a prompt.
+  // Hand the stored file to the browser as a download (originals leave exactly as uploaded).
+  // Requires the host iframe's allow-downloads sandbox flag.
+  const downloadPath = async (path: string) => {
+    try {
+      const doc = await context.getContextDocument(collectionId, path);
+      if (!doc) throw new Error("file not found");
+      const bytes = isTextContentType(doc.contentType)
+          ? new TextEncoder().encode(doc.body)
+          : Uint8Array.from(atob(doc.body), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: doc.contentType }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = baseName(path);
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch (err) {
+      toasts.add({
+        title: `Download failed: ${(err as Error).message}`,
+        variant: "error",
+      });
+    }
+  };
+
   const deletePath = (path: string, isDir: boolean) => {
     if (isDir && pendingFolders.has(path)) {
       setPendingFolders((p) => {
@@ -2647,6 +2685,7 @@ function CollectionEditor({
     commitRename,
     cancelRename,
     deletePath,
+    downloadPath,
     dragPath,
     setDragPath,
     dragOverDir,

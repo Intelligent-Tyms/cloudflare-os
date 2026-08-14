@@ -9,8 +9,9 @@
 //
 // Which MIME types extract: the toMarkdown()-convertible document set, declared in
 // context-types.ts (browser-safe) as CONVERTIBLE_DOCUMENT_CONTENT_TYPES. Text types need no
-// extraction, images are excluded (conversion would invoke paid models), and PDF is left out:
-// agents read PDFs natively through most model providers.
+// extraction and images are excluded (conversion would invoke paid models). PDFs extract too:
+// assistants read them natively through most model providers, but the rendition is what the
+// viewer previews and search indexes.
 //
 // Extraction requires the optional WORKERS_AI binding; deployments without it store originals
 // with no extraction, exactly as before.
