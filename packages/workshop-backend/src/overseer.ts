@@ -3582,20 +3582,22 @@ class OverseerImpl implements AgentHooks {
     if (this.storage.gadgetResponseDeliveries.undeliveredByChatId.get(chatId)) {
       throw new Error("This chat already has an undelivered workspace response target.");
     }
-    chatGatewayRpcTarget = chatGatewayRpcTarget.dup();
-    try {
-      this.storage.gadgetResponseDeliveries.put({
-        idempotencyKey,
-        chatId,
-        promptSequence,
-        chatGatewayRpcTarget,
-        createdAt: Date.now(),
-        status: "waiting",
-      });
-    } catch (err) {
-      chatGatewayRpcTarget[Symbol.dispose]();
-      throw err;
-    }
+    // Store the received stub as-is. Do NOT call .dup() first: on a stub received over RPC
+    // (e.g. a Durable Object stub passed in by a chat gateway worker), only Symbol-keyed
+    // members are local -- a string-keyed property like `dup` is proxied as a remote RPC
+    // call returning an RpcPromise, which cannot be persisted (observed live as a
+    // DataCloneError). Durable storage itself makes the stored stub irrevocable
+    // (allow_irrevocable_stub_storage), which is the lifetime extension dup() would
+    // otherwise have provided; the runtime disposing the parameter stub after this RPC
+    // returns does not revoke the stored copy.
+    this.storage.gadgetResponseDeliveries.put({
+      idempotencyKey,
+      chatId,
+      promptSequence,
+      chatGatewayRpcTarget,
+      createdAt: Date.now(),
+      status: "waiting",
+    });
   }
 
   #prepareExternalMessageResponseTargetRegistration(
