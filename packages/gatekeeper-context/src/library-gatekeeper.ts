@@ -5,13 +5,14 @@
 import { WorkerEntrypoint, DurableObject, RpcStub as NativeRpcStub, RpcTarget as NativeRpcTarget } from "cloudflare:workers";
 import { RpcStub } from "capnweb";
 import { validateRpc, skipRpcValidation } from "capnweb-validate";
-import { boundAgentCatalog, boundAgentSkillList } from "@gadgets/workshop-shared/gatekeeper";
+import { boundAgentCatalog, boundAgentPromptContext, boundAgentSkillList } from "@gadgets/workshop-shared/gatekeeper";
+import { buildPromptContextBlock, CanonicalIndex } from "./prompt-context.js";
 import {
   SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES,
 } from "@gadgets/workshop-shared/gatekeeper";
 import type {
   VendorDescription, AccountDescription, AgentCatalog, AgentCatalogRequest,
-  AgentSkillContent, AgentSkillList,
+  AgentPromptContext, AgentSkillContent, AgentSkillList,
   AppUiContext, GatekeeperUser, GatekeeperUiFrame, ApprovalQueue, ObservationAuthorizer,
   GatekeeperConnectCallback, GatekeeperConnectOptions, SupportedResource,
   Gatekeeper, GatekeeperUserVerifier, ResourceDescription, ActionKind, DeploymentSkillInfo,
@@ -360,6 +361,39 @@ export class ContextGatekeeper
     });
     check.commit();
     return list;
+  }
+
+  // The authoritative-context block: every canonical collection's system index.md, links
+  // rewritten to citation URLs the chat UI opens. Canonical collections are always public, so the
+  // KV snapshot is the source of the set; injecting the indexes reveals them, so it is authorized
+  // as one observation against those collections — same pattern as listAgentSkills.
+  async getAgentPromptContext(
+      authorizer: NativeRpcStub<ObservationAuthorizer>): Promise<AgentPromptContext | null> {
+    let domain = this.ctx.props.sharingDomain;
+    let canonical = (await listPublicCollectionsFromKv(this.env, domain))
+        .filter(collection => collection.canonical);
+    if (canonical.length === 0) return null;
+
+    let indexes: CanonicalIndex[] = [];
+    for (let collection of canonical) {
+      let id = this.#collections().idFromName(domainName(domain, collection.id));
+      let doc = await this.#collections().get(id).getContextDocument("index.md");
+      if (doc) {
+        indexes.push({collectionId: collection.id, title: collection.title, indexBody: doc.body});
+      }
+    }
+    if (indexes.length === 0) return null;
+
+    let check = await this.#observers().prepareObservation(
+        indexes.map(index => index.collectionId));
+    await authorizer.authorizeObservation({
+      title: "Authoritative Knowledge context",
+      description:
+          `Provided ${indexes.length} canonical folder index(es) as assistant context.`,
+      excludeObservers: check.excludeObservers,
+    });
+    check.commit();
+    return boundAgentPromptContext(buildPromptContextBlock(indexes));
   }
 
   // One skill's full SKILL.md text, by an id from listAgentSkills(). Read through an ordinary
