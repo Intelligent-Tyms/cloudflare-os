@@ -26,6 +26,9 @@
 import { RpcCompatible, RpcStub, RpcTarget } from "capnweb";
 import { AccountDescription, ActionKind, ActionDescription, AvatarImage, GatekeeperUiFrame, ObservationDescription, ResourceDescription, ResourceConfiguratorFrame, SupportedResource, VendorDescription, HookDescription } from "./gatekeeper.js";
 import type { UiFeatureFlags } from "./feature-flags.js";
+import type { ChannelsDescription, TelegramBinding, TelegramLinkCode } from "./channels-admin.js";
+
+export type { ChannelsDescription, TelegramBinding, TelegramLinkCode } from "./channels-admin.js";
 
 export const SERVICE_SALT = new Uint8Array([
   0xd9, 0x4e, 0x54, 0x1d, 0x29, 0xc1, 0x03, 0x74, 0x73, 0x7e, 0xb3, 0xe3, 0x34, 0x6d, 0x8f, 0x21
@@ -750,6 +753,9 @@ export type AdminSettingsView = {
   formats: AdminFormat[];
   // Every deployment-wide agent skill, with enabled state (not hidden when disabled).
   skills: AdminSkill[];
+  // Which messaging channels the deployment's channels worker has configured, or null when
+  // no channels worker is bound (the admin page then shows setup steps instead).
+  channels: ChannelsDescription | null;
 };
 
 // One deployment-wide agent skill, as the admin Skills panel sees it: the skill's own metadata
@@ -926,6 +932,22 @@ export interface AdminApi {
   // Throws if the marketplace isn't configured, the package doesn't validate, or a package with
   // the same title is already installed. Uninstalling is deleting the folder in Knowledge.
   installSkillPackage(id: string): Promise<void>;
+
+  // --- Messaging channels ---
+  //
+  // Deployments with a channels worker (the Telegram/Slack bridge) manage Telegram links here;
+  // each method proxies to that worker and throws when none is configured (see
+  // AdminSettingsView.channels to know before calling). Slack needs no links: users are
+  // identified by their Slack profile email.
+
+  // Mint a one-time Telegram deep link; whoever taps it links their Telegram account to email.
+  mintTelegramLinkCode(email: string): Promise<TelegramLinkCode>;
+
+  // The Telegram accounts currently linked to deployment emails.
+  listTelegramBindings(): Promise<TelegramBinding[]>;
+
+  // Remove the Telegram link for email; returns false when none exists.
+  unlinkTelegram(email: string): Promise<boolean>;
 
   // --- Deployment AI models ---
   //

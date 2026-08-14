@@ -43,6 +43,13 @@ declare global {
       // structured Cloudflare Pipelines stream; local/dev configs omit it and analytics no-op.
       PRODUCT_ANALYTICS?: import("cloudflare:pipelines").Pipeline<ProductAnalyticsRecord>;
 
+      // Optional messaging-channels worker (Telegram/Slack bridge). When the deployment
+      // configures one, deploy tooling binds its ChannelsAdmin entrypoint here and
+      // Admin → Channels manages links through it. Absent = the page shows setup steps.
+      // (Typed as the RPC contract, not Service<>, which only surfaces methods for
+      // WorkerEntrypoint class types.)
+      CHANNELS?: import("@gadgets/workshop-shared/channels-admin").ChannelsAdmin;
+
       // Optional browser error pipeline. Both bindings must be present before reports dispatch.
       FRONTEND_ERROR_REPORTER?: Service<
         import("@gadgets/backend-utils/error-reporting").ErrorReporter

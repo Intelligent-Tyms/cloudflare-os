@@ -9,6 +9,7 @@ import {
   FileText,
   Hexagon,
   Megaphone,
+  MessagesSquare,
   Palette,
   Plug,
   ShieldAlert,
@@ -19,11 +20,12 @@ import {
 } from 'lucide-react'
 import { useAuthenticatedApi } from './AuthContext'
 import { useServerConfig } from './ServerConfigContext'
-import { AdminApi, AdminFormat, AdminResourceVendor, AdminSkill, AmbientGatekeeperMode, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
+import { AdminApi, AdminFormat, AdminResourceVendor, AdminSkill, AmbientGatekeeperMode, ChannelsDescription, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from './theme'
 import { cacheBustSiteLogoUrl, prepareSiteLogo } from './siteLogoUtils'
 import SiteLogo from './components/SiteLogo'
 import { useDocumentTitle } from './useDocumentTitle'
+import AdminChannelsPanel from './components/AdminChannelsPanel'
 import AdminFormatsPanel from './components/format/AdminFormatsPanel'
 import AdminProvidersPanel from './components/AdminProvidersPanel'
 import AdminSkillsPanel from './components/AdminSkillsPanel'
@@ -52,6 +54,7 @@ export type AdminSectionId =
   | 'instructions'
   | 'formats'
   | 'skills'
+  | 'channels'
   | 'connectors'
   | 'providers'
 
@@ -131,6 +134,14 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         description:
           'Skills teach assistants how to perform specific tasks, step by step. A skill is a SKILL.md file in a shared Knowledge folder (including folders synced from git); this page controls which ones are offered to everyone.',
         icon: <Sparkles size={18} />,
+      },
+      {
+        id: 'channels',
+        title: 'Channels',
+        blurb: 'Chat with your assistant in Telegram and Slack.',
+        description:
+          'Bring your assistant into the chat apps your team already uses. Telegram and Slack are available today; WhatsApp and Microsoft Teams are coming soon.',
+        icon: <MessagesSquare size={18} />,
       },
       {
         id: 'connectors',
@@ -233,6 +244,9 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
   // Deployment agent skills with enabled state (see AdminSkillsPanel).
   const [skills, setSkills] = useState<AdminSkill[]>([])
 
+  // Messaging channels (see AdminChannelsPanel); null when no channels worker is bound.
+  const [channels, setChannels] = useState<ChannelsDescription | null>(null)
+
   const resourceKey = (vendorId: string, urlPattern: string) => `${vendorId}\u0000${urlPattern}`
 
   // Populate all editor state from a freshly-fetched settings view.
@@ -255,6 +269,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
     setAccentDraft(view.accentColor)
     setFormats(view.formats)
     setSkills(view.skills)
+    setChannels(view.channels)
   }
 
   // Mint the admin capability once (the access check happens server-side) and load settings.
@@ -630,6 +645,11 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
           skills={skills}
           onChanged={async () => { setSkills((await admin.api.getSettings()).skills) }}
         />
+      )}
+
+      {/* Messaging channels */}
+      {section === 'channels' && admin && (
+        <AdminChannelsPanel admin={admin.api} channels={channels} />
       )}
 
       {/* Sign-ups */}

@@ -1,4 +1,4 @@
-import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, ChannelsDescription, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor, SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES, SkillPackage, SkillPackageFile } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
@@ -27,6 +27,21 @@ type SkillInstallerStub = Required<Pick<GatekeeperVendor, "installSkillPackage">
 // Identifier shape for marketplace catalog ids (path-segment safe: interpolated into the
 // package-fetch URL).
 const MARKETPLACE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+// Which messaging channels the deployment's channels worker has configured, or null when no
+// channels worker is bound. A bound-but-unreachable worker also reports null (logged, not
+// thrown) so one bad deploy can't take down the whole settings view.
+async function describeChannels(env: Cloudflare.Env): Promise<ChannelsDescription | null> {
+  if (!env.CHANNELS) return null;
+  try {
+    return await env.CHANNELS.describeChannels();
+  } catch (error) {
+    logger.warn("failed to describe messaging channels", {
+      event: "channels.describe.failed", error,
+    });
+    return null;
+  }
+}
 
 function makeAdminSettingsStorage(storage: DurableObjectStorage) {
   return createTypedStorage(storage, {
@@ -335,6 +350,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
       resourceVendors: await this.#listResourceConfig(config, adminUserId),
       formats: await this.#listFormatConfig(config),
       skills: await this.#listSkillConfig(config),
+      channels: await describeChannels(this.env),
     };
   }
 
@@ -912,6 +928,30 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
 
   installSkillPackage(id: string): Promise<void> {
     return this.admin.installSkillPackage(id);
+  }
+
+  // --- Messaging channels (the optional CHANNELS worker; see channels-admin contract) ---
+
+  #requireChannels(): NonNullable<Cloudflare.Env["CHANNELS"]> {
+    let channels = this.env.CHANNELS;
+    if (!channels) throw new Error("This deployment has no channels worker configured.");
+    return channels;
+  }
+
+  async mintTelegramLinkCode(email: string): Promise<TelegramLinkCode> {
+    let normalized = email.trim().toLowerCase();
+    if (!normalized.includes("@")) throw new Error("A valid email address is required.");
+    return await this.#requireChannels().mintTelegramLinkCode(normalized);
+  }
+
+  async listTelegramBindings(): Promise<TelegramBinding[]> {
+    return await this.#requireChannels().listTelegramBindings();
+  }
+
+  async unlinkTelegram(email: string): Promise<boolean> {
+    let normalized = email.trim().toLowerCase();
+    if (!normalized.includes("@")) throw new Error("A valid email address is required.");
+    return await this.#requireChannels().unlinkTelegram(normalized);
   }
 
   addModel(profile: AiChatAuthorInfo, config: AiModelConfig): Promise<void> {
