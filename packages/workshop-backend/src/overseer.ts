@@ -32,7 +32,7 @@ import { recordAnalytics } from "./analytics";
 import { reportIssue } from "@gadgets/backend-utils/error-reporting";
 import type { ProductAnalyticsConnectionType, ProductAnalyticsGadgetInput } from "./analytics";
 import { checkUsageAndBalance } from "./ai-gateway-billing/limits/usage-checker";
-import { completeAgentCatalogSnapshot, completeAgentSkillSnapshot, normalizeAgentCatalog, normalizeAgentSkillList, removeDisabledSkillEntries, removeDisabledSkills } from "./agent-catalog";
+import { completeAgentCatalogSnapshot, completeAgentPromptContextSnapshot, completeAgentSkillSnapshot, normalizeAgentCatalog, normalizeAgentPromptContext, normalizeAgentSkillList, removeDisabledSkillEntries, removeDisabledSkills } from "./agent-catalog";
 import { refreshCachedBalance } from "./ai-gateway-billing/cloudflare/connection-service";
 import { SharingManager, SharingCaller, CollaboratorRecord, ShareKeyRecord } from "./sharing";
 import { AutoApprovalDrainer } from "./auto-approval";
@@ -168,6 +168,11 @@ type CatalogGatekeeperFacet =
 type SkillsGatekeeperFacet =
     Fetcher<Gatekeeper<any> &
         Required<Pick<Gatekeeper<any>, "listAgentSkills" | "readAgentSkill">>>;
+
+// getAgentPromptContext is optional like listAgentSkills; callers rely on the same try/catch
+// around the RPC rather than probing.
+type PromptContextGatekeeperFacet =
+    Fetcher<Gatekeeper<any> & Required<Pick<Gatekeeper<any>, "getAgentPromptContext">>>;
 
 type LegacyBlueprintBindingAnnotation = BlueprintBindingAnnotation & {
   included?: boolean;
@@ -4817,6 +4822,30 @@ class OverseerImpl implements AgentHooks {
       dirty = true;
     }
 
+    // Complete/refresh the cached prompt-context blocks the same way. getAgentPromptContext is
+    // optional and most gatekeepers omit it, so failures quietly cache null like skills.
+    let promptContextResult = await completeAgentPromptContextSnapshot(
+        context.alwaysAvailablePromptContext,
+        ambientIds,
+        async gatekeeperId => {
+          if (!this.storage.gatekeepers.get(gatekeeperId)) return null;
+          try {
+            using authorizer = new RpcStub<ObservationAuthorizer>(new ApprovalQueueImpl(
+                this, gatekeeperId, {from: "agent", chatId}));
+            let facet =
+                this.getGatekeeperFacet(gatekeeperId) as unknown as PromptContextGatekeeperFacet;
+            let block = await facet.getAgentPromptContext(
+                authorizer as unknown as ObservationAuthorizer);
+            return block ? normalizeAgentPromptContext(block) : null;
+          } catch {
+            return null;
+          }
+        });
+    if (promptContextResult.changed) {
+      context.alwaysAvailablePromptContext = promptContextResult.snapshots;
+      dirty = true;
+    }
+
     if (dirty) {
       // The work above is async, so the chat could have been deleted meanwhile. Don't resurrect
       // its per-chat storage: deleteChat is the single cleanup point (see its comment) and
@@ -4835,6 +4864,8 @@ class OverseerImpl implements AgentHooks {
         [entry.gatekeeperId, removeDisabledSkillEntries(entry.catalog, disabledSkills)]));
     let skillLists = new Map(skillsResult.snapshots.map(entry =>
         [entry.gatekeeperId, removeDisabledSkills(entry.skills, disabledSkills)]));
+    let promptContexts = new Map(promptContextResult.snapshots.map(entry =>
+        [entry.gatekeeperId, entry.promptContext]));
     let ambientSet = new Set(ambientIds);
     let result: SeedBindingInfo[] = [];
     for (let [name, target] of Object.entries(seedMap)) {
@@ -4850,6 +4881,7 @@ class OverseerImpl implements AgentHooks {
       if (ambientSet.has(target)) {
         info.catalog = catalogs.get(target) ?? null;
         info.skills = skillLists.get(target) ?? null;
+        info.promptContext = promptContexts.get(target) ?? null;
       }
       result.push(info);
     }

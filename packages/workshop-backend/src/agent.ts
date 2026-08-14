@@ -1,6 +1,6 @@
 import { AiChatMessage, AiChatAuthorInfo, AiToolCall, AiChatMessageBody, AgentSpawnerConfig, AiChatStreamEvent, BlueprintOutput, WorkpieceId, type AiModelConfig, type AssistantProfile, isTextLikeAttachmentMimeType, validateBindingName } from '@gadgets/workshop-shared/api';
 import { PDF_MIME_TYPE, modelApiSupportsPdfAttachments } from './chat-attachment-pdf';
-import { AgentCatalog, AgentSkillList, ObservationDescription } from '@gadgets/workshop-shared/gatekeeper';
+import { AgentCatalog, AgentPromptContext, AgentSkillList, ObservationDescription } from '@gadgets/workshop-shared/gatekeeper';
 import { createWorkshopLogger } from "./observability";
 import * as Y from "yjs";
 import { Type } from "@earendil-works/pi-ai";
@@ -13,7 +13,7 @@ import {
 import { RpcStub as NativeRpcStub } from "cloudflare:workers";
 import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff";
 import { webFetch as webFetchImpl, WebFetchEnv, formatWebFetchResult } from "./web-fetch";
-import { AgentCatalogSnapshot, AgentSkillSnapshot, formatAlwaysAvailableResourcesPrompt, formatAvailableSkillsPrompt } from "./agent-catalog";
+import { AgentCatalogSnapshot, AgentPromptContextSnapshot, AgentSkillSnapshot, formatAlwaysAvailableResourcesPrompt, formatAuthoritativeContextPrompt, formatAvailableSkillsPrompt } from "./agent-catalog";
 import { formatInstanceInstructions, formatOrganizationProfile } from "./admin-config";
 import { formatAssistantProfile } from "./assistant-profile.js";
 import { PRESENTATION_PROMPT } from "./presentation.js";
@@ -70,6 +70,10 @@ export type AiChatAgentContext = {
   // Cached Agent Skill lists for the always-available resources, keyed per gatekeeper. Cached and
   // regenerated exactly like the catalogs; rendered as the <available_skills> prompt section.
   alwaysAvailableSkills?: AgentSkillSnapshot[];
+
+  // Cached prompt-context blocks for the always-available resources, keyed per gatekeeper. Cached
+  // and regenerated exactly like the catalogs; rendered as the authoritative-context section.
+  alwaysAvailablePromptContext?: AgentPromptContextSnapshot[];
 };
 
 // One entry of the chat's seed binding layer, as returned by AgentHooks.prepareChatBindings():
@@ -93,6 +97,10 @@ export type SeedBindingInfo = {
   // filtered by the deployment's skill curation. Rendered as the <available_skills> section and
   // resolved against by the loadSkill tool.
   skills?: AgentSkillList | null;
+
+  // The prompt-context block this always-available resource contributes (null when it has none),
+  // already normalized. Rendered as the authoritative-context section.
+  promptContext?: AgentPromptContext | null;
 };
 
 // One entry of the chat's binding map: what a name in the agent's executeCode `env` resolves to.
@@ -1409,6 +1417,12 @@ export async function runAgent(
   let availableSkillsPrompt = formatAvailableSkillsPrompt(
       seedBindings.flatMap(seed => seed.skills?.skills ?? []));
 
+  // Authoritative context contributed by the always-available resources. Slot 1 for the same
+  // reason as skills: frozen per chat, so the cacheable prefix stays stable.
+  let authoritativeContextPrompt = formatAuthoritativeContextPrompt(
+      seedBindings.flatMap(seed =>
+          seed.promptContext ? [{title: seed.title, context: seed.promptContext}] : []));
+
   // Agent-callback bindings are named PARAMS_1, PARAMS_2, ... in replay order, skipping any name
   // already taken in scope. This is the authoritative allocation; chatScopeNames and the naming
   // chokepoint in overseer.ts simulate it (so name-choosing paths there can't claim a name a
@@ -2126,7 +2140,8 @@ export async function runAgent(
     // Split the system prompt into static and dynamic parts for better caching.
     systemPromptSlots = [
       staticSlotFor(SPAWNER_SYSTEM_PROMPT),
-      [systemPromptBindings, alwaysAvailableResourcesPrompt, availableSkillsPrompt]
+      [systemPromptBindings, alwaysAvailableResourcesPrompt, availableSkillsPrompt,
+       authoritativeContextPrompt]
           .filter(s => s).join("\n\n"),
     ];
   } else {
@@ -2244,7 +2259,8 @@ export async function runAgent(
           (standardFormats ? `${standardFormats}\n\n` : "") +
           `${systemPromptWorkspace}${systemPromptConnections}` +
           (alwaysAvailableResourcesPrompt ? `\n\n${alwaysAvailableResourcesPrompt}` : "") +
-          (availableSkillsPrompt ? `\n\n${availableSkillsPrompt}` : ""),
+          (availableSkillsPrompt ? `\n\n${availableSkillsPrompt}` : "") +
+          (authoritativeContextPrompt ? `\n\n${authoritativeContextPrompt}` : ""),
     ];
   }
 

@@ -1,10 +1,13 @@
 import {
   AGENT_CATALOG_MAX_DESCRIPTION_LENGTH, AGENT_CATALOG_MAX_ENTRIES,
   AGENT_CATALOG_MAX_ID_LENGTH, AGENT_CATALOG_MAX_TITLE_LENGTH,
+  AGENT_PROMPT_CONTEXT_MAX_LENGTH,
   AGENT_SKILL_MAX_DESCRIPTION_LENGTH, AGENT_SKILL_MAX_ID_LENGTH,
   AGENT_SKILL_MAX_NAME_LENGTH, AGENT_SKILLS_MAX_ENTRIES,
 } from "@gadgets/workshop-shared/gatekeeper";
-import type { AgentCatalog, AgentSkillInfo, AgentSkillList } from "@gadgets/workshop-shared/gatekeeper";
+import type {
+  AgentCatalog, AgentPromptContext, AgentSkillInfo, AgentSkillList,
+} from "@gadgets/workshop-shared/gatekeeper";
 import { createWorkshopLogger } from "./observability";
 
 const logger = createWorkshopLogger("workshop.agent.catalog");
@@ -19,6 +22,13 @@ export type AgentCatalogSnapshot = {
 export type AgentSkillSnapshot = {
   gatekeeperId: number;
   skills: AgentSkillList | null;
+};
+
+// Cached prompt-context block for one always-available resource, persisted like the skill
+// snapshots (see AiChatAgentContext.alwaysAvailablePromptContext).
+export type AgentPromptContextSnapshot = {
+  gatekeeperId: number;
+  promptContext: AgentPromptContext | null;
 };
 
 function normalizeText(value: string, maxLength: number): string {
@@ -111,6 +121,64 @@ export async function completeAgentSkillSnapshot(
     snapshots: snapshots.map(({gatekeeperId, data}) => ({gatekeeperId, skills: data})),
     changed,
   };
+}
+
+export async function completeAgentPromptContextSnapshot(
+    existing: AgentPromptContextSnapshot[] | undefined,
+    gatekeeperIds: number[],
+    loadPromptContext: (gatekeeperId: number) => Promise<AgentPromptContext | null>):
+    Promise<{snapshots: AgentPromptContextSnapshot[], changed: boolean}> {
+  let {snapshots, changed} = await completeSnapshots(
+      existing?.map(entry => ({gatekeeperId: entry.gatekeeperId, data: entry.promptContext})),
+      gatekeeperIds, loadPromptContext, "agent prompt context");
+  return {
+    snapshots: snapshots.map(({gatekeeperId, data}) => ({gatekeeperId, promptContext: data})),
+    changed,
+  };
+}
+
+// Workshop-side re-validation of a gatekeeper's prompt-context block (defense-in-depth — the
+// gatekeeper output is untrusted). Unlike normalizeText this must preserve newlines (the content
+// is markdown), so it strips other control characters only, neutralizes any attempt to close the
+// wrapper tag early, and re-clamps to the global cap.
+export function normalizeAgentPromptContext(context: AgentPromptContext): AgentPromptContext {
+  let content = context.content
+      .replace(/(?![\n\t])\p{Cc}/gu, " ")
+      .replace(/<\/?authoritative_context/gi, "authoritative_context")
+      .trim()
+      .slice(0, AGENT_PROMPT_CONTEXT_MAX_LENGTH);
+  return {
+    content,
+    ...(context.truncated === true || context.content.length > AGENT_PROMPT_CONTEXT_MAX_LENGTH
+        ? {truncated: true} : {}),
+  };
+}
+
+// The authoritative-context system-prompt section (slot 1): reference indexes contributed by
+// always-available resources, each wrapped with provenance attribution. "" when no resource
+// contributes one. States the precedence and citation rules generically: content carries its own
+// links, and citing means reproducing them.
+export function formatAuthoritativeContextPrompt(
+    sections: Array<{title: string, context: AgentPromptContext}>): string {
+  if (sections.length === 0) return "";
+  let lines = [
+    "The sections below are authoritative reference indexes provided by always-available " +
+        "resources. Verified facts recorded in them take precedence over your own knowledge and " +
+        "over other sources you read. When an answer relies on such a fact, cite it by " +
+        "reproducing the fact's markdown link from the index (read the underlying document " +
+        "through the resource's binding when you need detail). If anything you observe conflicts " +
+        "with an authoritative fact, surface the conflict to the user — never silently resolve " +
+        "it.",
+  ];
+  for (let {title, context} of sections) {
+    lines.push(
+        "",
+        `<authoritative_context resource="${escapeXml(title)}">`,
+        context.content,
+        ...(context.truncated ? ["(index truncated to fit)"] : []),
+        "</authoritative_context>");
+  }
+  return lines.join("\n");
 }
 
 // Workshop-side re-validation of a gatekeeper's skill list (defense-in-depth — the gatekeeper

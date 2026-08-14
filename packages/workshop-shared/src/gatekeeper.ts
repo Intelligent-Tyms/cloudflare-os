@@ -233,6 +233,32 @@ export function boundAgentSkillList(skills: AgentSkillInfo[]): AgentSkillList {
   };
 }
 
+// A bounded markdown block an ambient gatekeeper contributes to the chat system prompt, rendered
+// inside a section attributed to the resource. Like skills, this is untrusted data injected into
+// the agent's context, so it is size-capped on both sides and normalized by the Workshop.
+export type AgentPromptContext = {
+  // Markdown for the prompt section. Links the content carries are reproduced verbatim by the
+  // model when citing, so the gatekeeper should emit them ready to render.
+  content: string;
+  // True if content was cut to fit the limit, so the agent knows the section is partial.
+  truncated?: boolean;
+};
+
+// Hard cap the Workshop enforces on any prompt-context block, regardless of what the gatekeeper
+// returns. Roughly 4K tokens: large enough for a reference index, small enough to bound the
+// per-turn cost of every chat on the deployment.
+export const AGENT_PROMPT_CONTEXT_MAX_LENGTH = 16_384;
+
+// Helper for gatekeepers to produce a well-formed AgentPromptContext: clamps the content to the
+// cap and sets `truncated` when content was dropped. Gatekeepers should call this rather than
+// hand-rolling the limit.
+export function boundAgentPromptContext(content: string): AgentPromptContext {
+  return {
+    content: content.slice(0, AGENT_PROMPT_CONTEXT_MAX_LENGTH),
+    ...(content.length > AGENT_PROMPT_CONTEXT_MAX_LENGTH ? {truncated: true} : {}),
+  };
+}
+
 // Describes a connected user account on an external service, for display purposes.
 export type AccountDescription = {
   // User's display name, e.g. "John Doe". This is a non-unique name that is human-readable.
@@ -769,6 +795,17 @@ export interface Gatekeeper<Session> extends DurableObject {
     id: string,
     authorizer: RpcStub<ObservationAuthorizer>,
   ): Promise<AgentSkillContent>;
+
+  // A bounded context section this gatekeeper contributes to the chat system prompt, rendered
+  // with provenance attribution and an instruction that its recorded facts take precedence and
+  // are cited by reproducing their links. Only consulted for ambient resources — ambience is
+  // user/admin-configured, never asserted by the gatekeeper itself. Revealing the content is an
+  // observation and must be authorized via `authorizer.authorizeObservation()` before returning.
+  // Returns null when there is nothing to inject. Use `boundAgentPromptContext()` to enforce the
+  // size limit.
+  getAgentPromptContext?(
+    authorizer: RpcStub<ObservationAuthorizer>,
+  ): Promise<AgentPromptContext | null>;
 
   // Informs the gatekeeper that a new user is being added to the Gadget with the potential to see
   // all data that was read from this Gatekeeper in the past.
