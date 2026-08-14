@@ -3479,6 +3479,12 @@ class OverseerImpl implements AgentHooks {
       if (prepared.message !== undefined && userMeta.aiModel) {
         meta.activeAgent = userMeta.aiModel.profile;
       }
+      if (externalChatKey) {
+        // The key's binding-owned prefix names the channel (e.g. "telegram:<conversation>");
+        // stamping it here gives the agent messaging-appropriate reply guidance for the
+        // chat's whole life.
+        meta.externalSource = externalChatKey.slice(0, externalChatKey.indexOf(":")) || undefined;
+      }
       this.storage.chatMeta.put(meta);
 
       let promptSequence = this.#commitPreparedChatMessage(
@@ -4314,7 +4320,11 @@ class OverseerImpl implements AgentHooks {
   }
 
   getChatAgentContext(chatId: number): AiChatAgentContext {
-    return this.storage.chatContext.get(chatId) || {chatId};
+    let context = this.storage.chatContext.get(chatId) || {chatId};
+    // External (messaging channel) chats are marked on their meta at creation; overlaying it
+    // here keeps the stored chatContext untouched by the messaging concern.
+    let externalSource = this.storage.chatMeta.get(chatId)?.externalSource;
+    return externalSource ? { ...context, externalSource } : context;
   }
 
   // Summarize the workspace's gadgets for the agent: each gadget's identity, its files root in

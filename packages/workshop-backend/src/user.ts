@@ -20,6 +20,9 @@ const logger = createWorkshopLogger("workshop.user");
 // listOutputs() call wakes and how long it waits. The client calls again until catch-up is done.
 const OUTPUTS_BACKFILL_PAGE = 16;
 
+// Display title of the per-user home assistant workspace (see ensureHomeWorkspace).
+export const HOME_WORKSPACE_TITLE = "Assistant";
+
 type ConnectedAccountRecord = {
   id: number;
   account: Fetcher<GatekeeperUser>;
@@ -202,6 +205,11 @@ function makeUserStorage(storage: DurableObjectStorage) {
       // Set once the user's pre-existing workspaces have been asked to populate the outputs index
       // (see #backfillOutputs()). Workspaces created since push on their own.
       outputsBackfilled: false,
+
+      // The user's home assistant workspace (an ordinary workspace, created on first use).
+      // External messaging gateways (Telegram/Slack) route every conversation here as its
+      // own chat thread instead of minting a workspace per conversation.
+      homeWorkspaceId: <string | null>null,
 
       // How far that catch-up has got: the last workspace id examined. The sweep runs a page at a
       // time and resumes here on the next visit.
@@ -744,6 +752,20 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   async newGadget(id: string, title: string): Promise<void> {
     let created = new Date();
     this.storage.gadgets.put({id, title, created});
+  }
+
+  // The user's home assistant workspace id, creating the workspace on first use. Returns null
+  // for emails with no account: callers (the external message gateway) must not conjure
+  // workspaces for strangers. The workspace itself is deliberately ordinary -- one pointer
+  // here plus gateway routing is the entire "home" concept.
+  async ensureHomeWorkspace(): Promise<string | null> {
+    if (!this.storage.created.get()) return null;
+    let existing = this.storage.homeWorkspaceId.get();
+    if (existing) return existing;
+    let id = this.ctx.exports.OverseerDurableObject.newUniqueId().toString();
+    await this.newGadget(id, HOME_WORKSPACE_TITLE);
+    this.storage.homeWorkspaceId.put(id);
+    return id;
   }
 
   async ensureGadgetRegistered(id: string, title: string): Promise<void> {

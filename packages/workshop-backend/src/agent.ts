@@ -74,6 +74,11 @@ export type AiChatAgentContext = {
   // Cached prompt-context blocks for the always-available resources, keyed per gatekeeper. Cached
   // and regenerated exactly like the catalogs; rendered as the authoritative-context section.
   alwaysAvailablePromptContext?: AgentPromptContextSnapshot[];
+
+  // If present, this chat arrived through an external messaging gateway speaking this channel
+  // (e.g. "telegram", "slack"); replies are delivered there as chat messages. Overlaid from the
+  // chat meta by getChatAgentContext, not stored in the chat context record.
+  externalSource?: string;
 };
 
 // One entry of the chat's seed binding layer, as returned by AgentHooks.prepareChatBindings():
@@ -410,6 +415,15 @@ export interface AgentHooks {
 
 // =======================================================================================
 // Agent system prompt and tool descriptions
+
+// Display names for external messaging channels (AiChatAgentContext.externalSource values);
+// unlisted sources fall back to the raw id.
+const MESSAGING_CHANNEL_NAMES: Record<string, string> = {
+  telegram: "Telegram",
+  slack: "Slack",
+  whatsapp: "WhatsApp",
+  teams: "Microsoft Teams",
+};
 
 let SYSTEM_PROMPT = `
 You are a helpful coding assistant tasked with helping users write small personal applications known as "Apps". An App is an application that typically serves a single user, or a small group, rather than being public-facing. They may help a user automate part of their job, or just be apps the user makes for fun.
@@ -2252,10 +2266,34 @@ export async function runAgent(
           `${connectableVendors.map(v => `* ${v.id}: ${v.displayName}`).join("\n")}`;
     }
 
+    // Chats that arrived through a messaging gateway (Telegram/Slack) read as chat messages on
+    // a phone, not as sessions in the web app. This section beats the base prompt's builder
+    // reflexes into messaging shape: it must come before the workspace/app sections so the
+    // reply-style framing is established first.
+    let messagingPrompt = "";
+    if (agentContext.externalSource) {
+      let channelName = MESSAGING_CHANNEL_NAMES[agentContext.externalSource]
+          ?? agentContext.externalSource;
+      messagingPrompt =
+          `# Messaging conversation\n` +
+          `The user is talking to you from ${channelName}, a messaging app. Your replies are ` +
+          `delivered there as chat messages, not rendered in the web app, so:\n` +
+          `* Reply like a person texting: lead with the answer, keep it brief, skip preamble ` +
+          `and recap.\n` +
+          `* Use plain text or light markdown only -- no headings, tables, or horizontal ` +
+          `rules, and no code blocks unless the user asks for code.\n` +
+          `* You keep all your abilities, including building and editing apps, but do that ` +
+          `only when clearly asked. Most messages are questions or requests to look something ` +
+          `up -- just answer them.\n` +
+          `* When you do create or change an app, say so in one sentence and mention it is in ` +
+          `their workspace on the web.`;
+    }
+
     // Split the system prompt into static and dynamic parts for better caching.
     systemPromptSlots = [
       staticSlotFor(SYSTEM_PROMPT),
-      (assistantProfile ? `${assistantProfile}\n\n` : "") +
+      (messagingPrompt ? `${messagingPrompt}\n\n` : "") +
+          (assistantProfile ? `${assistantProfile}\n\n` : "") +
           (standardFormats ? `${standardFormats}\n\n` : "") +
           `${systemPromptWorkspace}${systemPromptConnections}` +
           (alwaysAvailableResourcesPrompt ? `\n\n${alwaysAvailableResourcesPrompt}` : "") +

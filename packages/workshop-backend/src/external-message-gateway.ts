@@ -5,6 +5,9 @@ import {
   type SubmitExternalMessageInput,
   type SubmitExternalMessageResult,
 } from "@gadgets/workshop-shared/external-message-gateway";
+import { resolveSiteName } from "@gadgets/workshop-shared/api";
+import { readAdminConfig } from "./admin-config.js";
+import { HOME_WORKSPACE_TITLE } from "./user.js";
 
 type ExternalMessageGatewayProps = {
   source: string;
@@ -16,25 +19,33 @@ export class ExternalMessageGateway extends WorkerEntrypoint<Cloudflare.Env, Ext
     let source = this.ctx.props.source;
     if (!source) throw new Error("ExternalMessageGateway source prop is required.");
 
-    let externalKeys = {
-      gadget: `${source}:${input.gadgetKey}`,
-      chat: `${source}:${input.chatKey}`,
-      message: `${source}:${input.messageKey}`,
-    };
+    // Every external conversation lands in the caller's home assistant workspace as its own
+    // chat thread; gateways never mint workspaces. The home workspace is created on first
+    // contact, but only for existing accounts.
+    let callerEmail = input.callerEmail.trim().toLowerCase();
+    let user = this.ctx.exports.UserDurableObject.getByName(callerEmail);
+    let workspaceId = await user.ensureHomeWorkspace();
+    if (!workspaceId) {
+      let siteName = resolveSiteName((await readAdminConfig(this.env)).siteName);
+      return {
+        accepted: false,
+        message: `Please create a ${siteName} account to continue.`,
+      };
+    }
 
-    // External gateways decide which Gadget receives a prompt by passing gadgetKey.
-    // We prefix that key with the binding-owned source before using it as the DO name,
-    // preventing collisions with other gateways and web-created Gadget IDs.
-    let overseer = this.ctx.exports.OverseerDurableObject.getByName(externalKeys.gadget);
+    // External chat and message keys are prefixed with the binding-owned source, preventing
+    // collisions between gateways that happen to pick the same conversation keys.
+    let overseers = this.ctx.exports.OverseerDurableObject;
+    let overseer = overseers.get(overseers.idFromString(workspaceId));
 
     return await overseer.receiveExternalMessage({
-      callerEmail: input.callerEmail,
-      externalChatKey: externalKeys.chat,
-      idempotencyKey: externalKeys.message,
+      callerEmail,
+      externalChatKey: `${source}:${input.chatKey}`,
+      idempotencyKey: `${source}:${input.messageKey}`,
       prompt: input.prompt,
       replyBinding: input.replyBinding,
       deliveryKey: input.deliveryKey,
-      title: input.gadgetTitle,
+      title: HOME_WORKSPACE_TITLE,
     });
   }
 }

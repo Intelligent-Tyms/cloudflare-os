@@ -17,15 +17,13 @@ export interface ExternalMessageDelivery {
 export type SubmitExternalMessageInput = {
   // Selects the Gadgets account used to submit the message.
   // The backend trusts the gateway: supplying this email grants access as that account.
+  // Messages land in that account's home assistant workspace (created on first use);
+  // the gateway does not pick a workspace.
   callerEmail: string;
-  // Selects the workspace to create or reuse.
-  gadgetKey: string;
-  // Selects the chat to create or reuse.
+  // Selects the chat thread to create or reuse inside the home workspace.
   chatKey: string;
   // Deduplicates the originating message and correlates the response target.
   messageKey: string;
-  // Names the workspace if it must be created.
-  gadgetTitle: string;
   // User text sent to Gadgets.
   prompt: string;
   // Names a service binding on the workshop worker that implements ExternalMessageDelivery

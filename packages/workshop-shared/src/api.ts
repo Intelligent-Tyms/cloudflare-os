@@ -1917,6 +1917,11 @@ export type AiChatMetadata = {
   // `changes` message.
   hasProposedChanges?: boolean;
 
+  // If this chat was started by an external messaging gateway, the channel it speaks
+  // (e.g. "telegram", "slack"). The agent gets messaging-appropriate reply guidance,
+  // and the UI may label the thread.
+  externalSource?: string;
+
   // If this was started from an agent spawner, the spawner's display name.
   spawnerName?: string;
 
