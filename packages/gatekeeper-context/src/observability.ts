@@ -10,6 +10,10 @@ export type ContextObservabilityFields = {
   maxBodyBytes: number;
   maxGitDirBytes: number;
   operation: string;
+  // Knowledge pack seeding (library-gatekeeper.ts).
+  pack: string;
+  packVersion: number;
+  unknownPacks: string;
   repoName: string;
   sizeBytes: number;
   tokenId: number | string;

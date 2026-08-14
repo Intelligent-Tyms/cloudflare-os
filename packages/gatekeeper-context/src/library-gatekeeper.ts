@@ -8,6 +8,11 @@ import { validateRpc, skipRpcValidation } from "capnweb-validate";
 import { boundAgentCatalog, boundAgentPromptContext, boundAgentSkillList } from "@gadgets/workshop-shared/gatekeeper";
 import { buildPromptContextBlock, CanonicalIndex } from "./prompt-context.js";
 import {
+  knowledgePacksManifestVersion, selectSeedPacks,
+} from "./knowledge-packs-install.js";
+import type { BundledKnowledgePack } from "./generated/knowledge-packs.js";
+import { obsContext } from "./observability.js";
+import {
   SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES,
 } from "@gadgets/workshop-shared/gatekeeper";
 import type {
@@ -29,6 +34,7 @@ import {
   type CollectionSkills,
 } from "./agent-skill.js";
 import type { ContextCollectionMetadata, EnabledCollectionInfo } from "./context-types.js";
+import { VENDOR_ID } from "./context-types.js";
 import { isSkillManifestPath } from "./agent-skill.js";
 import { listPublicCollectionsFromKv, metadataToSummary } from "./collection-kv.js";
 import { domainName, DEFAULT_SHARING_DOMAIN } from "./domain.js";
@@ -443,9 +449,27 @@ type GatekeeperVendorProps = {
   sharingDomain?: string;
 };
 
+const seedLogger = obsContext.createLogger({
+  component: "gatekeeper.context.seed", vendorId: VENDOR_ID,
+});
+
+// One seed attempt per isolate: describe() is called often, and the registry stamp makes the
+// pass a single string comparison once seeding is complete anyway.
+let knowledgeSeedStarted = false;
+
 @validateRpc()
 export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env, GatekeeperVendorProps> {
   async describe(): Promise<VendorDescription> {
+    // Deployments configured with KNOWLEDGE_SEED_PACKS get their packs seeded on first contact.
+    // Fire-and-forget: describing the vendor must never block on seeding.
+    if (!knowledgeSeedStarted && this.env.KNOWLEDGE_SEED_PACKS) {
+      knowledgeSeedStarted = true;
+      this.ctx.waitUntil(this.#ensureKnowledgePacksSeeded().catch(error => {
+        seedLogger.warn("knowledge pack seeding failed", {
+          event: "context.knowledge.seed.failed", error,
+        });
+      }));
+    }
     return {
       displayName: "Knowledge",
       url: "https://workers.cloudflare.com/",
@@ -533,6 +557,83 @@ export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env, Gatekeepe
           file.path, { description: "", body: file.content },
           { actor: "process:skill-install", system: true });
     }
+  }
+
+  // Seed the deployment's configured knowledge packs as public canonical collections. The
+  // operator's deployment config (KNOWLEDGE_SEED_PACKS, written at provisioning from the signup
+  // choice) is the admin intent behind the canonical mark, granted post-creation via
+  // setCanonical per the no-self-assertion invariant. Idempotent by stamp: the domain registry
+  // holds the last fully-seeded manifest; a changed manifest re-runs the pass, which only
+  // creates collections whose title doesn't already exist — existing copies are never rewritten
+  // or re-marked (the profile's per-workspace copy model).
+  async #ensureKnowledgePacksSeeded(): Promise<void> {
+    let { packs, unknown } = selectSeedPacks(this.env.KNOWLEDGE_SEED_PACKS);
+    if (unknown.length > 0) {
+      seedLogger.warn("unknown knowledge pack ids in KNOWLEDGE_SEED_PACKS", {
+        event: "context.knowledge.seed.unknown", unknownPacks: unknown.join(","),
+      });
+    }
+    if (packs.length === 0) return;
+
+    let sharingDomain = this.ctx.props.sharingDomain ?? DEFAULT_SHARING_DOMAIN;
+    let registry = this.ctx.exports.LibraryRegistryDurableObject.getByName(sharingDomain);
+    let manifest = knowledgePacksManifestVersion(packs);
+    if ((await registry.getKnowledgePackSeedStamp()) === manifest) return;
+
+    let existing = await listPublicCollectionsFromKv(this.env, sharingDomain);
+    let existingTitles = new Set(existing.map(collection => collection.title));
+    let complete = true;
+    for (let pack of packs) {
+      if (existingTitles.has(pack.title)) continue;
+      try {
+        await this.#installKnowledgePack(sharingDomain, pack);
+        seedLogger.info("seeded knowledge pack", {
+          event: "context.knowledge.seed.installed", pack: pack.id, packVersion: pack.version,
+        });
+      } catch (error) {
+        complete = false;
+        seedLogger.warn("failed to seed knowledge pack", {
+          event: "context.knowledge.seed.pack.failed", pack: pack.id, error,
+        });
+      }
+    }
+    // Stamp only a complete pass, so a partial failure retries on the next isolate.
+    if (complete) await registry.setKnowledgePackSeedStamp(manifest);
+  }
+
+  // Mirror of installSkillPackage's loop, minus the SKILL.md requirement, plus the canonical
+  // grant. Files install in bundled order (root index.md first, so its pack/pack_version
+  // frontmatter is carried forward by every regeneration).
+  async #installKnowledgePack(sharingDomain: string, pack: BundledKnowledgePack): Promise<void> {
+    let collections = this.ctx.exports.ContextCollectionDurableObject;
+    let registries = this.ctx.exports.LibraryRegistryDurableObject;
+    let id = crypto.randomUUID();
+    let metadata: ContextCollectionMetadata = {
+      id,
+      title: pack.title,
+      description: pack.description,
+      visibility: "public",
+      created: new Date(),
+      lastUpdated: new Date(),
+      documentCount: 0,
+      content: { source: "web" },
+    };
+    let collection = collections.get(collections.idFromName(domainName(sharingDomain, id)));
+    metadata = await collection.initialize(metadata, sharingDomain, "");
+    try {
+      await registries.getByName(sharingDomain)
+          .addPublic(sharingDomain, metadataToSummary(metadata));
+    } catch (err) {
+      // Indexing failed; delete the now-unreachable collection (same recovery as the UI path).
+      await collection.deleteSelf().catch(() => {});
+      throw err;
+    }
+    for (let file of pack.files) {
+      await collection.putContextDocument(
+          file.path, { description: "", body: file.content },
+          { actor: "process:pack-seed", system: true });
+    }
+    await collection.setCanonical(true);
   }
 
   // The deployment-wide skills: every skill in this domain's public collections. Descriptive

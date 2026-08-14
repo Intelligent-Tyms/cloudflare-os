@@ -5,13 +5,13 @@
   "main": "./src/index.ts",
   "scripts": {
     "dev": "echo \"run 'pnpm dev-server' in the root directory instead\" >&2 && exit 1",
-    "deploy": "pnpm run build:app && wrangler deploy",
+    "deploy": "node scripts/build-knowledge-packs.mjs && pnpm run build:app && wrangler deploy",
     "build:app": "node build-app.mjs",
     "build:app:watch": "node build-app.mjs --watch",
     "typecheck:app": "tsc -p tsconfig.app.json && tsc -p tsconfig.vite.json",
-    "types:check": "pnpm run typecheck:app && pnpm run build:app && tsc --noEmit",
-    "build": "pnpm run typecheck:app && pnpm run build:app && tsc",
-    "test": "vitest run"
+    "types:check": "node scripts/build-knowledge-packs.mjs && pnpm run typecheck:app && pnpm run build:app && tsc --noEmit",
+    "build": "node scripts/build-knowledge-packs.mjs && pnpm run typecheck:app && pnpm run build:app && tsc",
+    "test": "node scripts/build-knowledge-packs.mjs && vitest run"
   },
   "dependencies": {
     "@gadgets/backend-utils": "workspace:*",

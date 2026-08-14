@@ -39,3 +39,5 @@ wrangler.dev.jsonc
 .dev.vars.*
 **/.dev.vars
 **/.dev.vars.*
+# Bundled knowledge packs (regenerated at build time from KNOWLEDGE_PACKS_DIR).
+packages/gatekeeper-context/src/generated/knowledge-packs.ts

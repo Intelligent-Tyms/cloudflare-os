@@ -13,7 +13,12 @@ function makeRegistryStorage(storage: DurableObjectStorage) {
         primaryKey: "id",
       }),
     },
-    singletons: {},
+    singletons: {
+      // Manifest of the last fully-seeded knowledge-pack set ("" = never seeded). Lives here
+      // because this DO is the domain's public-collection authority, so concurrent seeders
+      // serialize on it for free. See library-gatekeeper.ts #ensureKnowledgePacksSeeded.
+      knowledgePackSeedStamp: "",
+    },
   });
 }
 
@@ -33,6 +38,14 @@ export class LibraryRegistryDurableObject extends DurableObject<Cloudflare.Env> 
 
   isPublic(collectionId: string): boolean {
     return !!this.storage.publicCollections.get(collectionId);
+  }
+
+  getKnowledgePackSeedStamp(): string {
+    return this.storage.knowledgePackSeedStamp.get();
+  }
+
+  setKnowledgePackSeedStamp(manifest: string): void {
+    this.storage.knowledgePackSeedStamp.put(manifest);
   }
 
   async addPublic(domain: string, summary: ContextCollectionSummary): Promise<void> {
