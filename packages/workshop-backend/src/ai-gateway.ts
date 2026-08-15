@@ -44,12 +44,16 @@ export class AiGatewayConfig {
 
   /**
    * Get the list of models available through AI Gateway, as AiChatAuthorInfo entries.
+   * `disabledModels` is the deployment's admin curation (AdminConfig.disabledModels); entries in
+   * it are omitted. Catalog order is preserved -- callers treat the first entry as the default
+   * model, so ordering is part of the contract.
    */
-  getModelList(): AiChatAuthorInfo[] {
+  getModelList(disabledModels?: ReadonlySet<string>): AiChatAuthorInfo[] {
     let result: AiChatAuthorInfo[] = [];
     for (let [provider, models] of Object.entries(SUGGESTED_MODELS)) {
       if (this.providers.has(provider)) {
         for (let [id, model] of Object.entries(models)) {
+          if (disabledModels?.has(id)) continue;
           result.push({ type: "agent", id, name: model.name });
         }
       }
@@ -59,9 +63,16 @@ export class AiGatewayConfig {
 
   /**
    * Look up an AI Gateway model by ID. Returns a UserAiModelRecord if the model is a
-   * SUGGESTED_MODEL for an enabled gateway provider, or undefined otherwise.
+   * SUGGESTED_MODEL for an enabled gateway provider, or undefined otherwise. `disabledModels` is
+   * the admin curation: a disabled model resolves as undefined, which makes this the enforcement
+   * chokepoint -- user selections ride localStorage and gadget bindings snapshot configs, so
+   * stale or crafted ids reach resolution and must be refused here, not just filtered from the
+   * picker. (The quick model doesn't pass through here and is exempt from curation; see
+   * getQuickModelConfig.)
    */
-  resolveModel(modelId: string): UserAiModelRecord | undefined {
+  resolveModel(modelId: string, disabledModels?: ReadonlySet<string>)
+      : UserAiModelRecord | undefined {
+    if (disabledModels?.has(modelId)) return undefined;
     for (let [provider, models] of Object.entries(SUGGESTED_MODELS)) {
       if (this.providers.has(provider) && modelId in models) {
         return {

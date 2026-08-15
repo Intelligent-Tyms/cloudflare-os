@@ -753,6 +753,9 @@ export type AdminSettingsView = {
   formats: AdminFormat[];
   // Every deployment-wide agent skill, with enabled state (not hidden when disabled).
   skills: AdminSkill[];
+  // The platform AI Gateway model catalog with enabled state (not hidden when disabled), or null
+  // outside gateway mode (BYOK deployments manage models by adding/removing them instead).
+  models: AdminModel[] | null;
   // Which messaging channels the deployment's channels worker has configured, or null when
   // no channels worker is bound (the admin page then shows setup steps instead).
   channels: ChannelsDescription | null;
@@ -778,6 +781,32 @@ export type AdminSkill = {
 
   // A skill that was disabled and has since disappeared (its folder or file was removed). Skipped
   // everywhere else; the panel surfaces it so the admin can clear the stale curation by re-enabling.
+  missing: boolean;
+};
+
+// One platform-catalog AI model, as the admin Models panel sees it: the fleet's supported-model
+// catalog (SUGGESTED_MODELS for the gateway's enabled providers) joined with the deployment's
+// curation. Only exists in AI Gateway mode; the platform holds the provider keys, admins curate
+// which models users may pick.
+export type AdminModel = {
+  // The model id curation keys on (unique across providers).
+  id: string;
+
+  // Display name from the catalog ("" for a missing entry).
+  name: string;
+
+  // Which provider hosts the model ("" for a missing entry).
+  provider: AiModelProvider | "";
+
+  // Whether free-plan tenants may use this model (see SUGGESTED_MODELS `freePlan`).
+  freePlan: boolean;
+
+  // Offered to users. Everything is enabled by default; disabling is the curation.
+  enabled: boolean;
+
+  // A model that was disabled and has since left the catalog (or its provider was removed from
+  // the gateway). Skipped everywhere else; the panel surfaces it so the admin can clear the
+  // stale curation by re-enabling.
   missing: boolean;
 };
 
@@ -922,6 +951,15 @@ export interface AdminApi {
   // refuses its invocation. Soft enforcement, like resources: a chat that already read the skill's
   // text keeps it. Re-enabling a `missing` skill simply clears the stale curation entry.
   setSkillEnabled(name: string, enabled: boolean): Promise<void>;
+
+  // --- AI models (platform AI Gateway mode only) ---
+
+  // Enable or disable one platform-catalog model, by id, for the whole deployment. Models are
+  // enabled by default; disabling hides the model from every picker and refuses it at resolve
+  // time (existing chats and gadget bindings included -- hard enforcement, unlike skills).
+  // Re-enabling a `missing` model simply clears the stale curation entry. Throws outside AI
+  // Gateway mode.
+  setModelEnabled(id: string, enabled: boolean): Promise<void>;
 
   // The deployment's skill marketplace catalog, or null when this deployment has no marketplace
   // configured. Fetched live from the configured catalog URL.

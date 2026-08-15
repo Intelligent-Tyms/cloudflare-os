@@ -586,9 +586,10 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
 
   async setPreferredModel(id: string | null): Promise<void> {
     if (id !== null) {
-      // Validate that the model exists in the deployment catalog or as a gateway model.
+      // Validate that the model exists in the deployment catalog or as a gateway model (and is
+      // not admin-disabled).
       let gwConfig = getAiGatewayConfig(this.env);
-      let exists = !!gwConfig?.resolveModel(id)
+      let exists = !!gwConfig?.resolveModel(id, await this.#disabledModels())
           || !!(await this.adminSettings.getByName("").getModelRecord(id));
       if (!exists) {
         throw new Error(`No such model: ${id}`);
@@ -690,6 +691,12 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
              resetAt: nextUtcMidnightIso() };
   }
 
+  // The deployment's admin-disabled model ids, from the KV-mirrored admin config (one cheap KV
+  // get; see admin-config.ts). Used wherever gateway models resolve.
+  async #disabledModels(): Promise<Set<string>> {
+    return new Set((await readAdminConfig(this.env)).disabledModels);
+  }
+
   // DO NOT MAKE PUBLIC -- returns API keys.
   async getChatContext(modelId: string | null): Promise<UserChatContext> {
     let gwConfig = getAiGatewayConfig(this.env);
@@ -699,9 +706,11 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
       profile: this.storage.profile.get()
     };
     if (modelId) {
-      // In AI Gateway mode, resolve gateway models first.
+      // In AI Gateway mode, resolve gateway models first. Admin-disabled models refuse to
+      // resolve here -- this is the enforcement point for stale client selections, gadget
+      // bindings, and crafted requests, not just the picker filter.
       if (gwConfig) {
-        result.aiModel = gwConfig.resolveModel(modelId);
+        result.aiModel = gwConfig.resolveModel(modelId, await this.#disabledModels());
       }
       if (!result.aiModel) {
         result.aiModel = await adminSettings.getModelRecord(modelId) ?? undefined;

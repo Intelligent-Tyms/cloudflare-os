@@ -43,6 +43,17 @@ describe("parseAdminConfig", () => {
     expect(parseAdminConfig(JSON.stringify({})).disabledSkills).toEqual([]);
   });
 
+  // setModelEnabled() treats disabledModels as a set; the gateway chokepoints build Sets from it.
+  // Same defenses as disabledSkills: junk values and duplicates must not survive a read.
+  it("keeps disabled models as a deduplicated list of non-empty strings", () => {
+    let config = parseAdminConfig(JSON.stringify({
+      disabledModels: ["claude-opus-5", 7, "", "claude-opus-5", "@cf/zai-org/glm-5.2", null],
+    }));
+
+    expect(config.disabledModels).toEqual(["claude-opus-5", "@cf/zai-org/glm-5.2"]);
+    expect(parseAdminConfig(JSON.stringify({})).disabledModels).toEqual([]);
+  });
+
   // Everything downstream keys formats by blueprint id; setFormatOrder() in particular treats the
   // list as a set and refuses every reordering if it isn't one. A duplicate would make the menu
   // permanently unorderable, so it can't be allowed to survive a read.

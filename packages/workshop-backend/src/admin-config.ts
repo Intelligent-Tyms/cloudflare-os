@@ -49,6 +49,14 @@ export type AdminConfig = {
   // enforcement, like disabledResources: a chat that already read the skill's text keeps it.
   disabledSkills: string[];
 
+  // Disabled AI model ids from the platform AI Gateway catalog (SUGGESTED_MODELS). Models are
+  // enabled by default, so newly shipped catalog entries surface without admin action; a disabled
+  // model is hidden from every picker and refused at resolve time (stale client selections and
+  // crafted requests included). Only meaningful in AI Gateway mode -- BYOK deployments curate by
+  // adding/removing models instead. Hard enforcement, unlike skills: the next turn of an existing
+  // chat on a disabled model is refused.
+  disabledModels: string[];
+
   // The blueprints offered as this deployment's standard output formats. What a user gets from
   // "New Slides", and what the agent is told to prefer. Order is menu order.
   //
@@ -88,6 +96,7 @@ export const DEFAULT_ADMIN_CONFIG: AdminConfig = {
   disabledGatekeepers: [],
   ambientGatekeeperModes: {},
   disabledSkills: [],
+  disabledModels: [],
   formats: [],
 };
 
@@ -292,6 +301,7 @@ export function parseAdminConfig(raw: string | null): AdminConfig {
       disabledGatekeepers: strings(p.disabledGatekeepers).map(v => v.toLowerCase()),
       ambientGatekeeperModes,
       disabledSkills: [...new Set(strings(p.disabledSkills).filter(name => name))],
+      disabledModels: [...new Set(strings(p.disabledModels).filter(id => id))],
       formats: parseFormats(p.formats),
     };
   } catch {

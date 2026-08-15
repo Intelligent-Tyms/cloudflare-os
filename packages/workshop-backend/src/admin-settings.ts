@@ -1,4 +1,4 @@
-import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BillingCreditType, BillingOverview, BillingPlanChangeResult, BillingPlanOption, BlueprintPublicInfo, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { AdminApi, AdminFormat, AdminFormatPatch, AdminModel, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BillingCreditType, BillingOverview, BillingPlanChangeResult, BillingPlanOption, BlueprintPublicInfo, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor, SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES, SkillPackage, SkillPackageFile } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
@@ -351,25 +351,29 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
       resourceVendors: await this.#listResourceConfig(config, adminUserId),
       formats: await this.#listFormatConfig(config),
       skills: await this.#listSkillConfig(config),
+      models: this.#listModelConfig(config),
       channels: await describeChannels(this.env),
     };
   }
 
   // --- Deployment AI models ---
 
-  // The model catalog offered to every user: gateway built-ins (env-driven) first, then
-  // admin-added models, skipping duplicates by id. Several callers treat the first entry as the
-  // default model, so ordering is part of the contract.
+  // The model catalog offered to every user: gateway built-ins (env-driven, minus the admin's
+  // disabled set) first, then admin-added models, skipping duplicates by id. Several callers
+  // treat the first entry as the default model, so ordering is part of the contract.
   async listModels(): Promise<AiChatAuthorInfo[]> {
     let result: AiChatAuthorInfo[] = [];
 
     let gwConfig = getAiGatewayConfig(this.env);
     let gwModelIds = new Set<string>();
     if (gwConfig) {
+      // Dedupe BYOK records against the FULL gateway catalog (not just the enabled slice), so
+      // disabling a gateway model doesn't surface a same-id admin-added record in its place.
       for (let entry of gwConfig.getModelList()) {
-        result.push(entry);
         gwModelIds.add(entry.id);
       }
+      let disabled = new Set(this.#config().disabledModels);
+      result.push(...gwConfig.getModelList(disabled));
     }
 
     for (let model of this.storage.aiModels.list()) {
@@ -378,6 +382,54 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
       }
     }
     return result;
+  }
+
+  // Admin view of the platform AI Gateway model catalog joined with the deployment's curation,
+  // or null outside gateway mode (the panel then manages BYOK models instead). Every catalog
+  // entry appears, disabled ones included; a disabled id that has since left the catalog is kept
+  // and flagged `missing` so the admin can clear it. Catalog order is preserved (it is also the
+  // picker order, and the first enabled entry is the default model).
+  #listModelConfig(config: AdminConfig): AdminModel[] | null {
+    let gwConfig = getAiGatewayConfig(this.env);
+    if (!gwConfig) return null;
+
+    let disabled = new Set(config.disabledModels);
+    let result: AdminModel[] = [];
+    let seen = new Set<string>();
+    for (let [provider, models] of Object.entries(SUGGESTED_MODELS)) {
+      if (!gwConfig.providers.has(provider)) continue;
+      for (let [id, model] of Object.entries(models)) {
+        seen.add(id);
+        result.push({
+          id,
+          name: model.name,
+          provider: provider as AdminModel["provider"],
+          freePlan: model.freePlan === true,
+          enabled: !disabled.has(id),
+          missing: false,
+        });
+      }
+    }
+    for (let id of disabled) {
+      if (!seen.has(id)) {
+        result.push({ id, name: "", provider: "", freePlan: false, enabled: false, missing: true });
+      }
+    }
+    return result;
+  }
+
+  // Enable/disable a single platform-catalog model atomically (read-modify-write within the DO).
+  // Enabling is also how a stale (`missing`) curation entry is cleared: the disabled set is the
+  // whole state.
+  async setModelEnabled(id: string, enabled: boolean): Promise<void> {
+    if (!getAiGatewayConfig(this.env)) {
+      throw new Error("Model curation requires AI Gateway mode.");
+    }
+    await this.#mutateAdminConfig(config => {
+      let disabled = new Set(config.disabledModels);
+      if (enabled) disabled.delete(id); else disabled.add(id);
+      return { ...config, disabledModels: [...disabled] };
+    });
   }
 
   // Raw stored record, INCLUDING the provider API token. For server-side chat-context resolution
@@ -921,6 +973,16 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
       throw new Error("Invalid skill name.");
     }
     await this.admin.setSkillEnabled(name, enabled);
+  }
+
+  async setModelEnabled(id: string, enabled: boolean): Promise<void> {
+    // Loose bound like skills: curation may outlive the catalog entry (clearing a `missing` id),
+    // so only reject values that can't be a model id at all. Workers AI ids ("@cf/...") are the
+    // longest shape.
+    if (!id.trim() || id.length > 128) {
+      throw new Error("Invalid model id.");
+    }
+    await this.admin.setModelEnabled(id, enabled);
   }
 
   listSkillMarketplace(): Promise<SkillMarketplaceEntry[] | null> {
