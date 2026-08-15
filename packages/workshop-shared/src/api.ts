@@ -1010,7 +1010,38 @@ export interface AdminApi {
   // send the browser to. Amounts are whole USD cents.
   createTopupCheckout(creditType: BillingCreditType, amountCents: number,
                       successUrl: string, cancelUrl: string): Promise<string>;
+
+  // The self-serve plan catalog for the plan picker (standard tier, purchasable or free).
+  listBillingPlans(): Promise<BillingPlanOption[]>;
+
+  // Change this workspace's plan. Paid↔paid and paid→free apply immediately
+  // (applied: true); free→paid returns a Stripe Checkout URL and applies once payment
+  // completes. Throws with an actionable message when refused (e.g. too many teammates
+  // for the target plan's seats).
+  changePlan(planCode: string, billingPeriod: "monthly" | "annual",
+             successUrl: string, cancelUrl: string): Promise<BillingPlanChangeResult>;
 }
+
+// One entry in the self-serve plan picker. Prices are the billed amounts in cents:
+// priceCents per month, annualPriceCents per year (null when no annual price exists).
+export type BillingPlanOption = {
+  code: string;
+  name: string;
+  description: string | null;
+  priceCents: number;
+  annualPriceCents: number | null;
+  seatLimit: number | null;
+  agentLimit: number | null;
+  aiCreditCentsMonthly: number;
+  messagingCreditCentsMonthly: number;
+  annualAvailable: boolean;
+};
+
+export type BillingPlanChangeResult = {
+  applied: boolean;
+  // Set when payment is needed first (free → paid): send the browser here.
+  checkoutUrl: string | null;
+};
 
 // The two credit pools a workspace plan grants monthly.
 export type BillingCreditType = "ai" | "messaging";

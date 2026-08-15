@@ -1,4 +1,4 @@
-import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BillingCreditType, BillingOverview, BlueprintPublicInfo, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BillingCreditType, BillingOverview, BillingPlanChangeResult, BillingPlanOption, BlueprintPublicInfo, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor, SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES, SkillPackage, SkillPackageFile } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
@@ -1050,5 +1050,31 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
     // Amount bounds are enforced by the billing directory, which owns the policy.
     return billingDirectory.createTopupCheckout(
         this.env, {creditType, amountCents, successUrl, cancelUrl});
+  }
+
+  async listBillingPlans(): Promise<BillingPlanOption[]> {
+    if (!billingDirectory.hasBillingDirectory(this.env)) return [];
+    return billingDirectory.fetchPlans(this.env);
+  }
+
+  async changePlan(planCode: string, billingPeriod: "monthly" | "annual",
+                   successUrl: string, cancelUrl: string): Promise<BillingPlanChangeResult> {
+    if (!billingDirectory.hasBillingDirectory(this.env)) {
+      throw new Error("This deployment has no central billing configured.");
+    }
+    if (!planCode.trim()) throw new Error("A plan code is required.");
+    if (billingPeriod !== "monthly" && billingPeriod !== "annual") {
+      throw new Error(`Invalid billing period: ${billingPeriod}`);
+    }
+    for (let url of [successUrl, cancelUrl]) {
+      let parsed = URL.parse(url);
+      if (!parsed || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
+        throw new Error("Return URLs must be http(s) URLs.");
+      }
+    }
+    // Eligibility (seat fit, purchasability, tier) is enforced by the billing directory,
+    // which owns the policy; its refusals are end-user-ready messages.
+    return billingDirectory.changePlan(
+        this.env, {planCode: planCode.trim(), billingPeriod, successUrl, cancelUrl});
   }
 }

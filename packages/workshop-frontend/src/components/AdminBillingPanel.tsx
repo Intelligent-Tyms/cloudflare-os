@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { RpcStub } from 'capnweb'
 import { Button, useKumoToastManager } from '@cloudflare/kumo'
-import { AdminApi, BillingOverview, BillingCreditType, TeamView } from '@gadgets/workshop-shared/api'
+import { AdminApi, BillingOverview, BillingCreditType, BillingPlanOption, TeamView } from '@gadgets/workshop-shared/api'
 
 // Admin → Billing and usage: the plan, teammate/assistant limits, credit balances, and the
 // current period's usage. Everything proxies through AdminApi to the central billing
@@ -31,35 +31,55 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
   const toasts = useKumoToastManager()
   const [overview, setOverview] = useState<BillingOverview | null>(null)
   const [team, setTeam] = useState<TeamView | null>(null)
+  const [plans, setPlans] = useState<BillingPlanOption[]>([])
   const [loading, setLoading] = useState(true)
   const [topupBusy, setTopupBusy] = useState<string | null>(null)
+  const [planBusy, setPlanBusy] = useState<string | null>(null)
+  // Billing period for a plan switch; seeded from the current subscription once loaded.
+  const [periodChoice, setPeriodChoice] = useState<'monthly' | 'annual'>('monthly')
+
+  const reload = async () => {
+    const [billing, teamView, planList] = await Promise.all([
+      admin.getBillingOverview().catch(() => null),
+      admin.getTeam().catch(() => null),
+      admin.listBillingPlans().catch(() => [] as BillingPlanOption[]),
+    ])
+    setOverview(billing)
+    setTeam(teamView)
+    setPlans(planList)
+    return billing
+  }
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([
-      admin.getBillingOverview().catch(() => null),
-      admin.getTeam().catch(() => null),
-    ]).then(([billing, teamView]) => {
+    reload().then((billing) => {
       if (cancelled) return
-      setOverview(billing)
-      setTeam(teamView)
+      if (billing?.billingPeriod === 'annual') setPeriodChoice('annual')
       setLoading(false)
     })
     return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin])
 
-  // Returning from a top-up checkout: acknowledge and clean the URL. The balance updates
-  // once Stripe's webhook lands, usually within seconds.
+  // Returning from a top-up or plan-change checkout: acknowledge and clean the URL. The
+  // balance/plan updates once Stripe's webhook lands, usually within seconds.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const outcome = params.get('topup')
-    if (!outcome) return
+    const planOutcome = params.get('plan')
+    if (!outcome && !planOutcome) return
     if (outcome === 'success') {
       toasts.add({ title: 'Top-up complete. Your balance updates momentarily.', variant: 'success' })
     } else if (outcome === 'cancelled') {
       toasts.add({ title: 'Top-up cancelled.', variant: 'info' })
     }
+    if (planOutcome === 'success') {
+      toasts.add({ title: 'Payment complete. Your new plan activates momentarily.', variant: 'success' })
+    } else if (planOutcome === 'cancelled') {
+      toasts.add({ title: 'Plan change cancelled.', variant: 'info' })
+    }
     params.delete('topup')
+    params.delete('plan')
     const query = params.toString()
     window.history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : ''))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -76,6 +96,39 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
     } catch (err) {
       toasts.add({ title: err instanceof Error ? err.message : 'Could not start checkout', variant: 'error' })
       setTopupBusy(null)
+    }
+  }
+
+  const handlePlanChange = async (target: BillingPlanOption) => {
+    if (!overview) return
+    const current = plans.find((p) => p.code === overview.planCode)
+    const downgrade = target.priceCents < (current?.priceCents ?? 0)
+    const confirmText =
+      target.priceCents === 0
+        ? `Switch to the ${target.name} plan? Your paid subscription is cancelled immediately, ` +
+          `remaining monthly credit allowances are removed (purchased top-ups stay), and ` +
+          `assistants move to daily limits.`
+        : downgrade
+          ? `Switch to the ${target.name} plan? Your credit allowances are reduced to the ` +
+            `${target.name} plan's limits immediately.`
+          : null
+    if (confirmText && !confirm(confirmText)) return
+    setPlanBusy(target.code)
+    try {
+      const base = `${window.location.origin}${window.location.pathname}`
+      const billingPeriod = target.annualAvailable && periodChoice === 'annual' ? 'annual' : 'monthly'
+      const result = await admin.changePlan(
+        target.code, billingPeriod, `${base}?plan=success`, `${base}?plan=cancelled`)
+      if (!result.applied && result.checkoutUrl) {
+        window.location.assign(result.checkoutUrl)
+        return
+      }
+      toasts.add({ title: `You're now on the ${target.name} plan.`, variant: 'success' })
+      await reload()
+    } catch (err) {
+      toasts.add({ title: err instanceof Error ? err.message : 'Plan change failed', variant: 'error' })
+    } finally {
+      setPlanBusy(null)
     }
   }
 
@@ -209,10 +262,8 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
         {isFree && (
           <p className="text-sm text-kumo-subtle mt-4 pt-4 border-t border-kumo-line">
             The free plan includes {overview.freeDailyLlmCalls} AI requests per day, resetting at
-            midnight UTC. Paid plans add teammates and monthly AI and messaging credits — see{' '}
-            <a href="https://tyms.ai/pricing" target="_blank" rel="noreferrer" className="text-kumo-brand underline">
-              plans and pricing
-            </a>.
+            midnight UTC. Paid plans add teammates and monthly AI and messaging credits — pick
+            one below.
           </p>
         )}
         {isEnterprise && (
@@ -222,6 +273,90 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
           </p>
         )}
       </div>
+
+      {/* Change plan */}
+      {!isEnterprise && plans.length > 0 && (
+        <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
+          <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+            <h2 className="text-lg font-semibold text-kumo-strong">Change plan</h2>
+            <div className="flex rounded-lg border border-kumo-line overflow-hidden">
+              {(['monthly', 'annual'] as const).map((period) => (
+                <button
+                  key={period}
+                  type="button"
+                  onClick={() => setPeriodChoice(period)}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                    periodChoice === period
+                      ? 'bg-kumo-brand/10 text-kumo-brand'
+                      : 'text-kumo-subtle hover:bg-kumo-tint'
+                  }`}
+                >
+                  {period === 'monthly' ? 'Monthly' : 'Annual · save 15%'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {plans.map((p) => {
+              const annual = periodChoice === 'annual' && p.annualAvailable
+              const isCurrent =
+                overview.planCode === p.code &&
+                (p.priceCents === 0 || overview.billingPeriod === (annual ? 'annual' : 'monthly'))
+              return (
+                <div
+                  key={p.code}
+                  className={`rounded-lg border p-4 flex flex-col gap-3 ${
+                    isCurrent ? 'border-kumo-brand bg-kumo-brand/5' : 'border-kumo-line'
+                  }`}
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-kumo-strong">{p.name}</p>
+                    <p className="text-sm text-kumo-default mt-1">
+                      {p.priceCents === 0
+                        ? 'Free'
+                        : annual
+                          ? `${usdFromCents(Math.round((p.annualPriceCents ?? 0) / 12))}/mo · billed ${usdFromCents(p.annualPriceCents ?? 0)}/yr`
+                          : `${usdFromCents(p.priceCents)}/month`}
+                    </p>
+                  </div>
+                  <ul className="text-xs text-kumo-subtle space-y-1 flex-1">
+                    <li>
+                      {p.seatLimit != null
+                        ? `${p.seatLimit} teammate${p.seatLimit === 1 ? '' : 's'}, each with their own assistant`
+                        : 'Custom teammate count'}
+                    </li>
+                    <li>
+                      {p.aiCreditCentsMonthly > 0
+                        ? `${usdFromCents(p.aiCreditCentsMonthly)} AI credits / month`
+                        : 'AI with daily limits'}
+                    </li>
+                    {p.messagingCreditCentsMonthly > 0 && (
+                      <li>{usdFromCents(p.messagingCreditCentsMonthly)} messaging credits / month</li>
+                    )}
+                  </ul>
+                  <Button
+                    variant={isCurrent ? 'ghost' : 'secondary'}
+                    size="sm"
+                    disabled={isCurrent || planBusy !== null}
+                    loading={planBusy === p.code}
+                    onClick={() => void handlePlanChange(p)}
+                  >
+                    {isCurrent ? 'Current plan' : `Switch to ${p.name}`}
+                  </Button>
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-xs text-kumo-subtle mt-4">
+            Upgrades take effect immediately with a prorated charge; downgrades apply immediately
+            and reduce your credit allowances. Need more than the Team plan?{' '}
+            <a href="https://tyms.ai/contact" target="_blank" rel="noreferrer" className="text-kumo-brand underline">
+              Talk to us
+            </a>{' '}
+            about a Custom plan.
+          </p>
+        </div>
+      )}
 
       {/* Credits */}
       {!isFree && (

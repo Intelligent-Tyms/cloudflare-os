@@ -96,6 +96,41 @@ export async function fetchBillingSummary(env: Cloudflare.Env): Promise<{
   return await call(env, "/billing");
 }
 
+/** A plan offered in the tenant's self-serve plan picker. */
+export type CentralPlanOption = {
+  code: string;
+  name: string;
+  description: string | null;
+  priceCents: number;
+  annualPriceCents: number | null;
+  seatLimit: number | null;
+  agentLimit: number | null;
+  aiCreditCentsMonthly: number;
+  messagingCreditCentsMonthly: number;
+  annualAvailable: boolean;
+};
+
+/** The self-serve plan catalog (standard tier, purchasable or free). */
+export async function fetchPlans(env: Cloudflare.Env): Promise<CentralPlanOption[]> {
+  let {plans} = await call<{plans: CentralPlanOption[]}>(env, "/plans");
+  return plans;
+}
+
+/**
+ * Change the tenant's plan. Applied immediately for paid↔paid and paid→free; free→paid
+ * returns a checkout URL instead, and the change lands when payment completes.
+ */
+export async function changePlan(env: Cloudflare.Env, opts: {
+  planCode: string;
+  billingPeriod: "monthly" | "annual";
+  successUrl: string;
+  cancelUrl: string;
+}): Promise<{applied: boolean; checkoutUrl: string | null}> {
+  let result = await call<{applied: boolean; checkoutUrl?: string | null}>(
+      env, "/billing/change-plan", opts);
+  return {applied: result.applied, checkoutUrl: result.checkoutUrl ?? null};
+}
+
 /** Start a one-time credit top-up checkout; returns the Stripe Checkout URL. */
 export async function createTopupCheckout(env: Cloudflare.Env, opts: {
   creditType: "ai" | "messaging";
