@@ -586,11 +586,12 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
 
   async setPreferredModel(id: string | null): Promise<void> {
     if (id !== null) {
-      // Validate that the model exists in the deployment catalog or as a gateway model (and is
-      // not admin-disabled).
+      // Validate that the model exists in the deployment catalog (and is not admin-disabled).
+      // Platform gateway mode is platform-catalog-only; BYOK records count only outside it.
       let gwConfig = getAiGatewayConfig(this.env);
-      let exists = !!gwConfig?.resolveModel(id, await this.#disabledModels())
-          || !!(await this.adminSettings.getByName("").getModelRecord(id));
+      let exists = gwConfig
+          ? !!gwConfig.resolveModel(id, await this.#disabledModels())
+          : !!(await this.adminSettings.getByName("").getModelRecord(id));
       if (!exists) {
         let disabledRecord = gwConfig?.resolveModel(id);
         if (disabledRecord) {
@@ -711,10 +712,12 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
       profile: this.storage.profile.get()
     };
     if (modelId) {
-      // In AI Gateway mode, resolve gateway models first. Admin-disabled models refuse to
-      // resolve here -- this is the enforcement point for stale client selections, gadget
-      // bindings, and crafted requests, not just the picker filter.
       if (gwConfig) {
+        // Platform gateway mode is platform-catalog-only: admin-added BYOK records never
+        // resolve (the platform holds the keys; stored tenant tokens are dead weight until the
+        // teardown release purges them). Admin-disabled models refuse to resolve here too --
+        // this is the enforcement point for stale client selections, gadget bindings, and
+        // crafted requests, not just the picker filter.
         result.aiModel = gwConfig.resolveModel(modelId, await this.#disabledModels());
         if (!result.aiModel) {
           // Distinguish "disabled by the admin" from "never existed": the surfaced error tells
@@ -726,8 +729,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
                 `Choose another model.`);
           }
         }
-      }
-      if (!result.aiModel) {
+      } else {
         result.aiModel = await adminSettings.getModelRecord(modelId) ?? undefined;
       }
       if (!result.aiModel) throw new Error(`No such model: ${modelId}`);

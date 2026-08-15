@@ -358,30 +358,20 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
 
   // --- Deployment AI models ---
 
-  // The model catalog offered to every user: gateway built-ins (env-driven, minus the admin's
-  // disabled set) first, then admin-added models, skipping duplicates by id. Several callers
-  // treat the first entry as the default model, so ordering is part of the contract.
+  // The model catalog offered to every user. Several callers treat the first entry as the
+  // default model, so ordering is part of the contract.
+  //
+  // Platform AI Gateway mode is platform-catalog-only: the curated gateway list is the whole
+  // catalog, and admin-added BYOK records are ignored entirely -- hidden here and refused at
+  // resolve (user.ts getChatContext) -- until the teardown release purges them. Outside gateway
+  // mode (self-hosted BYOK deployments), the admin-added records are the catalog.
   async listModels(): Promise<AiChatAuthorInfo[]> {
-    let result: AiChatAuthorInfo[] = [];
-
     let gwConfig = getAiGatewayConfig(this.env);
-    let gwModelIds = new Set<string>();
     if (gwConfig) {
-      // Dedupe BYOK records against the FULL gateway catalog (not just the enabled slice), so
-      // disabling a gateway model doesn't surface a same-id admin-added record in its place.
-      for (let entry of gwConfig.getModelList()) {
-        gwModelIds.add(entry.id);
-      }
       let disabled = new Set(this.#config().disabledModels);
-      result.push(...gwConfig.getModelList(disabled));
+      return gwConfig.getModelList(disabled);
     }
-
-    for (let model of this.storage.aiModels.list()) {
-      if (!gwModelIds.has(model.profile.id)) {
-        result.push(model.profile);
-      }
-    }
-    return result;
+    return [...this.storage.aiModels.list()].map(model => model.profile);
   }
 
   // Admin view of the platform AI Gateway model catalog joined with the deployment's curation,
@@ -439,9 +429,12 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
   }
 
   async addModel(profile: AiChatAuthorInfo, config: AiModelConfig): Promise<void> {
-    let gwConfig = getAiGatewayConfig(this.env);
-    if (gwConfig && !gwConfig.providers.has(config.provider)) {
-      throw new Error(`Provider "${config.provider}" is not available in AI Gateway mode.`);
+    // Platform gateway mode has no BYOK: the platform holds the keys, and admins curate the
+    // catalog with setModelEnabled instead of adding models.
+    if (getAiGatewayConfig(this.env)) {
+      throw new Error(
+          "This deployment's models are platform-managed. Enable or disable them under " +
+          "Admin → AI models.");
     }
 
     profile.type = "agent";
