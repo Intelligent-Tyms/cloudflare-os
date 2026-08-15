@@ -62,6 +62,7 @@ import styles from "./ChatInterface.module.css";
 import {
   getStoredSelectedModel,
   persistSelectedModel,
+  validateModelSelection,
 } from "./modelSelection";
 import {
   Overseer,
@@ -4076,17 +4077,6 @@ function inferSelectedModelFromMessages(messages: AiChatMessage[]): string | nul
   return null;
 }
 
-function fallbackToStoredModelSelection(
-  modelId: string | null,
-  availableModels: AiChatAuthorInfo[],
-): string | null {
-  if (modelId !== null || availableModels.length > 0) {
-    return modelId;
-  }
-
-  return getStoredSelectedModel(availableModels);
-}
-
 interface ChatInterfaceProps {
   overseer: RpcStub<Overseer>;
   selectedChatId: number | null;
@@ -4886,17 +4876,16 @@ function ChatInterface({
     } else {
       // For existing threads:
       // 1. If an AI agent is currently active, use that agent's model
-      if (activeAgent) {
-        setSelectedModel(activeAgent.id);
-      } else {
-        // 2. Otherwise, derive the model from the most recent agent message or agent error.
-        setSelectedModel(
-          fallbackToStoredModelSelection(
-            inferSelectedModelFromMessages(currentMessages),
-            availableModels,
-          ),
-        );
-      }
+      // 2. Otherwise, derive the model from the most recent agent message or agent error.
+      // Either source can name a model that is no longer offered (deleted, or admin-disabled --
+      // the server refuses those at resolve time), so validate against the offered list and
+      // fall back rather than sending into a guaranteed error.
+      setSelectedModel(
+        validateModelSelection(
+          activeAgent ? activeAgent.id : inferSelectedModelFromMessages(currentMessages),
+          availableModels,
+        ),
+      );
     }
   }, [selectedChatId, availableModels, currentMessages, activeAgent]);
 

@@ -20,6 +20,7 @@ import { AiChatAuthorInfo, AiModelConfig, SUGGESTED_MODELS, WORKERS_AI_OUTPUT_LI
 import { AiGatewayConfig, fetchAiGatewayLogCostWithRetry, getAiGatewayConfig,
   type AiGatewayLogRoute } from "./ai-gateway.js";
 import { completeText } from "./ai-invoke.js";
+import { readAdminConfig } from "./admin-config.js";
 import { createWorkshopLogger } from "./observability";
 import { dollarsToMicroUsd, recordUsage, usageCollector } from "./usage-collector.js";
 import { bridgePdfAttachments } from "./chat-attachment-pdf.js";
@@ -652,15 +653,27 @@ export class LanguageModelGatekeeper
 
   async startSession(approvalQueue: RpcStub<ApprovalQueue>)
       : Promise<LanguageModelBinding> {
-    // Free-plan model restriction (platform gateway mode only -- inference there is
-    // platform-funded, so bindings must not bypass the agent-turn gate in overseer.ts). Fails
-    // open when billing is unconfigured or unreachable, like every other enforcement gate.
-    if (getAiGatewayConfig(this.env) && !isFreePlanModel(this.ctx.props.config.model)) {
-      let billing = await usageCollector(this.ctx).getBillingState().catch(() => null);
-      if (billing?.freeDailyLlmCalls != null) {
+    let config = this.ctx.props.config;
+    if (getAiGatewayConfig(this.env)) {
+      // The binding's model config was snapshotted at creation time and never re-resolves, so a
+      // model the admin disabled afterwards must be refused here -- the resolveModel() chokepoint
+      // never sees it. Fail closed with a message the gadget can surface.
+      let {disabledModels} = await readAdminConfig(this.env);
+      if (disabledModels.includes(config.model)) {
         throw new Error(
-            `This model isn't included in the free plan. The free plan includes ` +
-            `${freePlanModelNames().join(", ")}; upgrade for access to every model.`);
+            `${this.ctx.props.displayName} has been disabled by your workspace admin.`);
+      }
+
+      // Free-plan model restriction (platform gateway mode only -- inference there is
+      // platform-funded, so bindings must not bypass the agent-turn gate in overseer.ts). Fails
+      // open when billing is unconfigured or unreachable, like every other enforcement gate.
+      if (!isFreePlanModel(config.model)) {
+        let billing = await usageCollector(this.ctx).getBillingState().catch(() => null);
+        if (billing?.freeDailyLlmCalls != null) {
+          throw new Error(
+              `This model isn't included in the free plan. The free plan includes ` +
+              `${freePlanModelNames().join(", ")}; upgrade for access to every model.`);
+        }
       }
     }
 

@@ -592,6 +592,11 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
       let exists = !!gwConfig?.resolveModel(id, await this.#disabledModels())
           || !!(await this.adminSettings.getByName("").getModelRecord(id));
       if (!exists) {
+        let disabledRecord = gwConfig?.resolveModel(id);
+        if (disabledRecord) {
+          throw new Error(
+              `${disabledRecord.profile.name} has been disabled by your workspace admin.`);
+        }
         throw new Error(`No such model: ${id}`);
       }
     }
@@ -711,6 +716,16 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
       // bindings, and crafted requests, not just the picker filter.
       if (gwConfig) {
         result.aiModel = gwConfig.resolveModel(modelId, await this.#disabledModels());
+        if (!result.aiModel) {
+          // Distinguish "disabled by the admin" from "never existed": the surfaced error tells
+          // the user what happened and who can change it.
+          let record = gwConfig.resolveModel(modelId);
+          if (record) {
+            throw new Error(
+                `${record.profile.name} has been disabled by your workspace admin. ` +
+                `Choose another model.`);
+          }
+        }
       }
       if (!result.aiModel) {
         result.aiModel = await adminSettings.getModelRecord(modelId) ?? undefined;

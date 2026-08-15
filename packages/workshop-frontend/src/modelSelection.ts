@@ -22,6 +22,24 @@ export function getStoredSelectedModel(
   return models[0]?.id ?? null;
 }
 
+/**
+ * Validate a model selection against the currently offered models, falling back to the stored
+ * selection (which self-validates) and then the first offered model. `null` stays null -- that's
+ * the explicit "No agent" choice. Selections can go stale several ways: a model inferred from an
+ * old chat's messages, an active agent started before an admin disabled its model, or a
+ * localStorage id from before a catalog change -- the server refuses disabled models, so an
+ * unvalidated selection would send and then error.
+ */
+export function validateModelSelection(
+  modelId: string | null,
+  models: AiChatAuthorInfo[],
+): string | null {
+  if (modelId === null || models.some((model) => model.id === modelId)) {
+    return modelId;
+  }
+  return getStoredSelectedModel(models);
+}
+
 export function persistSelectedModel(modelId: string | null): void {
   localStorage.setItem(
     LAST_SELECTED_MODEL_KEY,
