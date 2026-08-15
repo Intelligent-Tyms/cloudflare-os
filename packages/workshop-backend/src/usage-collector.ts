@@ -41,6 +41,9 @@ export type BillingState = {
   // Non-null on the free plan: AI turns are gated by the per-user daily counter instead of
   // credits.
   freeDailyLlmCalls: number | null;
+  // Stored provider-key alias for AI Gateway requests (cf-aig-byok-alias). null = the gateway's
+  // default alias (free-tier key pool); the fail-safe when anything omits it.
+  aiKeyAlias: string | null;
   periodEnd: number;
 };
 
@@ -104,6 +107,7 @@ export class UsageCollectorDurableObject extends DurableObject<Cloudflare.Env> {
       messagingBalanceMicroUsd: e.messaging.balanceMicroUsd - pending.messaging,
       channelRatesMicroUsd: e.channelRatesMicroUsd,
       freeDailyLlmCalls: e.freeDailyLlmCalls,
+      aiKeyAlias: e.aiKeyAlias ?? null,
       periodEnd: e.periodEnd,
     };
   }

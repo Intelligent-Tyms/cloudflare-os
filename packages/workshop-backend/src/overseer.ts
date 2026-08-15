@@ -3949,8 +3949,11 @@ class OverseerImpl implements AgentHooks {
       // continuations stay exempt (same reasoning as the gate below), and everything fails
       // open when no billing directory is configured or reachable — a billing outage must
       // never brick a tenant.
+      // Billing state serves two purposes: the enforcement gate below (user-initiated turns
+      // only) and provider-key-pool selection (cf-aig-byok-alias) for every turn, callback
+      // continuations included. Fails open to null, which selects the free key pool.
+      let billing = await usageCollector(this.ctx).getBillingState().catch(() => null);
       if (!callbackInitiated) {
-        let billing = await usageCollector(this.ctx).getBillingState().catch(() => null);
         if (billing) {
           let blockMessage: string | undefined;
           if (billing.freeDailyLlmCalls != null && this.ownerId) {
@@ -4014,6 +4017,7 @@ class OverseerImpl implements AgentHooks {
             sessionAffinity,
             userGateway: byokRouting,
             metadata: { source: "chat", gadgetId: this.ctx.id.toString(), chatId },
+            keyAlias: billing?.aiKeyAlias ?? undefined,
           });
 
       let controller = liveChat.cancelController;

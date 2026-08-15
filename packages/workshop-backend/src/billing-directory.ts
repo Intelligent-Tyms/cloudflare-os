@@ -21,6 +21,10 @@ export type CentralEntitlements = {
   periodEnd: number;
   channelRatesMicroUsd: Record<string, number>;
   freeDailyLlmCalls: number | null;
+  // Stored provider-key alias for AI Gateway requests (cf-aig-byok-alias); null/absent = the
+  // gateway's default alias (free-tier key pool). Absent on snapshots cached before the field
+  // existed, so consumers must treat undefined as null.
+  aiKeyAlias?: string | null;
 };
 
 export type CentralCreditBucket = {

@@ -59,6 +59,12 @@ type ModelRoutingOptions = {
   sessionAffinity?: string;
   userGateway?: UserGatewayRouting;
   metadata?: GatewayMetadataContext;
+  // Stored provider-key alias for platform-gateway requests (cf-aig-byok-alias), from the
+  // tenant's billing state (BillingState.aiKeyAlias). Omitted = the gateway's `default` alias,
+  // which is the free-tier key pool -- the fail-safe direction for call sites that don't have
+  // billing state at hand (one-shot completions land there; metering is unaffected since cost
+  // comes from the gateway log regardless of which key served the request).
+  keyAlias?: string;
 };
 
 /**
@@ -438,6 +444,10 @@ function getModelViaGateway(
     "cf-aig-authorization": `Bearer ${gwConfig.apiToken}`,
     Authorization: null,
     "x-api-key": null,
+    // Select which stored provider key serves this request (per-tier key pools; see
+    // ModelRoutingOptions.keyAlias). No header = the `default` alias (free pool). Harmlessly
+    // ignored on providers without a stored key (Workers AI).
+    ...(options.keyAlias ? { "cf-aig-byok-alias": options.keyAlias } : {}),
   };
   const gatewayBase =
       `https://gateway.ai.cloudflare.com/v1/${gwConfig.accountId}`;
@@ -654,6 +664,7 @@ export class LanguageModelGatekeeper
   async startSession(approvalQueue: RpcStub<ApprovalQueue>)
       : Promise<LanguageModelBinding> {
     let config = this.ctx.props.config;
+    let keyAlias: string | undefined;
     if (getAiGatewayConfig(this.env)) {
       // The binding's model config was snapshotted at creation time and never re-resolves, so a
       // model the admin disabled afterwards must be refused here -- the resolveModel() chokepoint
@@ -664,21 +675,22 @@ export class LanguageModelGatekeeper
             `${this.ctx.props.displayName} has been disabled by your workspace admin.`);
       }
 
+      // Billing state drives the free-plan model gate AND provider-key-pool selection. Fails
+      // open to null (gate allows; free key pool serves), like every other enforcement gate.
+      let billing = await usageCollector(this.ctx).getBillingState().catch(() => null);
       // Free-plan model restriction (platform gateway mode only -- inference there is
-      // platform-funded, so bindings must not bypass the agent-turn gate in overseer.ts). Fails
-      // open when billing is unconfigured or unreachable, like every other enforcement gate.
-      if (!isFreePlanModel(config.model)) {
-        let billing = await usageCollector(this.ctx).getBillingState().catch(() => null);
-        if (billing?.freeDailyLlmCalls != null) {
-          throw new Error(
-              `This model isn't included in the free plan. The free plan includes ` +
-              `${freePlanModelNames().join(", ")}; upgrade for access to every model.`);
-        }
+      // platform-funded, so bindings must not bypass the agent-turn gate in overseer.ts).
+      if (billing?.freeDailyLlmCalls != null && !isFreePlanModel(config.model)) {
+        throw new Error(
+            `This model isn't included in the free plan. The free plan includes ` +
+            `${freePlanModelNames().join(", ")}; upgrade for access to every model.`);
       }
+      keyAlias = billing?.aiKeyAlias ?? undefined;
     }
 
-    let model = getModel(this.env, this.ctx.props.config, this.ctx.props.initiator, {
+    let model = getModel(this.env, config, this.ctx.props.initiator, {
       metadata: this.ctx.props.metadata,
+      keyAlias,
     });
     // Meter gadget-invoked model calls against the tenant's AI credits. Prefer the
     // gateway-authoritative log cost, falling back to the catalog estimate -- the same policy
