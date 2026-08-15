@@ -1,17 +1,21 @@
-// Admin panel for AI providers, rendered on the /admin/providers detail page. The page chrome
+// Admin panel for AI models, rendered on the /admin/providers detail page. The page chrome
 // (title, description, back link) comes from AdminPage, so this panel is just the toolbar,
 // notices, and model list.
 //
-// Models are deployment-wide: reads go through the regular authenticated API (the same list every
-// user sees), mutations through the AdminApi capability. In AI Gateway mode the built-in models
-// come from the deployment config and can't be deleted.
+// Two modes, decided by the `models` prop (AdminSettingsView.models):
+// - Platform AI Gateway mode (models != null): the platform holds the provider keys and usage
+//   draws on plan credits, so the panel is pure curation -- a toggle per catalog model, no key
+//   entry anywhere. Mirrors the skills panel's opt-out pattern.
+// - BYOK mode (models == null, self-hosted deployments): the original provider management --
+//   add models with your own API tokens, pick a quick model, delete.
 
 import { useState, useEffect } from 'react'
-import { DropdownMenu, useKumoToastManager } from '@cloudflare/kumo'
+import { DropdownMenu, Switch, useKumoToastManager } from '@cloudflare/kumo'
 import { RpcStub } from 'capnweb'
 import { useAuthenticatedApi } from '../AuthContext'
 import {
   AdminApi,
+  AdminModel,
   AiChatAuthorInfo,
   AiGatewayInfo,
   AiModelProvider,
@@ -20,6 +24,7 @@ import {
 import {
   Plus,
   Trash2,
+  TriangleAlert,
   Zap,
   Search,
   EllipsisVertical,
@@ -28,6 +33,17 @@ import AddModelModal from '../AddModelModal'
 import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER } from './menuStyles'
 
 const PROVIDER_ORDER = Object.keys(SUGGESTED_MODELS) as AiModelProvider[]
+
+// Section labels for the curated catalog, grouped by provider. "" is the synthetic group for
+// disabled ids that have since left the catalog (AdminModel.missing).
+const PROVIDER_LABELS: Record<AdminModel['provider'], string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  google: 'Google',
+  cloudflare: 'Workers AI',
+  ollama: 'Ollama',
+  '': 'No longer in the catalog',
+}
 
 const PRIMARY_BTN =
   'press inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-kumo-brand px-3.5 text-[13px] font-medium tracking-[-0.25px] text-white transition-colors hover:bg-kumo-brand-hover'
@@ -122,6 +138,136 @@ function ModelRow({
   )
 }
 
+// ─── curated catalog (platform AI Gateway mode) ────────────────────────────────
+
+function CuratedModelRow({
+  model,
+  busy,
+  onToggle,
+}: {
+  model: AdminModel
+  busy: boolean
+  onToggle: (enabled: boolean) => void
+}) {
+  return (
+    <div className="flex items-center gap-3 bg-kumo-base px-4 py-3 first:rounded-t-lg last:rounded-b-lg">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-medium tracking-[-0.25px] text-kumo-default">
+            {model.missing ? model.id : model.name}
+          </span>
+          {model.freePlan && (
+            <span className="shrink-0 rounded-full bg-kumo-tint px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.4px] text-kumo-subtle">
+              free plan
+            </span>
+          )}
+          {model.missing && (
+            <span className="inline-flex shrink-0 items-center gap-1 text-[12px] font-medium text-kumo-warning">
+              <TriangleAlert size={13} />
+              Missing
+            </span>
+          )}
+        </div>
+        {!model.missing && (
+          <span className="mt-0.5 block truncate font-mono text-[12px] tracking-[-0.1px] text-kumo-inactive">
+            {model.id}
+          </span>
+        )}
+      </div>
+      <Switch
+        checked={model.enabled}
+        disabled={busy}
+        onCheckedChange={onToggle}
+        aria-label={model.missing
+          ? `Clear stale entry for ${model.id}`
+          : `${model.enabled ? 'Disable' : 'Enable'} ${model.name}`}
+      />
+    </div>
+  )
+}
+
+// The curation list: every catalog model with an on/off switch, grouped by provider. Optimistic
+// toggles with revert-and-toast on failure, matching the skills panel. A `missing` row is a
+// disabled id that has since left the catalog; enabling it clears the stale entry.
+function ModelCurationList({
+  admin,
+  models,
+  onChanged,
+}: {
+  admin: RpcStub<AdminApi>
+  models: AdminModel[]
+  onChanged: () => Promise<void>
+}) {
+  const toasts = useKumoToastManager()
+  // Local optimistic copy; re-seeded whenever the parent re-fetches.
+  const [rows, setRows] = useState(models)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  useEffect(() => { setRows(models) }, [models])
+
+  const toggle = async (model: AdminModel, enabled: boolean) => {
+    if (busyId) return
+    // Refuse to disable the last enabled model client-side: an empty picker helps nobody, and
+    // "turn everything off" is far more likely a misclick than an intent.
+    if (!enabled && rows.filter((m) => m.enabled).length <= 1) {
+      toasts.add({ title: 'At least one model must stay enabled', variant: 'error' })
+      return
+    }
+    setBusyId(model.id)
+    setRows(rows.map((m) => (m.id === model.id ? { ...m, enabled } : m)))
+    try {
+      await admin.setModelEnabled(model.id, enabled)
+      // Sync with the server view (clears `missing` rows that were just re-enabled away).
+      await onChanged()
+    } catch (err) {
+      console.error('Failed to update model:', err)
+      setRows(rows)
+      toasts.add({ title: "Couldn't update the model", variant: 'error' })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const groups = (Object.keys(PROVIDER_LABELS) as AdminModel['provider'][])
+    .map((provider) => ({ provider, models: rows.filter((m) => m.provider === provider) }))
+    .filter((group) => group.models.length > 0)
+
+  return (
+    <div className="flex flex-col gap-5">
+      <Notice>
+        <Zap size={15} className="mt-px shrink-0 text-kumo-brand" />
+        <span>
+          Models run on platform keys and usage draws on your plan&rsquo;s AI credits. No API
+          tokens needed. New models we add appear here automatically, enabled.
+        </span>
+      </Notice>
+
+      {groups.map(({ provider, models: groupModels }) => (
+        <div key={provider}>
+          <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-[0.4px] text-kumo-subtle">
+            {PROVIDER_LABELS[provider]}
+          </h3>
+          {provider === '' && (
+            <p className="mb-2 text-[13px] leading-[18px] text-kumo-subtle">
+              These were disabled and have since left the catalog. Turn one on to clear the stale
+              entry.
+            </p>
+          )}
+          <div className="flex flex-col divide-y divide-kumo-line rounded-lg border border-kumo-line">
+            {groupModels.map((model) => (
+              <CuratedModelRow
+                key={model.id}
+                model={model}
+                busy={busyId !== null}
+                onToggle={(enabled) => toggle(model, enabled)}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─── notice ────────────────────────────────────────────────────────────────────
 
 function Notice({ children }: { children: React.ReactNode }) {
@@ -134,9 +280,20 @@ function Notice({ children }: { children: React.ReactNode }) {
 
 // ─── panel ─────────────────────────────────────────────────────────────────────
 
-export default function AdminProvidersPanel({ admin }: { admin: RpcStub<AdminApi> }) {
+export default function AdminProvidersPanel({
+  admin,
+  models: curatedModels,
+  onModelsChanged,
+}: {
+  admin: RpcStub<AdminApi>
+  // The platform gateway catalog with curation state, or null outside gateway mode (the panel
+  // then shows the BYOK provider management below).
+  models: AdminModel[] | null
+  onModelsChanged: () => Promise<void>
+}) {
   const { authenticatedApi } = useAuthenticatedApi()
   const toasts = useKumoToastManager()
+  const curated = curatedModels !== null
   const [models, setModels] = useState<AiChatAuthorInfo[]>([])
   const [quickModel, setQuickModel] = useState<string | null>(null)
   const [aiConfig, setAiConfig] = useState<AiGatewayInfo | null>(null)
@@ -165,7 +322,14 @@ export default function AdminProvidersPanel({ admin }: { admin: RpcStub<AdminApi
     }
   }
 
-  useEffect(() => { fetchAll() }, [authenticatedApi])
+  useEffect(() => {
+    if (!curated) fetchAll()
+  }, [authenticatedApi, curated])
+
+  // Platform AI Gateway mode: pure curation, no key entry, no add/delete/quick-model management.
+  if (curated) {
+    return <ModelCurationList admin={admin} models={curatedModels} onChanged={onModelsChanged} />
+  }
 
   const gatewayMode = aiConfig?.enabled === true
 

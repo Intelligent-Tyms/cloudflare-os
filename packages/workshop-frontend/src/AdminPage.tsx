@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import { useAuthenticatedApi } from './AuthContext'
 import { useServerConfig } from './ServerConfigContext'
-import { AdminApi, AdminFormat, AdminResourceVendor, AdminSkill, AmbientGatekeeperMode, ChannelsDescription, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
+import { AdminApi, AdminFormat, AdminModel, AdminResourceVendor, AdminSkill, AmbientGatekeeperMode, ChannelsDescription, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from './theme'
 import { cacheBustSiteLogoUrl, prepareSiteLogo } from './siteLogoUtils'
 import SiteLogo from './components/SiteLogo'
@@ -164,10 +164,10 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
       {
         id: 'providers',
-        title: 'AI providers',
-        blurb: 'Configure the AI models everyone on this deployment can use.',
+        title: 'AI models',
+        blurb: 'Choose which AI models everyone on this deployment can use.',
         description:
-          'The AI models offered to everyone on this deployment. Add providers with your organization’s API tokens, and pick a quick model for fast tasks like generating chat titles.',
+          'The AI models offered to everyone on this deployment. Turn models on or off to choose what users can pick.',
         icon: <Zap size={18} />,
       },
     ],
@@ -255,6 +255,10 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
   // Deployment agent skills with enabled state (see AdminSkillsPanel).
   const [skills, setSkills] = useState<AdminSkill[]>([])
 
+  // Platform AI Gateway model catalog with enabled state, or null outside gateway mode
+  // (AdminProvidersPanel then shows the BYOK provider management UI instead).
+  const [curatedModels, setCuratedModels] = useState<AdminModel[] | null>(null)
+
   // Messaging channels (see AdminChannelsPanel); null when no channels worker is bound.
   const [channels, setChannels] = useState<ChannelsDescription | null>(null)
 
@@ -280,6 +284,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
     setAccentDraft(view.accentColor)
     setFormats(view.formats)
     setSkills(view.skills)
+    setCuratedModels(view.models)
     setChannels(view.channels)
   }
 
@@ -1238,8 +1243,14 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
         </div>
       )}
 
-      {/* AI providers */}
-      {section === 'providers' && admin && <AdminProvidersPanel admin={admin.api} />}
+      {/* AI models */}
+      {section === 'providers' && admin && (
+        <AdminProvidersPanel
+          admin={admin.api}
+          models={curatedModels}
+          onModelsChanged={async () => { setCuratedModels((await admin.api.getSettings()).models) }}
+        />
+      )}
     </div>
   )
 }
