@@ -20,6 +20,8 @@ declare global {
       CF_AI_GATEWAY_WAI?: string;         // Optional Workers AI gateway override
       CF_AI_GATEWAY_WAI_DIRECT?: string;  // "true" to route Workers AI to its plain REST endpoint
                                           // (no gateway, no cost logs) instead of a named Gateway
+      CF_AI_GATEWAY_TENANT?: string;      // Tenant id attached to gateway log attribution
+                                          // metadata (fleet deployments share one gateway)
       // Note: outside gateway mode, Workers AI (provider "cloudflare") is BYOK like every other
       // provider -- the account ID and API token live in the user's model config, not in env.
 

@@ -1,6 +1,6 @@
 import { RpcCompatible, RpcStub, RpcTarget } from "capnweb";
 import { validateRpc } from "capnweb-validate";
-import { Overseer, GadgetMetadata, UiBundle, WorkpieceId, WorkpieceSummary, WorkpiecesSubscriber, GadgetClient, GadgetBindingInfo, GatekeeperClient, ActionState, ActionLogEntry, ActionsSubscriber, CodeUpdate, CodeSubscriber, AiChatMetadata, AiChatMessage, AiChatHistoryPage, AiChatSubscriber, AiChatAuthorInfo, AiModelConfig, AiChatMessageBody, AgentSpawnerConfig, ConsoleLogSubscriber, ConsoleLogEvent, CapsuleSpecifier, CollaboratorInfo, CollaboratorRole, AffectedCollaborator, ShareLinkInfo, GatekeeperCreationSpec, ObserverConfigCallback, ObserverBindingNeed, ObserverBindingFailure, BlueprintBindingAnnotation, BlueprintBinding, BlueprintMetadata, BlueprintOutput, MessageFormatRef, isOutputIcon, SpawnerEnvTarget, BlueprintGadgetSummary, AiChatStreamEvent, BlueprintScreenshotUpload, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ChatAttachmentUpload, ChatAttachmentHandle, ChatAttachmentRef, BoundHookInfo, PreApprovableAction, PresenceParticipant, PresenceSubscriber, SlashCommandChoice, SlashCommandRequest, validateBindingName, createOpenGadgetError, OPEN_GADGET_ERROR_CODES, resolveSiteName, AssistantProfile } from '@gadgets/workshop-shared/api';
+import { Overseer, GadgetMetadata, UiBundle, WorkpieceId, WorkpieceSummary, WorkpiecesSubscriber, GadgetClient, GadgetBindingInfo, GatekeeperClient, ActionState, ActionLogEntry, ActionsSubscriber, CodeUpdate, CodeSubscriber, AiChatMetadata, AiChatMessage, AiChatHistoryPage, AiChatSubscriber, AiChatAuthorInfo, AiModelConfig, AiChatMessageBody, AgentSpawnerConfig, ConsoleLogSubscriber, ConsoleLogEvent, CapsuleSpecifier, CollaboratorInfo, CollaboratorRole, AffectedCollaborator, ShareLinkInfo, GatekeeperCreationSpec, ObserverConfigCallback, ObserverBindingNeed, ObserverBindingFailure, BlueprintBindingAnnotation, BlueprintBinding, BlueprintMetadata, BlueprintOutput, MessageFormatRef, isOutputIcon, SpawnerEnvTarget, BlueprintGadgetSummary, AiChatStreamEvent, BlueprintScreenshotUpload, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ChatAttachmentUpload, ChatAttachmentHandle, ChatAttachmentRef, BoundHookInfo, PreApprovableAction, PresenceParticipant, PresenceSubscriber, SlashCommandChoice, SlashCommandRequest, validateBindingName, createOpenGadgetError, OPEN_GADGET_ERROR_CODES, resolveSiteName, AssistantProfile, freePlanModelNames, isFreePlanModel } from '@gadgets/workshop-shared/api';
 import { Gatekeeper, HookInitiator, ResourceDescription, ApprovalQueue, ActionDescription, ObservationAuthorizer, ObservationDescription, VendorDescription, SupportedResource, resolveRequestedResource, HookController, HookDescription, AGENT_CATALOG_MAX_ENTRIES, ActionKind } from "@gadgets/workshop-shared/gatekeeper";
 import {
   DurableObject, WorkerEntrypoint, RpcStub as NativeRpcStub,
@@ -15,9 +15,8 @@ import {
 } from "./ai-models";
 import { AgentTurnError, completeText } from "./ai-invoke";
 import {
-  AiGatewayLogRetryableError,
+  fetchAiGatewayLogCostWithRetry,
   getAiGatewayConfig,
-  getAiGatewayLogCost,
   type AiGatewayLogRoute,
 } from "./ai-gateway";
 import { AgentGadgetInfo, AgentHooks, AiChatAgentContext, ChatBindingEntry, SeedBindingInfo, runAgent, makeStorableArgs, summarizeArgs, type AiChatMessageBodyWithModelData, type CompactionCheckpoint, type StoredAssistantMessage } from "./agent";
@@ -3955,12 +3954,21 @@ class OverseerImpl implements AgentHooks {
         if (billing) {
           let blockMessage: string | undefined;
           if (billing.freeDailyLlmCalls != null && this.ownerId) {
-            let ownerStub = this.users.get(this.users.idFromString(this.ownerId));
-            let quota = await ownerStub.consumeDailyLlmCall(billing.freeDailyLlmCalls);
-            if (!quota.withinLimits) {
-              blockMessage = `You've reached the free plan's daily limit of ${quota.limit} AI ` +
-                  `requests. It resets at midnight UTC, or upgrade for a monthly AI credit ` +
-                  `allowance.`;
+            // Free plan, platform gateway mode: only the low-cost models are included
+            // (inference is platform-funded there). Checked before the daily counter so a
+            // blocked request never consumes quota. In BYOK mode (no gateway) the tenant pays
+            // with their own key, so no model restriction applies.
+            if (getAiGatewayConfig(this.env) && !isFreePlanModel(aiModel.config.model)) {
+              blockMessage = `${aiModel.profile.name} isn't included in the free plan, which ` +
+                  `covers ${freePlanModelNames().join(", ")}. Upgrade for access to every model.`;
+            } else {
+              let ownerStub = this.users.get(this.users.idFromString(this.ownerId));
+              let quota = await ownerStub.consumeDailyLlmCall(billing.freeDailyLlmCalls);
+              if (!quota.withinLimits) {
+                blockMessage = `You've reached the free plan's daily limit of ${quota.limit} AI ` +
+                    `requests. It resets at midnight UTC, or upgrade for a monthly AI credit ` +
+                    `allowance.`;
+              }
             }
           } else if (billing.freeDailyLlmCalls == null && billing.tier !== "enterprise"
               && billing.aiBalanceMicroUsd <= 0) {
@@ -5542,26 +5550,12 @@ class OverseerImpl implements AgentHooks {
   //   separate request!
   async #getCostFromAiGateway(chatId: number, route: AiGatewayLogRoute, aiGatewayLogId: string,
                               estimatedCost?: number) {
-    let cost: number | undefined;
-    try {
-      for (let attempt = 0; attempt < 4; ++attempt) {
-        try {
-          cost = await getAiGatewayLogCost(this.env, route, aiGatewayLogId);
-          break;
-        } catch (err) {
-          if (!(err instanceof AiGatewayLogRetryableError) || attempt === 3) throw err;
-          await scheduler.wait(1000 * 2 ** attempt);
-        }
-      }
-    } catch (err) {
-      // This is an async operation without any caller waiting so there's not much we can do with
-      // this error beyond falling back to the estimate below.
-      // TODO: If we ever use this for billing we'll want to make it more reliable, perhaps by
-      //   storing unfetched log IDs in storage and retrying fetches.
-      this.logger.warn("failed to fetch AI Gateway cost log", {
-        event: "ai.gateway.cost.log.fetch.failed", error: err,
-      });
-    }
+    // This is an async operation without any caller waiting, so a fetch failure can only fall
+    // back to the estimate below (the helper logs it).
+    // TODO: If we ever use this for billing we'll want to make it more reliable, perhaps by
+    //   storing unfetched log IDs in storage and retrying fetches.
+    let cost =
+        await fetchAiGatewayLogCostWithRetry(this.env, route, aiGatewayLogId, this.logger);
 
     cost ||= estimatedCost;
     if (cost) {

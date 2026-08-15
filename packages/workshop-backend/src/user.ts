@@ -1,5 +1,6 @@
 import { RpcStub } from "capnweb";
-import { GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiModelConfig, CollaboratorRole, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, GadgetMetadata, BlueprintMetadata, BlueprintLibrarySummary, BlueprintSource, BlueprintUserSummary, BLUEPRINT_SCREENSHOT_R2_PREFIX, GatekeeperVendorInfo, BlueprintOutput, OutputSummary, WorkpieceId, ListOutputsResult, AssistantProfile } from '@gadgets/workshop-shared/api';
+import { GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiModelConfig, CollaboratorRole, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, GadgetMetadata, BlueprintMetadata, BlueprintLibrarySummary, BlueprintSource, BlueprintUserSummary, BLUEPRINT_SCREENSHOT_R2_PREFIX, GatekeeperVendorInfo, BlueprintOutput, OutputSummary, WorkpieceId, ListOutputsResult, AssistantProfile, isFreePlanModel } from '@gadgets/workshop-shared/api';
+import { usageCollector } from "./usage-collector";
 import { Gatekeeper, GatekeeperUser, GatekeeperUserVerifier, GatekeeperVendor, AccountDescription, VendorDescription, GatekeeperConnectCallback, SupportedResource, ResourceConfiguratorFrame, AppUiContext, GatekeeperUiFrame } from "@gadgets/workshop-shared/gatekeeper";
 import { shouldAutoProvisionAccount, ambientGatekeeperMode } from "./provisioning-policy.js";
 import { CloudflareGatekeeperUser } from "@gadgets/workshop-shared/cloudflare-gatekeeper";
@@ -561,7 +562,18 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   // existing caller (including per-workspace Overseers holding a user stub) reads the shared
   // catalog.
   async listModels(): Promise<AiChatAuthorInfo[]> {
-    return this.adminSettings.getByName("").listModels();
+    let models: AiChatAuthorInfo[] = await this.adminSettings.getByName("").listModels();
+    // Free plan, platform gateway mode: offer only the free-plan models (the agent-turn and
+    // model-binding gates enforce the same restriction; this keeps the picker honest). Fails
+    // open when billing is unconfigured or unreachable. Filtering also steers
+    // getExternalMessageChatContext's first-model fallback to an allowed model.
+    if (getAiGatewayConfig(this.env)) {
+      let billing = await usageCollector(this.ctx).getBillingState().catch(() => null);
+      if (billing?.freeDailyLlmCalls != null) {
+        models = models.filter(model => isFreePlanModel(model.id));
+      }
+    }
+    return models;
   }
 
   async getQuickModel(): Promise<null | string> {

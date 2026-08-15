@@ -13,9 +13,13 @@ export class AiGatewayConfig {
   readonly accountId: string;
   readonly apiToken: string;
   readonly providers: Set<string>;
+  // Tenant identifier for gateway log attribution (rides cf-aig-metadata). The fleet shares one
+  // gateway, so without this the gateway logs can't be broken down per tenant.
+  readonly tenant?: string;
 
   constructor(env: Cloudflare.Env) {
     this.gateway = env.CF_AI_GATEWAY!;
+    this.tenant = env.CF_AI_GATEWAY_TENANT;
     // Inference now goes over HTTPS with tokens (pi has no Workers-binding transport), so the
     // account/token pair is required whenever gateway mode is enabled. The token-less
     // same-account mode existed only because of the Workers binding.
@@ -168,4 +172,30 @@ export async function getAiGatewayLogCost(
 
   let cost = "cost" in body.result ? body.result.cost : undefined;
   return validateLogCost(cost);
+}
+
+/**
+ * Retrieve an AI Gateway log's cost with retries (log entries land asynchronously after the
+ * response, so the first attempts often race it). Returns undefined when the cost could not be
+ * obtained -- callers fall back to their catalog-priced estimate. Never throws.
+ */
+export async function fetchAiGatewayLogCostWithRetry(
+    env: Cloudflare.Env, route: AiGatewayLogRoute, logId: string,
+    logger?: { warn(message: string, fields?: Record<string, unknown>): void },
+): Promise<number | undefined> {
+  try {
+    for (let attempt = 0; ; ++attempt) {
+      try {
+        return await getAiGatewayLogCost(env, route, logId);
+      } catch (err) {
+        if (!(err instanceof AiGatewayLogRetryableError) || attempt === 3) throw err;
+        await scheduler.wait(1000 * 2 ** attempt);
+      }
+    }
+  } catch (err) {
+    logger?.warn("failed to fetch AI Gateway cost log", {
+      event: "ai.gateway.cost.log.fetch.failed", error: err,
+    });
+    return undefined;
+  }
 }

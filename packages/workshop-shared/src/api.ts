@@ -1262,17 +1262,21 @@ export const WORKERS_AI_OUTPUT_LIMIT = 32768;
 // Models offered in the picker. `contextWindow` is the maximum tokens one request may total.
 // `outputLimit`, when present, is both the requested response cap and the space reserved for it,
 // leaving the remainder as the prompt budget context compaction sizes against.
+// `freePlan` marks the low-cost models free-plan tenants may use in platform AI Gateway mode
+// (inference there is platform-funded, so the free tier is restricted to models whose worst-case
+// spend is small; paid plans are limited by their credit balance instead).
 export const SUGGESTED_MODELS: Record<
   AiModelProvider,
-  Record<string, {name: string, contextWindow: number, outputLimit?: number}>
+  Record<string, {name: string, contextWindow: number, outputLimit?: number, freePlan?: true}>
 > = {
   "cloudflare": {
     "@cf/moonshotai/kimi-k2.7-code": {
       name: "Kimi K2.7 Code (Workers AI)", contextWindow: 262144,
-      outputLimit: WORKERS_AI_OUTPUT_LIMIT,
+      outputLimit: WORKERS_AI_OUTPUT_LIMIT, freePlan: true,
     },
     "@cf/zai-org/glm-5.2": {
       name: "GLM 5.2 (Workers AI)", contextWindow: 262144, outputLimit: WORKERS_AI_OUTPUT_LIMIT,
+      freePlan: true,
     },
   },
   "anthropic": {
@@ -1280,7 +1284,7 @@ export const SUGGESTED_MODELS: Record<
     //   allow it for ZDR reasons. It's sort of overkill for building gadgets anyway.
     "claude-opus-5": {name: "Claude Opus 5", contextWindow: 1000000},
     "claude-sonnet-5": {name: "Claude Sonnet 5", contextWindow: 1000000},
-    "claude-haiku-4-5": {name: "Claude Haiku 4.5", contextWindow: 200000},
+    "claude-haiku-4-5": {name: "Claude Haiku 4.5", contextWindow: 200000, freePlan: true},
   },
   "openai": {
     "gpt-5.6-sol": {name: "GPT 5.6 Sol", contextWindow: 1050000, outputLimit: 128000},
@@ -1293,6 +1297,29 @@ export const SUGGESTED_MODELS: Record<
   "ollama": {
   },
 };
+
+/**
+ * Whether a model is included in the free plan (platform AI Gateway mode only; see the
+ * `freePlan` flag on SUGGESTED_MODELS). Model ids are unique across providers, so the id alone
+ * identifies the entry.
+ */
+export function isFreePlanModel(modelId: string): boolean {
+  for (let models of Object.values(SUGGESTED_MODELS)) {
+    if (models[modelId]?.freePlan) return true;
+  }
+  return false;
+}
+
+/** Display names of the free-plan models, for limit messages. */
+export function freePlanModelNames(): string[] {
+  let names: string[] = [];
+  for (let models of Object.values(SUGGESTED_MODELS)) {
+    for (let model of Object.values(models)) {
+      if (model.freePlan) names.push(model.name);
+    }
+  }
+  return names;
+}
 
 // Metadata about a workspace (one Overseer DO and everything in it). Includes everything needed
 // to render the workspace list on the front page.

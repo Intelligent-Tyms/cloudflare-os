@@ -15,12 +15,16 @@ import { OPENAI_MODELS } from "@earendil-works/pi-ai/providers/openai.models";
 import { ApprovalQueue, Gatekeeper, ResourceDescription } from '@gadgets/workshop-shared/gatekeeper';
 import { LanguageModelBinding } from "./ai-model-binding";
 import AI_MODEL_BINDING_TYPES from "./ai-model-binding.txt";
-import { AiChatAuthorInfo, AiModelConfig, SUGGESTED_MODELS, WORKERS_AI_OUTPUT_LIMIT }
-  from "@gadgets/workshop-shared/api";
-import { AiGatewayConfig, getAiGatewayConfig, type AiGatewayLogRoute } from "./ai-gateway.js";
+import { AiChatAuthorInfo, AiModelConfig, SUGGESTED_MODELS, WORKERS_AI_OUTPUT_LIMIT,
+  freePlanModelNames, isFreePlanModel } from "@gadgets/workshop-shared/api";
+import { AiGatewayConfig, fetchAiGatewayLogCostWithRetry, getAiGatewayConfig,
+  type AiGatewayLogRoute } from "./ai-gateway.js";
 import { completeText } from "./ai-invoke.js";
-import { dollarsToMicroUsd, recordUsage } from "./usage-collector.js";
+import { createWorkshopLogger } from "./observability";
+import { dollarsToMicroUsd, recordUsage, usageCollector } from "./usage-collector.js";
 import { bridgePdfAttachments } from "./chat-attachment-pdf.js";
+
+const logger = createWorkshopLogger("workshop.ai");
 
  // Routing to bill a user's own Cloudflare account for inference (BYOK path once the free tier is
  // exhausted). Defined here to avoid a backend->ai-gateway-billing type import cycle at runtime.
@@ -34,6 +38,8 @@ import { bridgePdfAttachments } from "./chat-attachment-pdf.js";
 type GatewayMetadata = {
   // Stable Gadgets user identifier for attribution.
   user: string;
+  // Tenant identifier (fleet deployments share one platform gateway; see AiGatewayConfig.tenant).
+  tenant?: string;
   // Gadgets execution context, present when the call is associated with a gadget operation.
   source?: GatewayMetadataContext["source"];
   gadgetId?: string;
@@ -410,7 +416,20 @@ function getModelViaGateway(
   initiator: AiChatAuthorInfo,
   options: ModelRoutingOptions,
 ): ModelHandle {
+  // Fail closed on unpriced models: with platform-held keys, a model whose cost pi's catalog
+  // doesn't know would meter as zero whenever the gateway log fetch falls back to the estimate --
+  // silent margin leakage. Workers AI models are exempt (many aren't cataloged; the gateway log
+  // prices them authoritatively and their worst case is small). If this throws for a newly added
+  // SUGGESTED_MODELS entry, bump pi so its catalog covers the model (see also the catalog pricing
+  // unit test in __tests__/ai-catalog.test.ts).
+  if (config.provider !== "cloudflare" && !catalogModel(config.provider, config.model)?.cost) {
+    throw new Error(
+        `Model "${config.model}" has no catalog pricing and cannot be served through the ` +
+        `platform AI Gateway.`);
+  }
+
   const metadata = buildMetadata(initiator, options.metadata);
+  if (gwConfig.tenant) metadata.tenant = gwConfig.tenant;
   const gatewayAuthHeaders: ProviderHeaders = {
     // pi's API impls explicitly recognize cf-aig-authorization and skip SDK auth; the null
     // values suppress the SDKs' own auth headers so the gateway's server-managed provider keys
@@ -633,18 +652,45 @@ export class LanguageModelGatekeeper
 
   async startSession(approvalQueue: RpcStub<ApprovalQueue>)
       : Promise<LanguageModelBinding> {
+    // Free-plan model restriction (platform gateway mode only -- inference there is
+    // platform-funded, so bindings must not bypass the agent-turn gate in overseer.ts). Fails
+    // open when billing is unconfigured or unreachable, like every other enforcement gate.
+    if (getAiGatewayConfig(this.env) && !isFreePlanModel(this.ctx.props.config.model)) {
+      let billing = await usageCollector(this.ctx).getBillingState().catch(() => null);
+      if (billing?.freeDailyLlmCalls != null) {
+        throw new Error(
+            `This model isn't included in the free plan. The free plan includes ` +
+            `${freePlanModelNames().join(", ")}; upgrade for access to every model.`);
+      }
+    }
+
     let model = getModel(this.env, this.ctx.props.config, this.ctx.props.initiator, {
       metadata: this.ctx.props.metadata,
     });
-    // Meter gadget-invoked model calls against the tenant's AI credits (catalog estimate;
-    // zero for uncataloged models).
+    // Meter gadget-invoked model calls against the tenant's AI credits. Prefer the
+    // gateway-authoritative log cost, falling back to the catalog estimate -- the same policy
+    // as chat-turn metering (overseer.ts #getCostFromAiGateway).
     let onUsage = (usage: Usage) => {
-      recordUsage(this.ctx, this.env, [{
-        sourceKey: `ai:${crypto.randomUUID()}`,
-        kind: "ai",
-        costMicroUsd: dollarsToMicroUsd(usage.cost.total),
-        meta: { source: "model-binding", gadgetId: this.ctx.props.metadata?.gadgetId },
-      }]);
+      const sourceKey = `ai:${crypto.randomUUID()}`;
+      const meta = { source: "model-binding", gadgetId: this.ctx.props.metadata?.gadgetId };
+      const estimateMicroUsd = dollarsToMicroUsd(usage.cost.total);
+      // Capture synchronously: lastResponse is per-request state on the shared handle and the
+      // next run() on this binding will overwrite it.
+      const logRoute = model.aiGatewayLogRoute;
+      const logId = model.lastResponse?.aiGatewayLogId;
+      if (logRoute && logId) {
+        this.ctx.waitUntil((async () => {
+          const cost = await fetchAiGatewayLogCostWithRetry(this.env, logRoute, logId, logger);
+          recordUsage(this.ctx, this.env, [{
+            sourceKey, kind: "ai",
+            costMicroUsd: cost !== undefined ? dollarsToMicroUsd(cost) : estimateMicroUsd,
+            meta,
+          }]);
+        })());
+      } else {
+        recordUsage(this.ctx, this.env,
+            [{sourceKey, kind: "ai", costMicroUsd: estimateMicroUsd, meta}]);
+      }
     };
     return new LanguageModelBindingImpl(model, onUsage);
   }
