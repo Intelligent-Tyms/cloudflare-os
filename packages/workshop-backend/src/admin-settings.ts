@@ -714,7 +714,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
       await (vendor as unknown as SkillInstallerStub).installSkillPackage(pkg);
       return;
     }
-    throw new Error("No connector on this deployment can store skill packages.");
+    throw new Error("No integration on this deployment can store skill packages.");
   }
 
   // Enable/disable a single gatekeeper resource type atomically (read-modify-write within the DO).
@@ -776,7 +776,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
       });
     } else {
       if (mode === "optional") {
-        throw new Error(`"${vendorId}" is not an auto-provisioning connector; use 'enabled' or 'disabled'.`);
+        throw new Error(`"${vendorId}" is not an auto-provisioning integration; use 'enabled' or 'disabled'.`);
       }
       await this.#mutateAdminConfig(config => {
         let disabled = new Set(config.disabledGatekeepers);
@@ -853,7 +853,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
 // validation+forwarding facade over the AdminSettings DO — fully user-independent — so a disabled
 // gatekeeper/resource can't be re-enabled via a crafted request, and the client never receives a
 // stub to the DO's internal methods. Covers branding, agent instructions, signups, and gatekeeper
-// connector/resource availability; authentication config stays env-var driven.
+// integration/resource availability; authentication config stays env-var driven.
 @validateRpc()
 export class AdminApiImpl extends RpcTarget implements AdminApi {
   // `adminUserId` is the requesting admin's identity, forwarded to gatekeepers when listing the
@@ -906,7 +906,7 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
 
   setGatekeeperMode(vendorId: string, mode: AmbientGatekeeperMode): Promise<void> {
     if (!isAmbientGatekeeperMode(mode)) {
-      throw new Error(`Invalid connector mode: ${mode}`);
+      throw new Error(`Invalid integration mode: ${mode}`);
     }
     return this.admin.setGatekeeperMode(vendorId, mode);
   }

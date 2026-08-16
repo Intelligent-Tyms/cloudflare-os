@@ -401,7 +401,7 @@ function ConnectorsHeroDiagram({
         <button
           type="button"
           className="themed-card-hover-shadow grid h-[52px] w-[52px] place-items-center rounded-2xl border border-kumo-line bg-kumo-base text-kumo-brand transition-[border-color,box-shadow] hover:border-kumo-fill focus:outline-none focus-visible:ring-2 focus-visible:ring-kumo-ring focus-visible:ring-offset-2 focus-visible:ring-offset-kumo-base"
-          aria-label="The connector keeps App access limited to connected resources"
+          aria-label="The integration keeps App access limited to connected resources"
         >
           <ShieldCheck size={21} />
         </button>
@@ -412,7 +412,7 @@ function ConnectorsHeroDiagram({
             </div>
             <div className="min-w-0">
               <p className="m-0 text-[12px] leading-4 font-semibold tracking-[-0.2px] text-kumo-default">
-                Connector
+                Integration
               </p>
               <p className="mt-1 text-[11px] leading-4 font-normal tracking-[-0.1px] text-kumo-subtle">
                 Keeps each workspace limited to the resources you connect and ensures every user has the required permissions before accessing them.
@@ -441,7 +441,7 @@ type ModalTarget =
   | null
 
 function ConnectorsPage() {
-  useDocumentTitle('Connectors')
+  useDocumentTitle('Integrations')
   const siteName = useSiteName()
 
   const { authenticatedApi } = useAuthenticatedApi()
@@ -743,7 +743,7 @@ function ConnectorsPage() {
         <header className="mb-8 grid gap-8 lg:grid-cols-[minmax(0,540px)_444px] lg:items-center lg:justify-between">
           <div>
             <h1 className="m-0 text-3xl font-semibold leading-tight tracking-tight text-kumo-default sm:text-[34px]">
-              Connectors
+              Integrations
             </h1>
             <p className="mt-2 text-[14px] leading-[20px] font-normal tracking-[-0.25px] text-kumo-subtle">
               Add the apps and accounts your workspaces can use. Connect once, then wire
@@ -763,7 +763,7 @@ function ConnectorsPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search connectors…"
+              placeholder="Search integrations…"
               className="h-10 w-full rounded-lg border border-kumo-line bg-kumo-base pl-9 pr-4 text-[14px] leading-5 tracking-[-0.25px] text-kumo-default placeholder:text-kumo-inactive transition-[border-color,box-shadow] focus:border-kumo-ring focus:outline-none focus:ring-[3px] focus:ring-kumo-ring/15"
             />
           </div>
@@ -773,7 +773,7 @@ function ConnectorsPage() {
         {loadError && (
           <div className="rounded-2xl border border-kumo-line bg-kumo-base px-4 py-6 text-center">
             <p className="m-0 text-[13px] leading-[18px] font-medium tracking-[-0.25px] text-kumo-danger">
-              Something went wrong loading your connectors.
+              Something went wrong loading your integrations.
             </p>
             <p className="mt-1 text-[12px] leading-4 font-normal tracking-[-0.2px] text-kumo-subtle">
               Check your connection and try refreshing the page.
@@ -783,7 +783,7 @@ function ConnectorsPage() {
 
         {initialLoading && (
           <div className="rounded-2xl border border-kumo-line bg-kumo-base px-4 py-8 text-center text-[13px] leading-[18px] font-normal tracking-[-0.25px] text-kumo-subtle">
-            Loading connectors...
+            Loading integrations...
           </div>
         )}
 
@@ -857,13 +857,13 @@ function ConnectorsPage() {
             <EmptyState
               title={
                 search
-                  ? 'No connectors match'
-                  : 'No connectors yet'
+                  ? 'No integrations match'
+                  : 'No integrations yet'
               }
               description={
                 search
                   ? "We couldn't find anything matching your search."
-                  : 'Connectors will appear here as they become available in your workspace.'
+                  : 'Integrations will appear here as they become available in your workspace.'
               }
               icon={Unplug}
             />

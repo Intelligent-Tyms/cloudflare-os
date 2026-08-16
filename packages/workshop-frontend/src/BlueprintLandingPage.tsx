@@ -1638,7 +1638,7 @@ function BlueprintGatekeeperBindingField({
     return (
       <div className="rounded-lg border border-kumo-danger/30 bg-kumo-danger-tint px-3 py-2.5 text-sm text-kumo-danger">
         <p className="font-semibold mb-0.5">{title}</p>
-        <p>The "{binding.gatekeeperName}" connector is not available on this workshop, so this connection can't be configured.</p>
+        <p>The "{binding.gatekeeperName}" integration is not available on this workshop, so this connection can't be configured.</p>
       </div>
     )
   }

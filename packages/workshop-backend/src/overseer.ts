@@ -1762,7 +1762,7 @@ class OverseerImpl implements AgentHooks {
       if (this.storage.gadgets.get(target)) {
         throw new Error(`App-to-app bindings are not supported yet.`);
       }
-      throw new Error(`No such connector: ${target}`);
+      throw new Error(`No such integration: ${target}`);
     }
     gadget.bindings[name] = {target, ...(chatId !== undefined ? {pending: {chatId}} : {})};
     this.storage.gadgets.put(gadget);
@@ -2489,7 +2489,7 @@ class OverseerImpl implements AgentHooks {
     return this.ctx.facets.get(`gatekeeper${id}`, async () => {
       let cls = this.storage.gatekeepers.get(id)?.class;
       if (!cls) {
-        throw new Error("no such connector?");
+        throw new Error("no such integration?");
       }
       return {class: cls};
     });
@@ -4980,7 +4980,7 @@ class OverseerImpl implements AgentHooks {
       .filter(record => record.hasSlashCommands)
       .map(record => ({
         gatekeeperId: record.id,
-        providerLabel: record.resourceTitle || `Connector ${record.id}`,
+        providerLabel: record.resourceTitle || `Integration ${record.id}`,
         gatekeeper: this.getGatekeeperFacet(record.id),
       }));
     let config = await readAdminConfig(this.env);
@@ -6069,7 +6069,7 @@ class OverseerImpl implements AgentHooks {
         let details: string;
         switch (binding.type) {
           case "gatekeeper":
-            details = `external resource via the "${binding.gatekeeperName}" connector; ` +
+            details = `external resource via the "${binding.gatekeeperName}" integration; ` +
                 `resource URL pattern ${JSON.stringify(binding.typeUrlPattern)}` +
                 (binding.resourceUrl
                     ? `; the template author suggests ${JSON.stringify(binding.resourceUrl)}`
@@ -6357,7 +6357,7 @@ class OverseerImpl implements AgentHooks {
           let accountId = accountChoices[gk.id];
           let vendorId = observerVendorId(gk);
           if (!vendorId) {
-            throw new Error("An observer account was requested for a non-connector binding.");
+            throw new Error("An observer account was requested for a non-integration binding.");
           }
 
           let fail = (reason: string, err?: unknown) => {
@@ -6926,7 +6926,7 @@ export class OverseerDurableObject extends DurableObject<Cloudflare.Env> {
     let config = await readAdminConfig(this.env);
     if (config.disabledGatekeepers.includes(vendorId) ||
         ambientGatekeeperMode(config, vendorId) === "disabled") {
-      throw new Error("Connector is disabled.");
+      throw new Error("Integration is disabled.");
     }
 
     return {
@@ -7678,7 +7678,7 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
   async getGatekeeperById(id: number): Promise<GatekeeperClient<any>> {
     let gatekeeper = this.impl.storage.gatekeepers.get(id)?.id;
     if (gatekeeper === undefined) {
-      throw new Error(`No such connector id: ${id}`);
+      throw new Error(`No such integration id: ${id}`);
     }
     return new GatekeeperClientImpl(this.impl, id, this.impl.getGatekeeperFacet(id));
   }
@@ -7979,7 +7979,7 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
       : Promise<void> {
     let gatekeeper = this.impl.storage.gatekeepers.get(gatekeeperId);
     if (!gatekeeper) {
-      throw new Error(`No such connector: ${gatekeeperId}`);
+      throw new Error(`No such integration: ${gatekeeperId}`);
     }
 
     let profile = await this.#getClientProfile();
@@ -9632,7 +9632,7 @@ class GatekeeperClientImpl<Session extends RpcCompatible<Session>>
 
   #getRecord(): GatekeeperRecord {
     let record = this.impl.storage.gatekeepers.get(this.id);
-    if (!record) throw new Error("No such connector.");
+    if (!record) throw new Error("No such integration.");
     return record;
   }
 
@@ -9660,7 +9660,7 @@ class GatekeeperClientImpl<Session extends RpcCompatible<Session>>
   async getCreationSpec(): Promise<GatekeeperCreationSpec> {
     let record = this.#getRecord();
     if (!record.creationSpec) {
-      throw new Error("This connector has no creation spec (created before template support).");
+      throw new Error("This integration has no creation spec (created before template support).");
     }
     return record.creationSpec;
   }
@@ -9749,14 +9749,14 @@ export class AgentSpawnerGatekeeper
   }
 
   applyAction(action: number): Promise<void> {
-    throw new Error("This connector implements no actions.");
+    throw new Error("This integration implements no actions.");
   }
   rejectAction(action: number): Promise<void | {restart?: boolean}> {
-    throw new Error("This connector implements no actions.");
+    throw new Error("This integration implements no actions.");
   }
   revertAction(action: number):
       Promise<void | {message?: string, canRetry?: boolean, restart?: boolean}> {
-    throw new Error("This connector implements no actions.");
+    throw new Error("This integration implements no actions.");
   }
 
   async addObserver(_id: string, _user: Fetcher): Promise<void> {

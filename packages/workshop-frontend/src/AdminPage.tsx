@@ -156,10 +156,10 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
       {
         id: 'connectors',
-        title: 'Connectors',
-        blurb: 'Turn connectors and their resources on or off for everyone.',
+        title: 'Integrations',
+        blurb: 'Turn integrations and their resources on or off for everyone.',
         description:
-          'Turn connectors and resource types on or off for each service. Auto-provisioned connectors (like Knowledge) have three modes: disabled, optional, or enabled for everyone. Changes are soft: they don’t revoke access an app already holds.',
+          'Turn integrations and resource types on or off for each service. Auto-provisioned integrations (like Knowledge) have three modes: disabled, optional, or enabled for everyone. Changes are soft: they don’t revoke access an app already holds.',
         icon: <Plug size={18} />,
       },
       {
@@ -1094,7 +1094,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
         <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
           {resourceVendors.length === 0 && (
             <p className="text-sm text-kumo-subtle">
-              No configurable connectors are installed on this deployment.
+              No configurable integrations are installed on this deployment.
             </p>
           )}
 

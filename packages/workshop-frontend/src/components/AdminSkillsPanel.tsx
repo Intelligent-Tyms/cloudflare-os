@@ -26,7 +26,7 @@ export default function AdminSkillsPanel({
   const toasts = useKumoToastManager()
   const [busy, setBusy] = useState(false)
   // The Knowledge management app, for the "add skills" pointer. Discovered, not hardcoded: any
-  // skills-providing connector's app would do, but today that is Knowledge.
+  // skills-providing integration's app would do, but today that is Knowledge.
   const driveApp = useGatekeeperApps().find((app) => app.title === 'Knowledge')
 
   // The marketplace catalog: undefined while loading, null when this deployment has none

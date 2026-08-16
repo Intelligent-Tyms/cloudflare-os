@@ -3,7 +3,7 @@
 // agent can resolve it with a single cheap KV get.
 //
 // This covers the "soft" deployment customizations only (branding, agent instructions, and which
-// gatekeeper connectors/resources are offered). Authentication/authorization config (sign-in
+// gatekeeper integrations/resources are offered). Authentication/authorization config (sign-in
 // providers, password login) is deliberately NOT here — it stays env-var driven so it can't be
 // changed by a compromised admin session. Everything here is enabled by default; the admin UI opts
 // things *out*.

@@ -253,7 +253,7 @@ function unavailableGatekeeperVendorInfo(id: string): GatekeeperVendorInfo {
       displayName: id,
       url: "",
       tagline: "Temporarily unavailable",
-      description: "This connector could not be loaded.",
+      description: "This integration could not be loaded.",
     },
     supportedResources: [],
   };
@@ -1176,7 +1176,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
       throw new Error("No such service: " + vendorId);
     }
     if ((await readAdminConfig(this.env)).disabledGatekeepers.includes(vendorId.toLowerCase())) {
-      throw new Error(`The "${vendorId}" connector is disabled on this deployment.`);
+      throw new Error(`The "${vendorId}" integration is disabled on this deployment.`);
     }
 
     let accountId = this.storage.nextAccountId.get();
@@ -1246,7 +1246,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   }
 
   // The ambient gatekeepers the user can opt into now: mode "optional" and not yet added. Backs the
-  // Connectors "Available" section. ("enabled" ones are already provisioned; "disabled" ones aren't
+  // Integrations "Available" section. ("enabled" ones are already provisioned; "disabled" ones aren't
   // offered.)
   async listAddableGatekeepers(): Promise<GatekeeperVendorInfo[]> {
     let config = await readAdminConfig(this.env);
@@ -1278,12 +1278,12 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     if (!vendor) throw new Error("No such service: " + vendorId);
 
     if (ambientGatekeeperMode(await readAdminConfig(this.env), vendorId) === "disabled") {
-      throw new Error(`The "${vendorId}" connector is disabled on this deployment.`);
+      throw new Error(`The "${vendorId}" integration is disabled on this deployment.`);
     }
 
     let description = await vendor.describe();
     if (!description.autoProvisionsAccount) {
-      throw new Error(`The "${vendorId}" connector can't be added this way.`);
+      throw new Error(`The "${vendorId}" integration can't be added this way.`);
     }
 
     if (this.#hasAccountForVendor(vendorId)) return;  // already added
@@ -1442,7 +1442,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     let disabledGatekeeperSet = new Set(config.disabledGatekeepers);
 
     async function notifyAdd(record: ConnectedAccountRecord) {
-      // Ambient (auto-provisioned) accounts only appear in the Connectors list when their vendor is
+      // Ambient (auto-provisioned) accounts only appear in the Integrations list when their vendor is
       // "optional" — i.e. the user opted in and can manage/remove it. "enabled" (forced) accounts have
       // nothing to manage, and "disabled" ones are dormant, so both are hidden.
       // Forced accounts are included when observer verification explicitly requests them.
@@ -1723,7 +1723,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     let vendorId = account.vendorId.toLowerCase();
     if (config.disabledGatekeepers.includes(vendorId)) {
       throw new Error(
-          `The "${account.vendorId}" connector is disabled on this deployment by an administrator.`);
+          `The "${account.vendorId}" integration is disabled on this deployment by an administrator.`);
     }
 
     // Blocking here prevents minting a new capability to a disabled resource even if the request

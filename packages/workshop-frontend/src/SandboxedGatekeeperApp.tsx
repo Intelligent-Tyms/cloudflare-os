@@ -412,7 +412,7 @@ export default function SandboxedGatekeeperApp({ frame, gatekeeperVendorId, appL
       // allow-same-origin (the frame stays an opaque origin), and the app's CSP keeps connect-src 'none'.
       sandbox="allow-scripts allow-modals allow-downloads"
       allow="clipboard-write"
-      title="Connector app"
+      title="Integration app"
       style={iframeStyleForOverlay(overlay)}
     />
   )

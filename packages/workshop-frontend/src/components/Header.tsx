@@ -70,7 +70,7 @@ export default function Header() {
               activeProps={{ className: navLinkActiveClass }}
               activeOptions={{ exact: true }}
             >
-              Connectors
+              Integrations
             </Link>
             <Link
               to="/explore"
@@ -134,7 +134,7 @@ export default function Header() {
               activeProps={{ className: navLinkActiveClass }}
               activeOptions={{ exact: true }}
             >
-              Connectors
+              Integrations
             </Link>
             <Link
               to="/explore"

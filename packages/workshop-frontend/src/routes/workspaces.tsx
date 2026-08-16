@@ -17,7 +17,7 @@ function WorkspacesPage() {
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">Workspaces</h1>
           <p className="mt-1 text-[13px] leading-[18px] tracking-[-0.25px] text-kumo-subtle">
-            Each workspace is an isolated environment with its own conversations, connectors, and outputs.
+            Each workspace is an isolated environment with its own conversations, integrations, and outputs.
           </p>
         </div>
         {/* "Create" just routes to Home (the new-workspace launcher) for now. */}

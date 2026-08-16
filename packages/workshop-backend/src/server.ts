@@ -479,7 +479,7 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
         if (assignment.type === "gatekeeper") {
           gk = await overseerResult.newGatekeeper(assignment.accountId, assignment.resourceUrl);
           if (!gk) {
-            throw new Error(`Failed to create connector for binding "${bindingName}".`);
+            throw new Error(`Failed to create integration for binding "${bindingName}".`);
           }
         } else if (assignment.type === "aiModel") {
           gk = await overseerResult.newAiModelGatekeeper(assignment.modelId);
@@ -651,7 +651,7 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
       throw new Error(`Sign-in via "${vendorId}" is not enabled on this deployment.`);
     }
     const vendor = getAuthVendorBinding(this.env, vendorId);
-    if (!vendor) throw new Error(`No such auth connector: ${vendorId}`);
+    if (!vendor) throw new Error(`No such auth integration: ${vendorId}`);
     const desc = await vendor.describe();
     if (!desc.providesAuth) throw new Error(`"${vendorId}" does not provide authentication.`);
 

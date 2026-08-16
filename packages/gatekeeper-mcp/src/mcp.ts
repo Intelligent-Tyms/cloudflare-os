@@ -268,13 +268,13 @@ export class GatekeeperUserImpl
     }
 
     // The fragment records how much of the endpoint this binding may call; see `scope.ts`. A
-    // per-upstream-server scope belongs to the MCP Server Portals connector, and this gatekeeper
+    // per-upstream-server scope belongs to the MCP Server Portals integration, and this gatekeeper
     // treats an endpoint as a single server, so it is refused rather than silently ignored.
     const scope = parseToolScope(requested);
     if (scope.serverId !== undefined) {
       throw new Error(
-        `"${url}" scopes the grant to one server behind a gateway, which this connector does not ` +
-        `do. Connect this endpoint through the MCP Server Portals connector instead.`);
+        `"${url}" scopes the grant to one server behind a gateway, which this integration does not ` +
+        `do. Connect this endpoint through the MCP Server Portals integration instead.`);
     }
     if (scope.tools !== undefined) {
       validateToolScopeAgainstCatalog(

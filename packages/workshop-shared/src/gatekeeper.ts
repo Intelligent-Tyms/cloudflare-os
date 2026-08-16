@@ -45,15 +45,15 @@ export type VendorDescription = {
   // Logo for the service.
   logo?: AvatarImage;
 
-  // Background color used behind the logo in connector UI.
+  // Background color used behind the logo in integration UI.
   color?: string;
 
-  // Short tagline shown beneath the name on cards on the Connectors page.
+  // Short tagline shown beneath the name on cards on the Integrations page.
   // E.g., "Draft replies, edit docs, and analyze data"
   tagline?: string;
 
   // 2-3 sentence description of what this Gatekeeper does and enables users to build.
-  // This is shown in detail modals on the Connectors page.
+  // This is shown in detail modals on the Integrations page.
   // E.g. "Connect your Google account to give Gadgets access to Gmail, Google Docs, and BigQuery.
   // Build agents that triage email, draft and edit documents, or run analytics queries on your data."
   description?: string;

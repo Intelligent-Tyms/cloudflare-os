@@ -1,7 +1,7 @@
 import UserMenu from '../UserMenu'
 
 // Bottom strip on the sidebar: the user profile row (avatar, name, email) that opens the account
-// menu. Connectors and Theme live inside that menu as links to their own settings pages, so the
+// menu. Integrations and Theme live inside that menu as links to their own settings pages, so the
 // strip itself carries no extra iconography.
 export default function SidebarUtilityStrip({ collapsed = false }: { collapsed?: boolean }) {
   return (

@@ -479,7 +479,7 @@ export interface AuthenticatedApi extends RpcTarget {
 
   // List the auto-provisioning ("ambient") gatekeepers the user can opt into right now: those set to
   // 'optional' by the admin that the user hasn't added yet. Rendered as an "Available" section on the
-  // Connectors page. ('enabled' ones are already provisioned; 'disabled' ones aren't offered.) Returns
+  // Integrations page. ('enabled' ones are already provisioned; 'disabled' ones aren't offered.) Returns
   // the same shape as listGatekeeperVendors (with no resources) so the connect UI handles both
   // identically, routing on `description.autoProvisionsAccount`.
   listAddableGatekeepers(): Promise<GatekeeperVendorInfo[]>;
@@ -669,7 +669,7 @@ export type AdminResource = {
 // Provisioning mode for an auto-provisioning ("ambient") gatekeeper — one that mints a connected
 // account with no OAuth flow (VendorDescription.autoProvisionsAccount), e.g. the Context Library:
 //   - 'disabled': not available; no account is provisioned and any existing one is dormant.
-//   - 'optional': users opt in from the Connectors page; not forced on anyone (the default).
+//   - 'optional': users opt in from the Integrations page; not forced on anyone (the default).
 //   - 'enabled':  auto-provisioned for every user (forced); they can't remove it.
 export const AMBIENT_GATEKEEPER_MODES = ['disabled', 'optional', 'enabled'] as const;
 export type AmbientGatekeeperMode = typeof AMBIENT_GATEKEEPER_MODES[number];
@@ -862,7 +862,7 @@ export type AdminFormat = {
 // Capability for managing deployment-wide admin settings, obtained via
 // AuthenticatedApi.getAdminApi() (which is null for non-admins). The access check happens when the
 // capability is minted, so these methods don't re-check. Covers branding, agent instructions, and
-// which gatekeeper connectors/resources are offered — NOT authentication config (that's env-var
+// which gatekeeper integrations/resources are offered — NOT authentication config (that's env-var
 // driven). Each setter throws on invalid input.
 export interface AdminApi {
   // Read all admin-managed settings for the admin UI in one call.

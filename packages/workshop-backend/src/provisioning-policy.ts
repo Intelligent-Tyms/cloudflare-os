@@ -4,7 +4,7 @@
 // Each such vendor has a three-state mode (see AmbientGatekeeperMode), set per deployment by the
 // admin and stored in AdminConfig.ambientGatekeeperModes:
 //   - 'disabled': not available; no account is provisioned, and any existing one stays dormant.
-//   - 'optional': users opt in from the Connectors page; not forced on anyone. THE DEFAULT — we don't
+//   - 'optional': users opt in from the Integrations page; not forced on anyone. THE DEFAULT — we don't
 //                 impose ambient authority on every user unless an admin explicitly turns it on.
 //   - 'enabled':  auto-provisioned for every user (forced); they can't remove it.
 //
@@ -23,7 +23,7 @@ export function ambientGatekeeperMode(config: AdminConfig, vendorId: string): Am
 }
 
 // Whether this vendor's account is auto-provisioned for every user ("enabled" mode). Such accounts
-// are "forced": created for everyone, not user-removable, and hidden from the Connectors list.
+// are "forced": created for everyone, not user-removable, and hidden from the Integrations list.
 // ("optional" accounts are user-managed; "disabled" ones aren't offered.)
 export function shouldAutoProvisionAccount(config: AdminConfig, vendorId: string): boolean {
   return ambientGatekeeperMode(config, vendorId) === "enabled";
