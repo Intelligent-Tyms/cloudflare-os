@@ -28,6 +28,7 @@ import SiteLogo from './components/SiteLogo'
 import { useDocumentTitle } from './useDocumentTitle'
 import AdminBillingPanel from './components/AdminBillingPanel'
 import AdminChannelsPanel from './components/AdminChannelsPanel'
+import AdminIntegrationSetupModal from './components/AdminIntegrationSetupModal'
 import AdminFormatsPanel from './components/format/AdminFormatsPanel'
 import AdminProvidersPanel from './components/AdminProvidersPanel'
 import AdminSkillsPanel from './components/AdminSkillsPanel'
@@ -248,6 +249,8 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
   // Gatekeeper resource config, and the set of resource keys ("vendorId\u0000urlPattern") busy toggling.
   const [resourceVendors, setResourceVendors] = useState<AdminResourceVendor[]>([])
   const [resourceBusy, setResourceBusy] = useState<Set<string>>(new Set())
+  // The integration whose runtime setup flow (OAuth app keys) is open, if any.
+  const [setupTarget, setSetupTarget] = useState<{ vendorId: string; displayName: string } | null>(null)
 
   // Promoted output formats, in menu order (see AdminFormatsPanel).
   const [formats, setFormats] = useState<AdminFormat[]>([])
@@ -1181,6 +1184,21 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
                       </span>
                     )}
                   </h3>
+                  {vendor.setup && (
+                    <span onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => setSetupTarget({ vendorId: vendor.vendorId, displayName: vendor.displayName })}
+                        className={`text-xs font-medium px-2 py-1 rounded-md border transition-colors ${
+                          vendor.setup.status === 'unconfigured'
+                            ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20'
+                            : 'border-kumo-line text-kumo-subtle hover:bg-kumo-tint'
+                        }`}
+                      >
+                        {vendor.setup.status === 'unconfigured' ? 'Set up' : 'Manage setup'}
+                      </button>
+                    </span>
+                  )}
                   <span className="text-xs text-kumo-subtle">
                     {vendor.enabled ? 'Enabled' : 'Off'}
                   </span>
@@ -1192,6 +1210,11 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
                     />
                   </span>
                 </div>
+                {vendor.setup?.status === 'unconfigured' && vendor.resources.length === 0 && (
+                  <p className="text-xs text-kumo-subtle px-3 py-1">
+                    Not set up yet — hidden from your team until an administrator adds its OAuth app keys.
+                  </p>
+                )}
                 {/* Resources are hidden while the gatekeeper is disabled — they can't be used
                     until it's re-enabled. */}
                 {vendor.enabled ? (
@@ -1240,6 +1263,17 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
               </div>
             )})}
           </div>
+
+          {admin && setupTarget && (
+            <AdminIntegrationSetupModal
+              open={setupTarget !== null}
+              vendorId={setupTarget.vendorId}
+              displayName={setupTarget.displayName}
+              admin={admin.api}
+              onOpenChange={(open) => { if (!open) setSetupTarget(null) }}
+              onChanged={() => { reloadResources().catch(() => {}) }}
+            />
+          )}
         </div>
       )}
 

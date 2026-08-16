@@ -1,5 +1,5 @@
 import { AdminApi, AdminFormat, AdminFormatPatch, AdminModel, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BillingCreditType, BillingOverview, BillingPlanChangeResult, BillingPlanOption, BlueprintPublicInfo, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
-import { GatekeeperVendor, SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES, SkillPackage, SkillPackageFile } from '@gadgets/workshop-shared/gatekeeper';
+import { GatekeeperVendor, SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES, SkillPackage, SkillPackageFile, VendorSetup } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
 import { validateRpc } from 'capnweb-validate';
@@ -24,6 +24,13 @@ const logger = createWorkshopLogger("workshop.admin.settings");
 // RPC stub types don't narrow optional methods.
 type SkillListerStub = Required<Pick<GatekeeperVendor, "listDeploymentSkills">>;
 type SkillInstallerStub = Required<Pick<GatekeeperVendor, "installSkillPackage">>;
+type VendorSetupStub = Required<Pick<GatekeeperVendor, "describeSetup" | "applySetup" | "clearSetup">>;
+
+// Bounds on admin-entered vendor setup values forwarded to the vendor (which re-validates
+// against its own input schema).
+const SETUP_MAX_VALUES = 16;
+const SETUP_NAME_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/;
+const SETUP_VALUE_MAX_LENGTH = 2048;
 
 // Identifier shape for marketplace catalog ids (path-segment safe: interpolated into the
 // package-fetch URL).
@@ -812,7 +819,14 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
               ambientMode: mode,
             };
           }
-          if (supportedResources.length === 0) {
+          // A setup-capable vendor keeps its row even with no resources: an unconfigured one
+          // advertises none, and this row is where the admin enters the setup that changes that.
+          let setup: { status: VendorSetup["status"] } | undefined;
+          if (description.supportsAdminSetup === true) {
+            let state = await (vendor as unknown as VendorSetupStub).describeSetup();
+            setup = { status: state.status };
+          }
+          if (supportedResources.length === 0 && !setup) {
             // Nothing to toggle for this gatekeeper.
             return null;
           }
@@ -830,6 +844,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
               icon: r.icon,
               enabled: !disabled.has(r.urlPattern),
             })),
+            ...(setup ? { setup } : {}),
           };
         } catch (err) {
           logger.warn("failed to read resource config for gatekeeper", {
@@ -1027,6 +1042,45 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
     let normalized = userEmail.trim().toLowerCase();
     if (!normalized.includes("@")) throw new Error("A valid email address is required.");
     return await this.#requireChannels().deleteEmailInbox(normalized);
+  }
+
+  // --- Integration setup (runtime admin-entered vendor config; see VendorSetup) ---
+  // Same shape as the channels block: validate here, one awaited RPC to the vendor worker,
+  // no state in the AdminSettings DO. Secret values transit this facade once and are stored
+  // by the vendor itself.
+
+  async #setupVendor(vendorId: string): Promise<VendorSetupStub> {
+    let vendor = buildGatekeeperVendorMap(this.env).get(vendorId);
+    if (!vendor) throw new Error(`No such integration: ${vendorId}`);
+    if ((await vendor.describe()).supportsAdminSetup !== true) {
+      throw new Error(`The "${vendorId}" integration does not support admin setup.`);
+    }
+    return vendor as unknown as VendorSetupStub;
+  }
+
+  async getIntegrationSetup(vendorId: string): Promise<VendorSetup> {
+    return await (await this.#setupVendor(vendorId)).describeSetup();
+  }
+
+  async applyIntegrationSetup(vendorId: string, values: Record<string, string>): Promise<void> {
+    let entries = Object.entries(values);
+    if (!entries.length) throw new Error("No setup values provided.");
+    if (entries.length > SETUP_MAX_VALUES) {
+      throw new Error(`At most ${SETUP_MAX_VALUES} setup values are accepted.`);
+    }
+    for (let [name, value] of entries) {
+      if (!SETUP_NAME_PATTERN.test(name)) {
+        throw new Error(`Invalid setup value name: ${JSON.stringify(name)}.`);
+      }
+      if (typeof value !== "string" || !value.trim() || value.length > SETUP_VALUE_MAX_LENGTH) {
+        throw new Error(`Setup value "${name}" must be a non-empty string of at most ${SETUP_VALUE_MAX_LENGTH} characters.`);
+      }
+    }
+    await (await this.#setupVendor(vendorId)).applySetup(values);
+  }
+
+  async clearIntegrationSetup(vendorId: string): Promise<void> {
+    await (await this.#setupVendor(vendorId)).clearSetup();
   }
 
   addModel(profile: AiChatAuthorInfo, config: AiModelConfig): Promise<void> {

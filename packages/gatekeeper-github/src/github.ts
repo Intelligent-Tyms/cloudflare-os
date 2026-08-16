@@ -15,6 +15,8 @@ import {
   type ResourceDescription,
   type SupportedResource,
   type VendorDescription,
+  type VendorSetup,
+  type VendorSetupInput,
 } from "@gadgets/workshop-shared/gatekeeper";
 import {
   GitHubApi,
@@ -299,6 +301,52 @@ const SUPPORTED_RESOURCES: SupportedResource[] = [
   PULL_REQUEST_RESOURCE,
 ];
 
+// The values an administrator supplies to set this vendor up at runtime. Mirrors
+// deploy-inputs.json (which still drives the deploy-time wizard); keep the two in sync.
+const SETUP_INPUTS: VendorSetupInput[] = [
+  {
+    name: "CLIENT_ID",
+    kind: "secret",
+    label: "OAuth client ID",
+    consoleUrl: "https://github.com/settings/developers",
+    setupSteps: [
+      "In GitHub Developer settings, create a new OAuth App (an OAuth App, not a GitHub App — GitHub Apps ignore OAuth scopes).",
+      "Set the Homepage URL to your instance URL, and the Authorization callback URL to the redirect URI below.",
+      "Register the application, then generate a new client secret.",
+      "Copy the Client ID and client secret here.",
+    ],
+  },
+  { name: "CLIENT_SECRET", kind: "secret", label: "OAuth client secret" },
+];
+const SETUP_INPUT_NAMES = SETUP_INPUTS.map((input) => input.name);
+const SETUP_VALUE_MAX_LENGTH = 512;
+
+type OAuthApp = { clientId: string; clientSecret: string };
+
+// The OAuth app this deployment authenticates against: admin-entered setup (the
+// VendorSetupStore singleton) wins over deploy-time worker secrets; null means unconfigured,
+// in which case the vendor advertises no resources and connect attempts are refused. The
+// store sits behind a Durable Object RPC and is read on OAuth and revoke paths, so results
+// are cached per isolate briefly; writers reset their own isolate's cache and others
+// converge within the TTL.
+let oauthAppCache: { value: OAuthApp | null; expiresAt: number } | undefined;
+const OAUTH_APP_CACHE_MS = 30_000;
+
+type SetupExports = { VendorSetupStore: DurableObjectNamespace<VendorSetupStore> };
+
+async function resolveOAuthApp(env: Env, exports: SetupExports,
+                               options?: { fresh?: boolean }): Promise<OAuthApp | null> {
+  if (!options?.fresh && oauthAppCache && Date.now() < oauthAppCache.expiresAt) {
+    return oauthAppCache.value;
+  }
+  const stored = await exports.VendorSetupStore.getByName("").getValues();
+  const clientId = stored.CLIENT_ID ?? env.CLIENT_ID;
+  const clientSecret = stored.CLIENT_SECRET ?? env.CLIENT_SECRET;
+  const value = clientId && clientSecret ? { clientId, clientSecret } : null;
+  oauthAppCache = { value, expiresAt: Date.now() + OAUTH_APP_CACHE_MS };
+  return value;
+}
+
 const SELF_CLOSING_HTML = `<!DOCTYPE html>
 <html lang="en">
   <body>
@@ -361,12 +409,6 @@ function getBaseUrl(env: Env): string {
 function getBasePath(env: Env): string {
   const path = new URL(getBaseUrl(env)).pathname;
   return path === "/" ? "" : path;
-}
-
-function ensureConfigured(env: Env): void {
-  if (!env.CLIENT_ID || !env.CLIENT_SECRET) {
-    throw new Error("The GitHub gatekeeper is not configured.");
-  }
 }
 
 function canonicalRepoUrl(owner: string, repo: string): string {
@@ -944,7 +986,8 @@ export default {
     const path = relPath.slice(1).split("/");
 
     if (path.length === 2 && path[0].length === 64 && path[1].length === NONCE_BYTES * 2) {
-      if (!env.CLIENT_ID || !env.CLIENT_SECRET) {
+      const app = await resolveOAuthApp(env, ctx.exports);
+      if (!app) {
         return new Response(NOT_CONFIGURED_HTML, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
@@ -961,7 +1004,7 @@ export default {
       }
 
       const redirectUrl = new URL("https://github.com/login/oauth/authorize");
-      redirectUrl.searchParams.set("client_id", env.CLIENT_ID);
+      redirectUrl.searchParams.set("client_id", app.clientId);
       redirectUrl.searchParams.set("redirect_uri", `${getBaseUrl(env)}/oauth`);
       redirectUrl.searchParams.set("scope", begun.scopes.join(" "));
       redirectUrl.searchParams.set("state", `${doId}:${begun.oauthNonce}`);
@@ -1020,11 +1063,17 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
           "Connect your GitHub account so Cloudflare OS can read and update issues, pull requests, " +
           "and reviews on the repositories you choose.",
       providesAuth: true,
+      supportsAdminSetup: true,
     };
   }
 
   async connectAccount(callback: Fetcher<GatekeeperConnectCallback>,
                        options?: GatekeeperConnectOptions): Promise<{ url: string }> {
+    // Fail here rather than in the popup: an unconfigured vendor should refuse the connect
+    // attempt with a readable error instead of minting a URL that dead-ends.
+    if (!(await resolveOAuthApp(this.env, this.ctx.exports))) {
+      throw new Error("GitHub is not set up on this deployment. An administrator can set it up under Admin → Integrations.");
+    }
     const userObjectId = this.ctx.exports.UserAccount.newUniqueId();
     const initiationNonce = generateNonce();
     const authOnly = options?.scopes === "auth";
@@ -1038,11 +1087,83 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
   }
 
   async getSupportedResources(): Promise<SupportedResource[]> {
-    return SUPPORTED_RESOURCES;
+    // Unconfigured vendors advertise nothing, which hides them from users; the admin panel
+    // keeps the row visible via supportsAdminSetup so setup can be entered.
+    return (await resolveOAuthApp(this.env, this.ctx.exports)) ? SUPPORTED_RESOURCES : [];
   }
 
   async getTypeScriptTypes(): Promise<string> {
     return TYPES_CODE;
+  }
+
+  async describeSetup(): Promise<VendorSetup> {
+    const store = this.ctx.exports.VendorSetupStore.getByName("");
+    const [values, updatedAt] = await Promise.all([store.getValues(), store.getUpdatedAt()]);
+    const configured = SETUP_INPUT_NAMES
+        .filter((name) => values[name] !== undefined)
+        .map((name) => ({ name, updatedAt: updatedAt[name] ?? 0 }));
+    const usable = configured.length === SETUP_INPUT_NAMES.length ||
+        Boolean(this.env.CLIENT_ID && this.env.CLIENT_SECRET);
+    return {
+      inputs: SETUP_INPUTS,
+      redirectUri: `${getBaseUrl(this.env)}/oauth`,
+      status: usable ? "configured" : "unconfigured",
+      configured,
+    };
+  }
+
+  async applySetup(values: Record<string, string>): Promise<void> {
+    const entries = Object.entries(values);
+    for (const [name, value] of entries) {
+      if (!SETUP_INPUT_NAMES.includes(name)) {
+        throw new Error(`Unknown setup value "${name}". Expected: ${SETUP_INPUT_NAMES.join(", ")}.`);
+      }
+      if (typeof value !== "string" || !value.trim() || value.length > SETUP_VALUE_MAX_LENGTH) {
+        throw new Error(`Setup value "${name}" must be a non-empty string of at most ${SETUP_VALUE_MAX_LENGTH} characters.`);
+      }
+    }
+    if (!entries.length) throw new Error("No setup values provided.");
+    const trimmed = Object.fromEntries(entries.map(([name, value]) => [name, value.trim()]));
+    await this.ctx.exports.VendorSetupStore.getByName("").apply(trimmed, SETUP_INPUT_NAMES);
+    oauthAppCache = undefined;
+  }
+
+  async clearSetup(): Promise<void> {
+    await this.ctx.exports.VendorSetupStore.getByName("").clear();
+    oauthAppCache = undefined;
+  }
+}
+
+// Deployment-level admin-entered setup (the OAuth app client ID/secret), one singleton
+// instance addressed by name "". Secret values never leave this worker: describeSetup()
+// reports presence and timestamps only.
+export class VendorSetupStore extends DurableObject<Env> {
+  getValues(): Record<string, string> {
+    return this.ctx.storage.kv.get<Record<string, string>>("values") ?? {};
+  }
+
+  getUpdatedAt(): Record<string, number> {
+    return this.ctx.storage.kv.get<Record<string, number>>("updatedAt") ?? {};
+  }
+
+  // Merge-in a partial update (one secret can rotate without retyping the rest), but refuse
+  // to store a merged result that is missing any required value — a half-configured vendor
+  // must stay unconfigured rather than half-working.
+  apply(values: Record<string, string>, requiredNames: string[]): void {
+    const merged = { ...this.getValues(), ...values };
+    const missing = requiredNames.filter((name) => merged[name] === undefined);
+    if (missing.length) {
+      throw new Error(`Setup is incomplete: missing ${missing.join(", ")}.`);
+    }
+    const updatedAt = this.getUpdatedAt();
+    for (const name of Object.keys(values)) updatedAt[name] = Date.now();
+    this.ctx.storage.kv.put("values", merged);
+    this.ctx.storage.kv.put("updatedAt", updatedAt);
+  }
+
+  clear(): void {
+    this.ctx.storage.kv.delete("values");
+    this.ctx.storage.kv.delete("updatedAt");
   }
 }
 
@@ -1098,11 +1219,11 @@ export class UserAccount extends DurableObject<Env> {
     }
     this.ctx.storage.kv.delete("nonce");
 
-    ensureConfigured(this.env);
-    const clientId = this.env.CLIENT_ID;
-    const clientSecret = this.env.CLIENT_SECRET;
-    if (!clientId || !clientSecret) {
-      throw new Error("GitHub OAuth is not configured.");
+    // Fresh read: a just-entered admin setup must be usable for the exchange that follows the
+    // very first authorize redirect, not one cache TTL later.
+    const app = await resolveOAuthApp(this.env, this.ctx.exports, { fresh: true });
+    if (!app) {
+      throw new Error("The GitHub gatekeeper is not configured.");
     }
 
     const callback = this.ctx.storage.kv.get<Fetcher<GatekeeperConnectCallback>>("callback");
@@ -1110,7 +1231,7 @@ export class UserAccount extends DurableObject<Env> {
       throw new Error("Took too long to complete authorization. Please try again.");
     }
 
-    const grant = await exchangeAuthCode(code, clientId, clientSecret, `${getBaseUrl(this.env)}/oauth`);
+    const grant = await exchangeAuthCode(code, app.clientId, app.clientSecret, `${getBaseUrl(this.env)}/oauth`);
 
     this.ctx.storage.kv.put("accessToken", grant.accessToken);
     this.ctx.storage.kv.put("scopes", grant.scopes);
@@ -1176,9 +1297,10 @@ export class UserAccount extends DurableObject<Env> {
 
   async revoke(): Promise<void> {
     const accessToken = this.ctx.storage.kv.get<string>("accessToken");
-    if (accessToken && this.env.CLIENT_ID && this.env.CLIENT_SECRET) {
+    const app = accessToken ? await resolveOAuthApp(this.env, this.ctx.exports) : null;
+    if (accessToken && app) {
       try {
-        await revokeOAuthGrant(accessToken, this.env.CLIENT_ID, this.env.CLIENT_SECRET);
+        await revokeOAuthGrant(accessToken, app.clientId, app.clientSecret);
       } catch (error) {
         logger.error("failed to revoke GitHub OAuth grant", {
           event: "oauth.grant.revoke.failed", error,

@@ -78,7 +78,48 @@ export type VendorDescription = {
   // GatekeeperVendor.installSkillPackage() (e.g. Knowledge stores it as a shared folder). Callers gate
   // on this flag rather than probing.
   installsSkillPackages?: boolean;
+
+  // If set, this vendor accepts deployment-level setup entered by an administrator at runtime
+  // (e.g. the OAuth app client ID/secret it authenticates users against) and implements
+  // GatekeeperVendor.describeSetup() / applySetup() / clearSetup(). Callers gate on this flag
+  // rather than probing. Until setup is applied (and no deploy-time fallback exists), such a
+  // vendor advertises no supported resources, which hides it from users; the admin panel keeps
+  // its row visible so setup can be entered.
+  supportsAdminSetup?: boolean;
 }
+
+// One value an administrator supplies during vendor setup (see GatekeeperVendor.describeSetup).
+// Mirrors the shape of the package's deploy-inputs.json entries so the same authored copy serves
+// both the deploy-time wizard and the runtime admin form.
+export type VendorSetupInput = {
+  // Stable key the value is stored and submitted under, e.g. "CLIENT_ID".
+  name: string;
+  // Whether the value is secret. Secret values are write-only: describeSetup() reports their
+  // presence and last-updated time, never their content.
+  kind: "secret" | "var";
+  // Human-readable field label, e.g. "OAuth client ID".
+  label: string;
+  // Where the administrator creates the upstream artifact (e.g. the provider's developer console).
+  consoleUrl?: string;
+  // Ordered, human-readable instructions for creating the upstream artifact.
+  setupSteps?: string[];
+};
+
+// A vendor's deployment-level setup state, as shown to administrators. Never contains stored
+// secret values.
+export type VendorSetup = {
+  // The values this vendor accepts, in display order.
+  inputs: VendorSetupInput[];
+  // The exact OAuth redirect URI for this deployment, ready for the administrator to register
+  // with the provider. Absent for vendors whose setup involves no OAuth callback.
+  redirectUri?: string;
+  // "configured" when the vendor has a usable setup from any source; "unconfigured" otherwise.
+  status: "configured" | "unconfigured";
+  // The admin-entered values currently stored, by input name, with when each was last written.
+  // Empty when the vendor is configured only by deploy-time secrets — the UI then reports
+  // "configured by the deployment".
+  configured: { name: string; updatedAt: number }[];
+};
 
 // One file of a skill package being installed (see GatekeeperVendor.installSkillPackage).
 export type SkillPackageFile = {
@@ -588,6 +629,22 @@ export interface GatekeeperVendor extends WorkerEntrypoint {
   // that set VendorDescription.installsSkillPackages; callers gate on that flag rather than
   // probing.
   installSkillPackage?(pkg: SkillPackage): Promise<void>;
+
+  // The vendor's deployment-level setup state for the admin panel. Never returns stored secret
+  // values. Present only on vendors that set VendorDescription.supportsAdminSetup; callers gate
+  // on that flag rather than probing. The Workshop calls this (and the two methods below) only
+  // from the admin capability.
+  describeSetup?(): Promise<VendorSetup>;
+
+  // Store admin-entered setup values, keyed by input name. Partial updates are allowed so one
+  // secret can be rotated without retyping the rest; the vendor validates that the merged result
+  // is usable and rejects otherwise. Values are stored by the vendor itself (its own storage,
+  // not the Workshop's), preserving the invariant that the Workshop persists no credentials.
+  applySetup?(values: Record<string, string>): Promise<void>;
+
+  // Delete all admin-entered setup values. The vendor falls back to its deploy-time secrets if
+  // present, and otherwise returns to advertising no resources (hidden from users).
+  clearSetup?(): Promise<void>;
 }
 
 export interface GatekeeperConnectCallback extends WorkerEntrypoint {

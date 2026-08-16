@@ -1,6 +1,6 @@
 import { WorkerEntrypoint, DurableObject, RpcTarget, RpcStub } from "cloudflare:workers";
 import { skipRpcValidation, validateRpc } from "capnweb-validate";
-import { GatekeeperUser, GatekeeperUserVerifier, GatekeeperVendor as GatekeeperVendorIface, Gatekeeper, ResourceDescription, ApprovalQueue, ObservationDescription, VendorDescription, GatekeeperConnectCallback, GatekeeperConnectOptions, AccountDescription, SupportedResource, ResourceConfiguratorFrame, Cursor, ActionKind } from '@gadgets/workshop-shared/gatekeeper';
+import { GatekeeperUser, GatekeeperUserVerifier, GatekeeperVendor as GatekeeperVendorIface, Gatekeeper, ResourceDescription, ApprovalQueue, ObservationDescription, VendorDescription, VendorSetup, VendorSetupInput, GatekeeperConnectCallback, GatekeeperConnectOptions, AccountDescription, SupportedResource, ResourceConfiguratorFrame, Cursor, ActionKind } from '@gadgets/workshop-shared/gatekeeper';
 import { exchangeAuthCode, getAccessToken, getGoogleAccountDescription, getGoogleVerifiedEmail, GmailApi, GmailMessageRaw, GmailOutboundMessage, GoogleAccessToken, normalizeEmailRecipients, revokeGoogleToken } from "./google-api";
 import {
   GmailSession, GmailThread, GmailMessage,
@@ -100,6 +100,10 @@ type Env = Cloudflare.Env & {
   // Base URL (protocol+host+optional path) at which the default fetch handler is served. Should
   // NOT include a trailing slash. Omit for localhost dev server.
   BASE_URL?: string,
+  // Deploy-time OAuth app fallback (worker secrets). Tenant deployments typically leave these
+  // unset and use admin-entered setup (VendorSetupStore) instead.
+  CLIENT_ID?: string,
+  CLIENT_SECRET?: string,
 }
 
 // Well-known Gmail system label IDs — derived from GmailSystemLabel so the
@@ -310,6 +314,53 @@ const RESOURCE_SCOPES: {resource: SupportedResource, scopes: string[]}[] = [
 
 const SUPPORTED_RESOURCES: SupportedResource[] = RESOURCE_SCOPES.map(entry => entry.resource);
 
+// The values an administrator supplies to set this vendor up at runtime. Mirrors
+// deploy-inputs.json (which still drives the deploy-time wizard); keep the two in sync.
+const SETUP_INPUTS: VendorSetupInput[] = [
+  {
+    name: "CLIENT_ID",
+    kind: "secret",
+    label: "OAuth client ID",
+    consoleUrl: "https://console.cloud.google.com/apis/credentials",
+    setupSteps: [
+      "In the Google Cloud Console, create a project (or pick an existing one).",
+      "Enable the APIs assistants should reach: Gmail, Google Docs, Google Drive, Google Sheets, Google Calendar, and BigQuery (APIs & Services > Library).",
+      "Configure the OAuth consent screen (External) and add yourself as a test user while the app is unverified.",
+      "Create an OAuth client ID of type \"Web application\" and add the redirect URI below.",
+      "Copy the client ID and client secret here.",
+    ],
+  },
+  { name: "CLIENT_SECRET", kind: "secret", label: "OAuth client secret" },
+];
+const SETUP_INPUT_NAMES = SETUP_INPUTS.map((input) => input.name);
+const SETUP_VALUE_MAX_LENGTH = 512;
+
+type OAuthApp = { clientId: string; clientSecret: string };
+
+// The OAuth app this deployment authenticates against: admin-entered setup (the
+// VendorSetupStore singleton) wins over deploy-time worker secrets; null means unconfigured,
+// in which case the vendor advertises no resources and connect attempts are refused. The
+// store sits behind a Durable Object RPC and this is read on the token-refresh hot path, so
+// results are cached per isolate briefly; writers reset their own isolate's cache and others
+// converge within the TTL.
+let oauthAppCache: { value: OAuthApp | null; expiresAt: number } | undefined;
+const OAUTH_APP_CACHE_MS = 30_000;
+
+type SetupExports = { VendorSetupStore: DurableObjectNamespace<VendorSetupStore> };
+
+async function resolveOAuthApp(env: Env, exports: SetupExports,
+                               options?: { fresh?: boolean }): Promise<OAuthApp | null> {
+  if (!options?.fresh && oauthAppCache && Date.now() < oauthAppCache.expiresAt) {
+    return oauthAppCache.value;
+  }
+  const stored = await exports.VendorSetupStore.getByName("").getValues();
+  const clientId = stored.CLIENT_ID ?? env.CLIENT_ID;
+  const clientSecret = stored.CLIENT_SECRET ?? env.CLIENT_SECRET;
+  const value = clientId && clientSecret ? { clientId, clientSecret } : null;
+  oauthAppCache = { value, expiresAt: Date.now() + OAUTH_APP_CACHE_MS };
+  return value;
+}
+
 function validateResourceUrlPatterns(resourceUrlPatterns?: string[]): void {
   if (resourceUrlPatterns === undefined) return;
 
@@ -355,7 +406,8 @@ export default {
     let path = relPath.slice(1).split("/");
 
     if (path.length === 2 && path[0].length === 64 && path[1].length === NONCE_BYTES * 2) {
-      if (!env.CLIENT_ID || !env.CLIENT_SECRET) {
+      const app = await resolveOAuthApp(env, ctx.exports);
+      if (!app) {
         return new Response(NOT_CONFIGURED_HTML, {
           headers: {
             "Content-Type": "text/html; charset=utf-8"
@@ -374,7 +426,7 @@ export default {
       }
 
       let newUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-      newUrl.searchParams.set("client_id", env.CLIENT_ID);
+      newUrl.searchParams.set("client_id", app.clientId);
       newUrl.searchParams.set("redirect_uri", getBaseUrl(env) + "/oauth");
       newUrl.searchParams.set("response_type", "code");
       newUrl.searchParams.set("scope", begun.scopes.join(" "));
@@ -443,11 +495,17 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
           "documents, read spreadsheets, find focus time, schedule meetings, or run analytics " +
           "queries on your data.",
       providesAuth: true,
+      supportsAdminSetup: true,
     };
   }
 
   async connectAccount(callback: Fetcher<GatekeeperConnectCallback>,
                        options?: GatekeeperConnectOptions): Promise<{url: string}> {
+    // Fail here rather than in the popup: an unconfigured vendor should refuse the connect
+    // attempt with a readable error instead of minting a URL that dead-ends.
+    if (!(await resolveOAuthApp(this.env, this.ctx.exports))) {
+      throw new Error("Google is not set up on this deployment. An administrator can set it up under Admin → Integrations.");
+    }
     let userObjectId = this.ctx.exports.UserAccount.newUniqueId();
     let initiationNonce = generateNonce();
 
@@ -470,13 +528,85 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
   }
 
   async getSupportedResources(): Promise<SupportedResource[]> {
-    return SUPPORTED_RESOURCES;
+    // Unconfigured vendors advertise nothing, which hides them from users; the admin panel
+    // keeps the row visible via supportsAdminSetup so setup can be entered.
+    return (await resolveOAuthApp(this.env, this.ctx.exports)) ? SUPPORTED_RESOURCES : [];
   }
 
   async getTypeScriptTypes(): Promise<string> {
     return [
       TYPES_CODE, DOCS_TYPES_CODE, SHEETS_TYPES_CODE, CALENDAR_TYPES_CODE, BIGQUERY_TYPES_CODE,
     ].join("\n");
+  }
+
+  async describeSetup(): Promise<VendorSetup> {
+    const store = this.ctx.exports.VendorSetupStore.getByName("");
+    const [values, updatedAt] = await Promise.all([store.getValues(), store.getUpdatedAt()]);
+    const configured = SETUP_INPUT_NAMES
+        .filter((name) => values[name] !== undefined)
+        .map((name) => ({ name, updatedAt: updatedAt[name] ?? 0 }));
+    const usable = configured.length === SETUP_INPUT_NAMES.length ||
+        Boolean(this.env.CLIENT_ID && this.env.CLIENT_SECRET);
+    return {
+      inputs: SETUP_INPUTS,
+      redirectUri: `${getBaseUrl(this.env)}/oauth`,
+      status: usable ? "configured" : "unconfigured",
+      configured,
+    };
+  }
+
+  async applySetup(values: Record<string, string>): Promise<void> {
+    const entries = Object.entries(values);
+    for (const [name, value] of entries) {
+      if (!SETUP_INPUT_NAMES.includes(name)) {
+        throw new Error(`Unknown setup value "${name}". Expected: ${SETUP_INPUT_NAMES.join(", ")}.`);
+      }
+      if (typeof value !== "string" || !value.trim() || value.length > SETUP_VALUE_MAX_LENGTH) {
+        throw new Error(`Setup value "${name}" must be a non-empty string of at most ${SETUP_VALUE_MAX_LENGTH} characters.`);
+      }
+    }
+    if (!entries.length) throw new Error("No setup values provided.");
+    const trimmed = Object.fromEntries(entries.map(([name, value]) => [name, value.trim()]));
+    await this.ctx.exports.VendorSetupStore.getByName("").apply(trimmed, SETUP_INPUT_NAMES);
+    oauthAppCache = undefined;
+  }
+
+  async clearSetup(): Promise<void> {
+    await this.ctx.exports.VendorSetupStore.getByName("").clear();
+    oauthAppCache = undefined;
+  }
+}
+
+// Deployment-level admin-entered setup (the OAuth app client ID/secret), one singleton
+// instance addressed by name "". Secret values never leave this worker: describeSetup()
+// reports presence and timestamps only.
+export class VendorSetupStore extends DurableObject<Env> {
+  getValues(): Record<string, string> {
+    return this.ctx.storage.kv.get<Record<string, string>>("values") ?? {};
+  }
+
+  getUpdatedAt(): Record<string, number> {
+    return this.ctx.storage.kv.get<Record<string, number>>("updatedAt") ?? {};
+  }
+
+  // Merge-in a partial update (one secret can rotate without retyping the rest), but refuse
+  // to store a merged result that is missing any required value — a half-configured vendor
+  // must stay unconfigured rather than half-working.
+  apply(values: Record<string, string>, requiredNames: string[]): void {
+    const merged = { ...this.getValues(), ...values };
+    const missing = requiredNames.filter((name) => merged[name] === undefined);
+    if (missing.length) {
+      throw new Error(`Setup is incomplete: missing ${missing.join(", ")}.`);
+    }
+    const updatedAt = this.getUpdatedAt();
+    for (const name of Object.keys(values)) updatedAt[name] = Date.now();
+    this.ctx.storage.kv.put("values", merged);
+    this.ctx.storage.kv.put("updatedAt", updatedAt);
+  }
+
+  clear(): void {
+    this.ctx.storage.kv.delete("values");
+    this.ctx.storage.kv.delete("updatedAt");
   }
 }
 
@@ -588,10 +718,14 @@ export class UserAccount extends DurableObject<Env> {
     }
     this.ctx.storage.kv.delete("nonce");
 
-    let { CLIENT_ID: clientId, CLIENT_SECRET: clientSecret } = this.env;
-    if (!clientId || !clientSecret) {
+    // Resolved before taking the credential mutex (an outbound DO RPC must not run under it),
+    // and fresh so a just-entered admin setup is usable for the exchange that follows the very
+    // first authorize redirect.
+    let app = await resolveOAuthApp(this.env, this.ctx.exports, { fresh: true });
+    if (!app) {
       throw new Error("The Google Gatekeeper is not configured.");
     }
+    let { clientId, clientSecret } = app;
 
     // The credential swap is serialized against minting and revoke, but the callbacks below are
     // not: they are outbound RPCs that can re-enter this object, and awaiting one while holding the
@@ -672,21 +806,24 @@ export class UserAccount extends DurableObject<Env> {
   }
 
   async getAccessToken(opts?: AccessTokenRequest): Promise<GoogleAccessToken> {
-    let { CLIENT_ID: clientId, CLIENT_SECRET: clientSecret } = this.env;
-    if (!clientId || !clientSecret) {
-      throw new Error("The Google Gatekeeper is not configured.");
-    }
-
     if (!this.ctx.storage.kv.get<string>("refreshToken")) {
       throw new Error("no refresh token set");
     }
 
     // Fast path, deliberately outside the lock: the overwhelmingly common case is a valid cached
-    // token, and that must not serialize behind anything.
+    // token, and that must not serialize behind anything — including the OAuth-app lookup below.
     let cached = this.ctx.storage.kv.get<GoogleAccessToken>("accessToken");
     if (this.#tokenSatisfies(cached, opts)) {
       return cached;
     }
+
+    // Resolved before taking the credential mutex: an outbound DO RPC must not run under it.
+    // Isolate-cached, so the mint path pays the RPC at most once per cache TTL.
+    let app = await resolveOAuthApp(this.env, this.ctx.exports);
+    if (!app) {
+      throw new Error("The Google Gatekeeper is not configured.");
+    }
+    let { clientId, clientSecret } = app;
 
     // Serialized so a burst of concurrent 401s collapses into one token exchange. The re-check
     // inside the lock is what does the collapsing — the lock alone would just queue the mints.

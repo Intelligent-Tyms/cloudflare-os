@@ -24,7 +24,7 @@
 // Gadget a stub pointing to the Gadget's server-side Durable Object interface.
 
 import { RpcCompatible, RpcStub, RpcTarget } from "capnweb";
-import { AccountDescription, ActionKind, ActionDescription, AvatarImage, GatekeeperUiFrame, ObservationDescription, ResourceDescription, ResourceConfiguratorFrame, SupportedResource, VendorDescription, HookDescription } from "./gatekeeper.js";
+import { AccountDescription, ActionKind, ActionDescription, AvatarImage, GatekeeperUiFrame, ObservationDescription, ResourceDescription, ResourceConfiguratorFrame, SupportedResource, VendorDescription, VendorSetup, HookDescription } from "./gatekeeper.js";
 import type { UiFeatureFlags } from "./feature-flags.js";
 import type { ChannelsDescription, EmailInbox, TelegramBinding, TelegramLinkCode } from "./channels-admin.js";
 
@@ -686,7 +686,15 @@ export type AdminResourceVendor = {
   displayName: string;
   logo?: AvatarImage;
 } & (
-  | { autoProvisions: false; enabled: boolean; resources: AdminResource[] }
+  | {
+    autoProvisions: false;
+    enabled: boolean;
+    resources: AdminResource[];
+    // Present when the vendor accepts runtime admin setup (VendorDescription.supportsAdminSetup):
+    // its current setup status, so the panel can offer the setup flow. An unconfigured such
+    // vendor keeps its row (with no resources) — that row is where setup is entered.
+    setup?: { status: VendorSetup["status"] };
+  }
   | { autoProvisions: true; ambientMode: AmbientGatekeeperMode }
 );
 
@@ -898,6 +906,20 @@ export interface AdminApi {
   // gadget already holds, and 'disabled' leaves an ambient account's data dormant rather than deleting
   // it.
   setGatekeeperMode(vendorId: string, mode: AmbientGatekeeperMode): Promise<void>;
+
+  // The vendor's deployment-level setup state: its input schema, this deployment's OAuth
+  // redirect URI, and which values are stored (presence and timestamps only — never secret
+  // values). Only valid for vendors whose description sets supportsAdminSetup.
+  getIntegrationSetup(vendorId: string): Promise<VendorSetup>;
+
+  // Store admin-entered setup values for the vendor (e.g. its OAuth app client ID/secret).
+  // Partial updates are allowed for rotation. The values transit this API once and are stored
+  // by the vendor worker itself — the Workshop persists no credentials.
+  applyIntegrationSetup(vendorId: string, values: Record<string, string>): Promise<void>;
+
+  // Delete the vendor's admin-entered setup. It falls back to deploy-time secrets when those
+  // exist, and otherwise hides from users until set up again.
+  clearIntegrationSetup(vendorId: string): Promise<void>;
 
   // Set the top-bar notice (centered text in the top navigation bar). Pass "" to clear. Rejects over
   // MAX_ANNOUNCEMENT_LENGTH.
