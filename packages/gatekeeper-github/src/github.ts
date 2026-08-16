@@ -1105,6 +1105,8 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
     const usable = configured.length === SETUP_INPUT_NAMES.length ||
         Boolean(this.env.CLIENT_ID && this.env.CLIENT_SECRET);
     return {
+      description: "Create an OAuth app at GitHub and paste its keys here. Your team then " +
+          "connects their own GitHub accounts — nobody shares logins.",
       inputs: SETUP_INPUTS,
       redirectUri: `${getBaseUrl(this.env)}/oauth`,
       status: usable ? "configured" : "unconfigured",

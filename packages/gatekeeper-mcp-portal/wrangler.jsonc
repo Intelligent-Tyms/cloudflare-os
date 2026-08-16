@@ -22,6 +22,10 @@
     {
       "tag": "v0",
       "new_sqlite_classes": ["McpAccount", "McpGatekeeperImpl"]
+    },
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["VendorSetupStore"]
     }
   ],
   // Every var here is deployment configuration, so this file deliberately sets none of them to a

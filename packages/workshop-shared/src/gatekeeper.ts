@@ -95,10 +95,16 @@ export type VendorSetupInput = {
   // Stable key the value is stored and submitted under, e.g. "CLIENT_ID".
   name: string;
   // Whether the value is secret. Secret values are write-only: describeSetup() reports their
-  // presence and last-updated time, never their content.
+  // presence and last-updated time, never their content. Non-secret ("var") values are shown
+  // back to administrators.
   kind: "secret" | "var";
   // Human-readable field label, e.g. "OAuth client ID".
   label: string;
+  // True when setup is usable without this value (the vendor's applySetup may still require it
+  // conditionally, e.g. a token that becomes required by the chosen auth mode).
+  optional?: boolean;
+  // For an enumerated "var": the accepted values, in display order. The UI renders a picker.
+  options?: string[];
   // Where the administrator creates the upstream artifact (e.g. the provider's developer console).
   consoleUrl?: string;
   // Ordered, human-readable instructions for creating the upstream artifact.
@@ -108,6 +114,9 @@ export type VendorSetupInput = {
 // A vendor's deployment-level setup state, as shown to administrators. Never contains stored
 // secret values.
 export type VendorSetup = {
+  // One or two sentences shown under the setup dialog's title, explaining what the
+  // administrator is setting up and what their team gets.
+  description?: string;
   // The values this vendor accepts, in display order.
   inputs: VendorSetupInput[];
   // The exact OAuth redirect URI for this deployment, ready for the administrator to register
@@ -116,9 +125,10 @@ export type VendorSetup = {
   // "configured" when the vendor has a usable setup from any source; "unconfigured" otherwise.
   status: "configured" | "unconfigured";
   // The admin-entered values currently stored, by input name, with when each was last written.
-  // Empty when the vendor is configured only by deploy-time secrets — the UI then reports
-  // "configured by the deployment".
-  configured: { name: string; updatedAt: number }[];
+  // `value` is present only for non-secret ("var") inputs, so the panel can show what is set;
+  // secret values never appear here. Empty when the vendor is configured only by deploy-time
+  // secrets — the UI then reports "configured by the deployment".
+  configured: { name: string; updatedAt: number; value?: string }[];
 };
 
 // One file of a skill package being installed (see GatekeeperVendor.installSkillPackage).

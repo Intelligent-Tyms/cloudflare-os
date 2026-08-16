@@ -5,7 +5,7 @@
 // A sibling of the generic MCP connector rather than a mode of it: the endpoint is a deployment
 // setting rather than user input, and a grant is scoped to one upstream server. Everything else is
 // shared via `@gadgets/mcp-shared`. See the README.
-import { RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
+import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 import { validateRpc, skipRpcValidation } from "capnweb-validate";
 import { createLogger } from "@gadgets/backend-utils/logger";
 import {
@@ -21,6 +21,8 @@ import {
   type ResourceDescription,
   type SupportedResource,
   type VendorDescription,
+  type VendorSetup,
+  type VendorSetupInput,
 } from "@gadgets/workshop-shared/gatekeeper";
 import type { ToolCatalog } from "@gadgets/mcp-shared/client";
 import {
@@ -67,14 +69,19 @@ import {
   type McpGatekeeperUserProps,
 } from "@gadgets/mcp-shared/user";
 import {
+  invalidatePortalSetupCache,
+  loadPortalConfig,
+  loadPortalToken,
+  parsePortalConfig,
+  PORTAL_SETUP_NAMES,
   portalAuthRequiresReconnect,
   portalResource,
   portalServer,
-  portalTokenFor,
   portalTrust,
-  readPortalConfig,
   requirePortalServerScope,
+  type PortalSetupValues,
 } from "./config.js";
+import { fetchOptions } from "@gadgets/mcp-shared/fetch";
 import type { ConfiguratorUIOption } from "@gadgets/configurator-ui";
 import { MCP_BASE_TYPES } from "@gadgets/mcp-shared/base-types";
 import PORTAL_LOGO_SVG from "./portal-logo.svg";
@@ -133,7 +140,7 @@ export default {
       log: logger,
       connect: async (request, account, initiationNonce) => {
         if (request.method !== "GET") return new Response("Method Not Allowed", { status: 405 });
-        return continueConnect(account, initiationNonce, env);
+        return continueConnect(account, initiationNonce, env, ctx.exports);
       },
     });
   },
@@ -145,8 +152,9 @@ async function continueConnect(
   account: DurableObjectStub<McpAccount>,
   initiationNonce: string,
   env: Env,
+  exports: Cloudflare.Exports,
 ): Promise<Response> {
-  const config = readPortalConfig(env);
+  const config = await loadPortalConfig(env, exports);
   if (!config) {
     return htmlResponse(errorPageHtml(
       "No MCP server portal is configured",
@@ -173,7 +181,7 @@ async function continueConnect(
 @validateRpc()
 export class GatekeeperVendor extends WorkerEntrypoint<Env> implements GatekeeperVendorIface {
   async describe(): Promise<VendorDescription> {
-    const config = readPortalConfig(this.env);
+    const config = await loadPortalConfig(this.env, this.ctx.exports);
     return {
       displayName: config?.name ?? "Cloudflare MCP Server Portals",
       url: "https://developers.cloudflare.com/cloudflare-one/access-controls/ai-controls/mcp-portals/",
@@ -185,6 +193,7 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
       description:
         "Use the MCP servers this organization has approved, through its MCP server portal. Reads " +
         "happen straight away. Anything that writes waits for your approval.",
+      supportsAdminSetup: true,
     };
   }
 
@@ -192,16 +201,21 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
     callback: Fetcher<GatekeeperConnectCallback>,
     _options?: GatekeeperConnectOptions,
   ): Promise<{ url: string }> {
+    // Fail here rather than in the popup: an unconfigured portal should refuse the connect
+    // attempt with a readable error instead of minting a URL that dead-ends.
+    if (!(await loadPortalConfig(this.env, this.ctx.exports))) {
+      throw new Error("No MCP server portal is set up on this deployment. An administrator can set one up under Admin → Integrations.");
+    }
     const accountId = this.ctx.exports.McpAccount.newUniqueId();
     const initiationNonce = generateNonce();
     await this.ctx.exports.McpAccount.get(accountId).setCallback(callback, initiationNonce);
     return { url: `${getBaseUrl(this.env)}/${accountId.toString()}/${initiationNonce}` };
   }
 
-  // The one resource this connector offers, or none when unconfigured. Returning nothing is how the
-  // connector hides itself: the Workshop drops a vendor that advertises no resources.
+  // The one resource this connector offers, or none when unconfigured. Returning nothing is how
+  // the connector hides itself from users; the admin panel keeps the row via supportsAdminSetup.
   async getSupportedResources(): Promise<SupportedResource[]> {
-    const config = readPortalConfig(this.env);
+    const config = await loadPortalConfig(this.env, this.ctx.exports);
     return config ? [portalResource(config)] : [];
   }
 
@@ -210,6 +224,136 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
     // generated per resource, from the chosen upstream server's own catalog; see
     // `McpGatekeeperImpl.getTypeScriptTypes()`.
     return MCP_BASE_TYPES;
+  }
+
+  async describeSetup(): Promise<VendorSetup> {
+    const store = this.ctx.exports.VendorSetupStore.getByName("");
+    const [values, updatedAt] = await Promise.all([store.getValues(), store.getUpdatedAt()]);
+    const secretNames = new Set(SETUP_INPUTS.filter((input) => input.kind === "secret")
+        .map((input) => input.name));
+    const configured = PORTAL_SETUP_NAMES
+        .filter((name) => values[name] !== undefined)
+        .map((name) => ({
+          name,
+          updatedAt: updatedAt[name] ?? 0,
+          ...(secretNames.has(name) ? {} : { value: values[name] }),
+        }));
+    const usable = await loadPortalConfig(this.env, this.ctx.exports, { fresh: true }) !== null;
+    return {
+      description: "Point this deployment at your organization's MCP server portal. Your team " +
+          "then connects to the servers behind it; writes always wait for approval.",
+      inputs: SETUP_INPUTS,
+      redirectUri: `${getBaseUrl(this.env)}/oauth`,
+      status: usable ? "configured" : "unconfigured",
+      configured,
+    };
+  }
+
+  async applySetup(values: Record<string, string>): Promise<void> {
+    const entries = Object.entries(values);
+    if (!entries.length) throw new Error("No setup values provided.");
+    for (const [name, value] of entries) {
+      if (!(PORTAL_SETUP_NAMES as string[]).includes(name)) {
+        throw new Error(`Unknown setup value "${name}". Expected: ${PORTAL_SETUP_NAMES.join(", ")}.`);
+      }
+      if (typeof value !== "string" || !value.trim() || value.length > SETUP_VALUE_MAX_LENGTH) {
+        throw new Error(`Setup value "${name}" must be a non-empty string of at most ${SETUP_VALUE_MAX_LENGTH} characters.`);
+      }
+    }
+    const trimmed = Object.fromEntries(entries.map(([name, value]) => [name, value.trim()]));
+    const store = this.ctx.exports.VendorSetupStore.getByName("");
+    // Validate the merged result before storing, with reasons an administrator can act on —
+    // parsePortalConfig's silent null is the right shape for hiding a misconfigured vendor,
+    // not for rejecting a form.
+    // Rebuilt key by key: the RPC-returned record carries a disposer symbol that a plain
+    // spread would drag into the literal's type.
+    const current = await store.getValues();
+    const merged: PortalSetupValues = {};
+    for (const name of PORTAL_SETUP_NAMES) {
+      const value = trimmed[name] ?? current[name];
+      if (value !== undefined) merged[name] = value;
+    }
+    const allowInsecure = fetchOptions(this.env).allowInsecure === true;
+    const url = merged.MCP_PORTAL_URL?.trim() ?? "";
+    let parsedUrl: URL | undefined;
+    try { parsedUrl = new URL(url); } catch { /* handled below */ }
+    if (!parsedUrl) throw new Error("MCP_PORTAL_URL must be a valid URL.");
+    if (parsedUrl.username || parsedUrl.password) {
+      throw new Error("MCP_PORTAL_URL must not contain credentials; use the token field instead.");
+    }
+    if (parsedUrl.protocol !== "https:" && !(allowInsecure && parsedUrl.protocol === "http:")) {
+      throw new Error("MCP_PORTAL_URL must be HTTPS.");
+    }
+    const auth = merged.MCP_PORTAL_AUTH?.trim().toLowerCase();
+    if (auth !== undefined && !["oauth", "token", "none"].includes(auth)) {
+      throw new Error('MCP_PORTAL_AUTH must be "oauth", "token", or "none".');
+    }
+    if (auth === "token" && !merged.MCP_PORTAL_TOKEN) {
+      throw new Error('Authentication "token" needs a preissued bearer token.');
+    }
+    if (!parsePortalConfig(merged, allowInsecure)) {
+      throw new Error("The portal setup is not usable as entered.");
+    }
+    await store.apply(trimmed, ["MCP_PORTAL_URL"]);
+    invalidatePortalSetupCache();
+  }
+
+  async clearSetup(): Promise<void> {
+    await this.ctx.exports.VendorSetupStore.getByName("").clear();
+    invalidatePortalSetupCache();
+  }
+}
+
+// The values an administrator supplies to set the portal up at runtime. Stored wholesale: when
+// any are present they replace the deployment's MCP_PORTAL_* vars entirely, so the endpoint and
+// its token can never mix sources.
+const SETUP_INPUTS: VendorSetupInput[] = [
+  {
+    name: "MCP_PORTAL_URL",
+    kind: "var",
+    label: "Portal MCP endpoint URL",
+    consoleUrl: "https://developers.cloudflare.com/cloudflare-one/access-controls/ai-controls/mcp-portals/",
+    setupSteps: [
+      "Create an MCP server portal (for example, Cloudflare MCP Server Portals) fronting the servers your team may use.",
+      "Paste the portal's MCP endpoint URL below (HTTPS).",
+      "If the portal uses a preissued bearer token, set authentication to \"token\" and paste the token; leave \"oauth\" for portals that sign users in interactively.",
+    ],
+  },
+  { name: "MCP_PORTAL_NAME", kind: "var", label: "Display name", optional: true },
+  { name: "MCP_PORTAL_AUTH", kind: "var", label: "Authentication", optional: true, options: ["oauth", "token", "none"] },
+  { name: "MCP_PORTAL_TOKEN", kind: "secret", label: "Preissued bearer token", optional: true },
+];
+const SETUP_VALUE_MAX_LENGTH = 2048;
+
+// Deployment-level admin-entered portal setup, one singleton instance addressed by name "".
+// Secret values never leave this worker except as presence + timestamps; non-secret values
+// (the endpoint URL, display name, auth mode) are shown back to administrators.
+export class VendorSetupStore extends DurableObject<Env> {
+  getValues(): Record<string, string> {
+    return this.ctx.storage.kv.get<Record<string, string>>("values") ?? {};
+  }
+
+  getUpdatedAt(): Record<string, number> {
+    return this.ctx.storage.kv.get<Record<string, number>>("updatedAt") ?? {};
+  }
+
+  // Merge-in a partial update, but refuse a merged result missing any required value — a
+  // half-configured portal must stay unconfigured rather than half-working.
+  apply(values: Record<string, string>, requiredNames: string[]): void {
+    const merged = { ...this.getValues(), ...values };
+    const missing = requiredNames.filter((name) => merged[name] === undefined);
+    if (missing.length) {
+      throw new Error(`Setup is incomplete: missing ${missing.join(", ")}.`);
+    }
+    const updatedAt = this.getUpdatedAt();
+    for (const name of Object.keys(values)) updatedAt[name] = Date.now();
+    this.ctx.storage.kv.put("values", merged);
+    this.ctx.storage.kv.put("updatedAt", updatedAt);
+  }
+
+  clear(): void {
+    this.ctx.storage.kv.delete("values");
+    this.ctx.storage.kv.delete("updatedAt");
   }
 }
 
@@ -235,9 +379,9 @@ export class McpAccount extends McpAccountBase<Env> {
   }
 
   // Scoped to the endpoint this account is connected to, never merely to what configuration says
-  // today. The rule lives beside the configuration it guards, in `portalTokenFor`.
-  protected override staticToken(server: ConnectedServer): string | null {
-    return portalTokenFor(this.env, server.endpoint);
+  // today. The rule lives beside the configuration it guards, in `portalTokenOf`.
+  protected override staticToken(server: ConnectedServer): Promise<string | null> {
+    return loadPortalToken(this.env, this.ctx.exports, server.endpoint);
   }
 }
 
@@ -262,7 +406,7 @@ export class GatekeeperUserImpl
   // deployment therefore surfaces as a reconnect, via `getGatekeeperClassFor` refusing the old
   // endpoint, rather than as a Gadget quietly talking to a portal nobody chose.
   async getSupportedResources(): Promise<SupportedResource[]> {
-    const config = readPortalConfig(this.env);
+    const config = await loadPortalConfig(this.env, this.ctx.exports);
     return config ? [portalResource(config)] : [];
   }
 
@@ -270,7 +414,7 @@ export class GatekeeperUserImpl
     class: DurableObjectClass<Gatekeeper<unknown>>;
     resource: SupportedResource;
   }> {
-    const config = readPortalConfig(this.env);
+    const config = await loadPortalConfig(this.env, this.ctx.exports);
     if (!config) {
       throw new Error("This deployment has no MCP server portal configured.");
     }

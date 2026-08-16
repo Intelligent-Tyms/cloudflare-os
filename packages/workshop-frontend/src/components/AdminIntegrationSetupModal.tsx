@@ -46,9 +46,11 @@ export default function AdminIntegrationSetupModal({
 
   const configuredNames = new Set(setup?.configured.map((entry) => entry.name) ?? [])
   const dirtyEntries = Object.entries(drafts).filter(([, value]) => value.trim())
-  // Every input must have a value on the way in: either newly typed or already stored.
+  // Every required input must have a value on the way in: either newly typed or already stored.
+  // Optional inputs may stay empty (the vendor enforces conditional requirements itself).
   const complete = setup !== null && setup.inputs.every(
-    (input) => drafts[input.name]?.trim() || (configuredNames.has(input.name) && !replacing.has(input.name)))
+    (input) => input.optional || drafts[input.name]?.trim() ||
+      (configuredNames.has(input.name) && !replacing.has(input.name)))
   const canSave = dirtyEntries.length > 0 && complete && !busy
 
   const handleCopyRedirect = async () => {
@@ -101,8 +103,7 @@ export default function AdminIntegrationSetupModal({
             Set up {displayName}
           </Dialog.Title>
           <Dialog.Description className="mt-1 text-[13px] leading-[18px] text-kumo-subtle">
-            Create an OAuth app at {displayName} and paste its keys here. Your team then connects
-            their own accounts — nobody shares logins.
+            {setup?.description ?? `Enter the configuration ${displayName} needs. Secrets are stored on the server and never shown again.`}
           </Dialog.Description>
 
           {loadError && (
@@ -149,24 +150,43 @@ export default function AdminIntegrationSetupModal({
               <div className="space-y-3">
                 {setup.inputs.map((input) => {
                   const stored = setup.configured.find((entry) => entry.name === input.name)
-                  const showField = !stored || replacing.has(input.name)
+                  // Non-secret values are shown and edited in place (prefilled with what is
+                  // stored); secrets are write-only — presence + Replace.
+                  const isVar = input.kind === 'var'
+                  const showField = isVar || !stored || replacing.has(input.name)
+                  const varCurrent = isVar ? (drafts[input.name] ?? stored?.value ?? '') : undefined
                   return (
                     <div key={input.name}>
                       <label className="block text-xs font-medium text-kumo-subtle mb-1" htmlFor={`setup-${input.name}`}>
                         {input.label}
+                        {input.optional && <span className="ml-1 font-normal">(optional)</span>}
                       </label>
                       {showField ? (
-                        <Input
-                          id={`setup-${input.name}`}
-                          type={input.kind === 'secret' ? 'password' : 'text'}
-                          autoComplete="off"
-                          value={drafts[input.name] ?? ''}
-                          onChange={(e) => setDrafts((d) => ({ ...d, [input.name]: e.target.value }))}
-                        />
+                        input.options ? (
+                          <select
+                            id={`setup-${input.name}`}
+                            value={varCurrent ?? ''}
+                            onChange={(e) => setDrafts((d) => ({ ...d, [input.name]: e.target.value }))}
+                            className="w-full rounded-lg border border-kumo-line bg-kumo-base px-3 py-2 text-sm text-kumo-default"
+                          >
+                            <option value="">{input.optional ? '(default)' : 'Choose…'}</option>
+                            {input.options.map((option) => (
+                              <option key={option} value={option}>{option}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Input
+                            id={`setup-${input.name}`}
+                            type={input.kind === 'secret' ? 'password' : 'text'}
+                            autoComplete="off"
+                            value={isVar ? varCurrent : (drafts[input.name] ?? '')}
+                            onChange={(e) => setDrafts((d) => ({ ...d, [input.name]: e.target.value }))}
+                          />
+                        )
                       ) : (
                         <div className="flex items-center gap-3 rounded-lg border border-kumo-line px-3 py-2">
                           <span className="flex-1 text-sm text-kumo-subtle">
-                            Set{stored.updatedAt ? ` · updated ${new Date(stored.updatedAt).toLocaleDateString()}` : ''}
+                            Set{stored?.updatedAt ? ` · updated ${new Date(stored.updatedAt).toLocaleDateString()}` : ''}
                           </span>
                           <Button
                             type="button"

@@ -35,11 +35,35 @@ export function portalTrust(env: Env): ServerTrust {
   return (env.MCP_PORTAL_TRUST_ANNOTATIONS ?? "").toLowerCase() === "true" ? "vetted" : "byo";
 }
 
-// Reads the deployment's portal configuration, or null when it is not configured. A missing or
+// The portal setup values from one source. Two sources exist — admin-entered runtime setup
+// (the VendorSetupStore singleton) and the deployment's vars — and a source is used wholesale:
+// when the store holds any values it replaces the vars entirely, so the URL and its token can
+// never mix sources (see the provenance warning on `portalTokenOf`).
+export type PortalSetupValues = {
+  MCP_PORTAL_URL?: string;
+  MCP_PORTAL_NAME?: string;
+  MCP_PORTAL_AUTH?: string;
+  MCP_PORTAL_TOKEN?: string;
+};
+
+// The names an administrator may set at runtime; also the store's key allowlist.
+export const PORTAL_SETUP_NAMES: (keyof PortalSetupValues)[] =
+  ["MCP_PORTAL_URL", "MCP_PORTAL_NAME", "MCP_PORTAL_AUTH", "MCP_PORTAL_TOKEN"];
+
+function envSetupValues(env: Env): PortalSetupValues {
+  return {
+    MCP_PORTAL_URL: env.MCP_PORTAL_URL,
+    MCP_PORTAL_NAME: env.MCP_PORTAL_NAME,
+    MCP_PORTAL_AUTH: env.MCP_PORTAL_AUTH,
+    MCP_PORTAL_TOKEN: env.MCP_PORTAL_TOKEN,
+  };
+}
+
+// Parses one source's values into the portal configuration, or null when unusable. A missing or
 // unusable `MCP_PORTAL_URL` returns null rather than throwing, so the connector advertises no
 // resources and the Workshop hides it.
-export function readPortalConfig(env: Env): PortalConfig | null {
-  const raw = env.MCP_PORTAL_URL?.trim();
+export function parsePortalConfig(values: PortalSetupValues, allowInsecure: boolean): PortalConfig | null {
+  const raw = values.MCP_PORTAL_URL?.trim();
   if (!raw) return null;
 
   let url: URL;
@@ -51,7 +75,7 @@ export function readPortalConfig(env: Env): PortalConfig | null {
   // The same rule `guardedFetch` applies anyway. Enforcing it here means an `http://` typo hides the
   // connector rather than failing on the first request, with an error naming a URL the user never
   // saw.
-  if (url.protocol !== "https:" && !(fetchOptions(env).allowInsecure && url.protocol === "http:")) {
+  if (url.protocol !== "https:" && !(allowInsecure && url.protocol === "http:")) {
     return null;
   }
   // URL userinfo is an ambient credential: URL and fetch APIs can copy it into requests, while this
@@ -61,15 +85,64 @@ export function readPortalConfig(env: Env): PortalConfig | null {
   if (url.username || url.password) return null;
   url.hash = "";
 
-  const configured = env.MCP_PORTAL_AUTH?.trim().toLowerCase();
+  const configured = values.MCP_PORTAL_AUTH?.trim().toLowerCase();
   const auth: ServerAuthKind =
     configured === "none" || configured === "token" ? configured : "oauth";
 
   return {
     endpoint: url.toString(),
-    name: env.MCP_PORTAL_NAME?.trim() || `MCP Server Portal (${url.host})`,
+    name: values.MCP_PORTAL_NAME?.trim() || `MCP Server Portal (${url.host})`,
     auth,
   };
+}
+
+// Reads the deployment-var portal configuration. Runtime callers should use `loadPortalConfig`,
+// which prefers admin-entered setup; this remains the env-only fallback parse.
+export function readPortalConfig(env: Env): PortalConfig | null {
+  return parsePortalConfig(envSetupValues(env), fetchOptions(env).allowInsecure === true);
+}
+
+// Minimal structural stub for the VendorSetupStore singleton (defined in portal.ts; typed
+// structurally here to keep this module dependency-free).
+export type PortalSetupExports = {
+  VendorSetupStore: {
+    getByName(name: string): {
+      getValues(): Promise<Record<string, string>>;
+      getUpdatedAt(): Promise<Record<string, number>>;
+    };
+  };
+};
+
+// The active setup source: the admin-entered store when it holds any values, else the
+// deployment's vars. The store sits behind a Durable Object RPC and this is consulted on the
+// token path of every authenticated request, so results are cached per isolate briefly;
+// writers reset their own isolate's cache (`invalidatePortalSetupCache`) and other isolates
+// converge within the TTL.
+let setupCache: { values: PortalSetupValues; expiresAt: number } | undefined;
+const SETUP_CACHE_MS = 30_000;
+
+export function invalidatePortalSetupCache(): void {
+  setupCache = undefined;
+}
+
+export async function loadPortalSetup(
+  env: Env, exports: PortalSetupExports, options?: { fresh?: boolean },
+): Promise<PortalSetupValues> {
+  if (!options?.fresh && setupCache && Date.now() < setupCache.expiresAt) {
+    return setupCache.values;
+  }
+  const stored = await exports.VendorSetupStore.getByName("").getValues();
+  const values = Object.keys(stored).length > 0 ? (stored as PortalSetupValues) : envSetupValues(env);
+  setupCache = { values, expiresAt: Date.now() + SETUP_CACHE_MS };
+  return values;
+}
+
+// The portal configuration from the active source, or null when unconfigured.
+export async function loadPortalConfig(
+  env: Env, exports: PortalSetupExports, options?: { fresh?: boolean },
+): Promise<PortalConfig | null> {
+  return parsePortalConfig(await loadPortalSetup(env, exports, options),
+    fetchOptions(env).allowInsecure === true);
 }
 
 // Refuses a grant that does not name one upstream server.
@@ -134,8 +207,24 @@ export function portalAuthRequiresReconnect(
 //
 // Null means "this deployment has no token for that endpoint", covering both a portal with no token
 // configured and one that has since been repointed. Callers fail the request closed either way.
-export function portalTokenFor(env: Env, endpoint: string): string | null {
-  const config = readPortalConfig(env);
+// Pure over one source's values, so the token can only ever be released to the endpoint the same
+// source names.
+export function portalTokenOf(
+  values: PortalSetupValues, allowInsecure: boolean, endpoint: string,
+): string | null {
+  const config = parsePortalConfig(values, allowInsecure);
   if (config?.auth !== "token" || !sameEndpoint(config.endpoint, endpoint)) return null;
-  return env.MCP_PORTAL_TOKEN || null;
+  return values.MCP_PORTAL_TOKEN || null;
+}
+
+// The active source's preissued token for `endpoint` (see `portalTokenOf`).
+export async function loadPortalToken(
+  env: Env, exports: PortalSetupExports, endpoint: string,
+): Promise<string | null> {
+  return portalTokenOf(await loadPortalSetup(env, exports), fetchOptions(env).allowInsecure === true, endpoint);
+}
+
+// Env-only variant kept for the deployment-var source (tests exercise the parse rules here).
+export function portalTokenFor(env: Env, endpoint: string): string | null {
+  return portalTokenOf(envSetupValues(env), fetchOptions(env).allowInsecure === true, endpoint);
 }

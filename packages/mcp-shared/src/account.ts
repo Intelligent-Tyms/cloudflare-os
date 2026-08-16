@@ -162,7 +162,9 @@ export abstract class McpAccountBase<E extends AccountEnv, P = unknown>
   // together and touches no account, so between that edit and the user's reconnect the account
   // still names the old endpoint while this method would answer with the new deployment's secret.
   // Implementations must therefore return null unless current configuration still names `server`.
-  protected staticToken(_server: ConnectedServer): string | null {
+  // May be async: a connector whose configuration lives in runtime storage (admin-entered
+  // setup) resolves the token over a Durable Object RPC.
+  protected staticToken(_server: ConnectedServer): string | null | Promise<string | null> {
     return null;
   }
 
@@ -313,7 +315,7 @@ export abstract class McpAccountBase<E extends AccountEnv, P = unknown>
     // Connecting anyway records an account that looks fine in the Workshop and fails on first use,
     // with the misconfiguration surfacing far from the setting that caused it. Refused here, and
     // the form stays open so an administrator can supply the token and retry.
-    if (server.auth === "token" && this.staticToken(server) === null) {
+    if (server.auth === "token" && await this.staticToken(server) === null) {
       this.restoreSelection(initiationNonce);
       throw new Error(
         `No preissued token is configured for "${server.serverName}" on this deployment, so it ` +
@@ -370,7 +372,7 @@ export abstract class McpAccountBase<E extends AccountEnv, P = unknown>
   protected async probe(
     server: ConnectedServer, accessToken: string | null, generation: number,
   ): Promise<McpServerInfo> {
-    const token = accessToken ?? (server.auth === "token" ? this.staticToken(server) : null);
+    const token = accessToken ?? (server.auth === "token" ? await this.staticToken(server) : null);
     const client = new McpClient(server.endpoint, async () => token, null, this.fetchOptions());
     const info = await client.initialize(clientName(this.env));
     // A newer attempt may have started while initialize was in flight. Its session belongs to that
@@ -665,7 +667,7 @@ export abstract class McpAccountBase<E extends AccountEnv, P = unknown>
       // second is a repoint the account has not caught up with, and the only safe answer is to
       // withhold the token rather than send this deployment's current secret to the host this
       // account happens to still point at.
-      const token = this.staticToken(server);
+      const token = await this.staticToken(server);
       if (!token) {
         throw new Error(
           `This deployment has no preissued token for "${server.serverName}" at ` +
