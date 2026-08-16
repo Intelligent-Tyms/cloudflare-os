@@ -708,7 +708,7 @@ export default function OnboardingWizard({
                     </>
                   ) : (
                     <>
-                      Let&apos;s build
+                      Continue
                       <ArrowRight size={14} strokeWidth={2.5} />
                     </>
                   )}
@@ -788,9 +788,9 @@ const SHOWCASE_FEATURES: ShowcaseFeature[] = [
     icon: Unplug,
     iconColor: 'text-storage-100',
     iconBg: 'bg-storage-200',
-    title: 'AI meets your tools',
+    title: 'AI meets your company',
     description:
-      'Have AI review a Google Doc, summarize Slack threads, triage Jira tickets, and more.',
+      'Connect your systems and data to get work done.',
   },
 ]
 
