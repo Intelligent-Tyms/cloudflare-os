@@ -63,6 +63,7 @@ import {
 import { connectFormHtml } from "./connect-form.js";
 import { serverIdFromEndpoint } from "./server-id.js";
 import { mcpResourceFor, mcpResources } from "./resources.js";
+import { catalogEntryFor, ensureCatalog, trustFor } from "./vetted-catalog.js";
 import type { ConfiguratorUIOption } from "@gadgets/configurator-ui";
 import { MCP_BASE_TYPES } from "@gadgets/mcp-shared/base-types";
 import MCP_LOGO_SVG from "./mcp-logo.svg";
@@ -71,9 +72,10 @@ import type { McpServerConfiguratorRpc } from "./configurator/server-configurato
 
 const VENDOR_ID = "mcp";
 
-// A user-supplied endpoint vouches only for itself, so its annotations never drive auto-approval.
-// The tier says nothing about sharing; a Gadget bound to either tier is owner-only.
-const TRUST: ServerTrust = "byo";
+// The trust tier is per endpoint now: an endpoint on the deployment's vetted catalog (see
+// vetted-catalog.ts) may have its annotations drive auto-approval; anything user-supplied
+// stays "byo" — it vouches only for itself. The tier says nothing about sharing; a Gadget
+// bound to either tier is owner-only.
 
 const logger = createLogger<McpLogFields>({ component: "gatekeeper.mcp", vendorId: VENDOR_ID });
 
@@ -110,7 +112,12 @@ export default {
           if (!(await account.isAwaitingSelection(initiationNonce))) {
             return htmlResponse(INVALID_LINK_HTML, 400);
           }
-          return htmlResponse(connectFormHtml(path));
+          // A connect that started from a catalog pick in the Workshop already names its
+          // endpoint; skip the form entirely.
+          const requested = await account.requestedEndpoint();
+          if (requested) return continueConnect(account, initiationNonce, requested, env, path);
+          const catalog = await ensureCatalog(env);
+          return htmlResponse(connectFormHtml(path, undefined, catalog));
         }
         const form = await request.formData();
         return continueConnect(
@@ -134,14 +141,19 @@ async function continueConnect(
   if (endpointUrl !== null) {
     const validated = validateCustomEndpoint(env, endpointUrl);
     if (!validated.ok) {
-      return htmlResponse(connectFormHtml(formPath, validated.reason), 400);
+      return htmlResponse(
+        connectFormHtml(formPath, validated.reason, await ensureCatalog(env)), 400);
     }
-    // `serverName` is a placeholder until the handshake reports the server's own name, and `auth` is
-    // a guess that `beginConnect` corrects to `"none"` if the endpoint turns out to be public.
+    // A catalog member seeds the curated display name; either way the handshake may report the
+    // server's own name, and `auth` is a guess that `beginConnect` corrects to `"none"` if the
+    // endpoint turns out to be public. Provenance stays "user" — the person chose this server —
+    // so a catalog entry can never repoint an existing account the way a deployment portal can.
+    await ensureCatalog(env);
+    const entry = catalogEntryFor(validated.url);
     target = {
       endpoint: validated.url,
       serverId: serverIdFromEndpoint(validated.url),
-      serverName: hostOf(validated.url),
+      serverName: entry?.name ?? hostOf(validated.url),
       provenance: "user",
       auth: "oauth",
     };
@@ -181,16 +193,27 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
 
   async connectAccount(
     callback: Fetcher<GatekeeperConnectCallback>,
-    _options?: GatekeeperConnectOptions,
+    options?: GatekeeperConnectOptions,
   ): Promise<{ url: string }> {
     const accountId = this.ctx.exports.McpAccount.newUniqueId();
     const initiationNonce = generateNonce();
-    await this.ctx.exports.McpAccount.get(accountId).setCallback(callback, initiationNonce);
+    const account = this.ctx.exports.McpAccount.get(accountId);
+    await account.setCallback(callback, initiationNonce);
+    // A single requested pattern naming a catalog server pre-selects that endpoint: the connect
+    // popup then skips the URL form. Anything else (no patterns, several, the catch-alls) falls
+    // through to the form, which offers the catalog too.
+    const patterns = options?.resourceUrlPatterns ?? [];
+    if (patterns.length === 1) {
+      await ensureCatalog(this.env);
+      const entry = catalogEntryFor(patterns[0]);
+      if (entry) await account.setRequestedEndpoint(entry.endpoint);
+    }
     return { url: `${getBaseUrl(this.env)}/${accountId.toString()}/${initiationNonce}` };
   }
 
   async getSupportedResources(): Promise<SupportedResource[]> {
-    return mcpResources(fetchOptions(this.env).allowInsecure === true);
+    return mcpResources(fetchOptions(this.env).allowInsecure === true,
+      await ensureCatalog(this.env));
   }
 
   async getTypeScriptTypes(): Promise<string> {
@@ -228,6 +251,16 @@ export class McpAccount extends McpAccountBase<Env> {
   async isAwaitingSelection(initiationNonce: string): Promise<boolean> {
     return this.awaitingSelection(initiationNonce);
   }
+
+  // A catalog server chosen in the Workshop before the popup opened (see connectAccount). Only
+  // an endpoint, never a credential; consumed by the connect handler to skip the URL form.
+  async setRequestedEndpoint(endpoint: string): Promise<void> {
+    this.ctx.storage.kv.put("requestedCatalogEndpoint", endpoint);
+  }
+
+  async requestedEndpoint(): Promise<string | null> {
+    return this.ctx.storage.kv.get<string>("requestedCatalogEndpoint") ?? null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -248,7 +281,8 @@ export class GatekeeperUserImpl
   }
 
   async getSupportedResources(): Promise<SupportedResource[]> {
-    return mcpResources(fetchOptions(this.env).allowInsecure === true);
+    return mcpResources(fetchOptions(this.env).allowInsecure === true,
+      await ensureCatalog(this.env));
   }
 
   async getGatekeeperClassFor(url: string): Promise<{
@@ -290,7 +324,7 @@ export class GatekeeperUserImpl
     };
     return {
       class: this.ctx.exports.McpGatekeeperImpl({ props }),
-      resource: mcpResourceFor(server.endpoint),
+      resource: mcpResourceFor(server.endpoint, await ensureCatalog(this.env)),
     };
   }
 
@@ -347,9 +381,13 @@ class McpServerConfiguratorUI extends RpcTarget implements McpServerConfigurator
 
   // Every tool the grant may cover, annotated with whether calls need approval.
   async listToolOptions(): Promise<ConfiguratorUIOption[]> {
-    const { tools, truncated } = await this.#tools();
+    const [{ tools, truncated }, server] = await Promise.all([
+      this.#tools(), this.#account.getServer(),
+    ]);
     requireCompleteCatalogForToolSelection(truncated);
     const isPortal = looksLikePortal(tools, truncated);
+    await ensureCatalog(this.#env);
+    const trust = trustFor(this.#env, server.endpoint);
 
     return tools
       .filter(tool => scopeAllows({}, tool.name, isPortal))
@@ -358,7 +396,7 @@ class McpServerConfiguratorUI extends RpcTarget implements McpServerConfigurator
         title: tool.title ?? tool.name,
         subtitle: tool.description?.split(/\r?\n/)[0],
         // Surfaced here so the person granting can see, per tool, whether calls will interrupt them.
-        meta: classifyTool(tool, TRUST).mode === "read" ? "read-only" : "needs approval",
+        meta: classifyTool(tool, trust).mode === "read" ? "read-only" : "needs approval",
       }));
   }
 }
@@ -404,8 +442,11 @@ export class McpGatekeeperImpl
       this.ctx.exports.McpAccount.idFromString(this.ctx.props.accountObjectId));
   }
 
+  // Sync by contract, so it answers from the last-known catalog and kicks a background refresh
+  // when stale. A cold isolate answers "byo" — the conservative tier — and converges within one
+  // call; the tool-catalog cache is keyed on the tier and refetches when it flips.
   protected get trust(): ServerTrust {
-    return TRUST;
+    return trustFor(this.env, this.ctx.props.endpoint);
   }
 
   protected get sessionClass() {
@@ -442,13 +483,14 @@ export class McpGatekeeperImpl
   }
 
   async getTypeScriptTypes(): Promise<string> {
+    await ensureCatalog(this.env);
     return generateSessionTypes({
       baseTypes: MCP_BASE_TYPES,
       serverId: this.ctx.props.serverId,
       serverName: this.ctx.props.serverName,
       endpoint: this.ctx.props.endpoint,
       discriminator: this.resourceUrl,
-      trust: TRUST,
+      trust: trustFor(this.env, this.ctx.props.endpoint),
       tools: await this.tools(),
     });
   }

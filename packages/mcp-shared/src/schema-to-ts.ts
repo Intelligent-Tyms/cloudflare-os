@@ -340,6 +340,10 @@ export function generateSessionTypes(args: {
   if (args.trust === "byo") {
     lines.push(" *");
     lines.push(" * This server was supplied by the user, so no action is ever applied automatically.");
+  } else {
+    lines.push(" *");
+    lines.push(" * This server is on the deployment's vetted list; actions it marks non-destructive");
+    lines.push(" * and idempotent may be pre-approved by the workspace.");
   }
   lines.push(" *");
   // Kept in the agent's view because the agent can otherwise build a share flow that cannot work.

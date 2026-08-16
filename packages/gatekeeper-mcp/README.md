@@ -1,4 +1,11 @@
-# MCP gatekeeper
+| `MCP_ALLOW_INSECURE` | `"true"` to disable the endpoint checks entirely: permits `http://` **and** private, loopback, link-local, and cloud-metadata hosts, on the endpoint and on every OAuth URL discovered from it. Local dev only. |
+| `MCP_CATALOG_URL` | Optional URL of a curated catalog of vetted MCP servers (JSON `{ servers: [{ id, name, description, endpoint, vetted }] }`). Listed servers appear as one-click connect choices, and vetted entries earn the `vetted` trust tier: their own read-only/idempotent annotations may drive auto-approval. Absent means pure bring-your-own. |
+
+Per-server configuration is the catalog: listing an endpoint there is a review assertion (see
+`src/vetted-catalog.ts`). Everything else stays bring-your-own — users supply endpoints, and an
+administrator can toggle each catalog server (and the BYO entry) in the admin Integrations panel.
+A deployment that wants one gateway fronting many servers should still use
+[`gatekeeper-mcp-portal`](../gatekeeper-mcp-portal/README.md).# MCP gatekeeper
 
 Connects any [Model Context Protocol](https://modelcontextprotocol.io) server as a Gadgets
 capability. The user pastes an endpoint URL, the gatekeeper runs the OAuth discovery chain against
@@ -68,11 +75,13 @@ See `src/types.d.ts` in `@gadgets/mcp-shared` for the base session API.
 | `BASE_URL` | Public base URL of this Worker, for OAuth redirects. |
 | `MCP_CLIENT_NAME` | Client name sent in `initialize` and dynamic client registration. |
 | `MCP_ALLOW_INSECURE` | `"true"` to disable the endpoint checks entirely: permits `http://` **and** private, loopback, link-local, and cloud-metadata hosts, on the endpoint and on every OAuth URL discovered from it. Local dev only. |
+| `MCP_CATALOG_URL` | Optional URL of a curated catalog of vetted MCP servers (JSON `{ servers: [{ id, name, description, endpoint, vetted }] }`). Listed servers appear as one-click connect choices, and vetted entries earn the `vetted` trust tier: their own read-only/idempotent annotations may drive auto-approval. Absent means pure bring-your-own. |
 
-There is nothing to configure per server: users supply endpoints, and an administrator's only lever
-is whether this connector is offered at all, in the Gatekeepers admin panel. There is no server
-catalog — a deployment that wants to offer a chosen set of servers should front them with a portal
-and use [`gatekeeper-mcp-portal`](../gatekeeper-mcp-portal/README.md).
+Per-server configuration is the catalog: listing an endpoint there is a review assertion (see
+`src/vetted-catalog.ts`). Everything else stays bring-your-own — users supply endpoints, and an
+administrator can toggle each catalog server (and the bring-your-own entry) in the admin
+Integrations panel. A deployment that wants one gateway fronting many servers should still use
+[`gatekeeper-mcp-portal`](../gatekeeper-mcp-portal/README.md).
 
 For local development no credentials are needed. Set `MCP_ALLOW_INSECURE=true` in the repo-root
 `.dev.vars` to connect a server running on localhost.
