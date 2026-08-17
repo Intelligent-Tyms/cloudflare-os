@@ -11,10 +11,12 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
+import { Route as AssistantRouteImport } from './routes/assistant'
 import { Route as BlueprintsRouteImport } from './routes/blueprints'
 import { Route as ContextRouteImport } from './routes/context'
 import { Route as ExploreRouteImport } from './routes/explore'
 import { Route as GatekeepersRouteImport } from './routes/gatekeepers'
+import { Route as IntegrationsRouteImport } from './routes/integrations'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as OutputsRouteImport } from './routes/outputs'
 import { Route as ProfileRouteImport } from './routes/profile'
@@ -25,6 +27,7 @@ import { Route as AdminSectionRouteImport } from './routes/admin_.$section'
 import { Route as BlueprintIdRouteImport } from './routes/blueprint.$id'
 import { Route as GadgetIdRouteImport } from './routes/gadget.$id'
 import { Route as GatekeepersAppIdRouteImport } from './routes/gatekeepers_.$appId'
+import { Route as IntegrationsAppIdRouteImport } from './routes/integrations_.$appId'
 import { Route as WorkspaceIdRouteImport } from './routes/workspace.$id'
 import { Route as AdminChannelsChannelRouteImport } from './routes/admin_.channels.$channel'
 import { Route as AdminIntegrationsVendorIdRouteImport } from './routes/admin_.integrations.$vendorId'
@@ -38,6 +41,11 @@ const IndexRoute = IndexRouteImport.update({
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AssistantRoute = AssistantRouteImport.update({
+  id: '/assistant',
+  path: '/assistant',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BlueprintsRoute = BlueprintsRouteImport.update({
@@ -58,6 +66,11 @@ const ExploreRoute = ExploreRouteImport.update({
 const GatekeepersRoute = GatekeepersRouteImport.update({
   id: '/gatekeepers',
   path: '/gatekeepers',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IntegrationsRoute = IntegrationsRouteImport.update({
+  id: '/integrations',
+  path: '/integrations',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -110,6 +123,11 @@ const GatekeepersAppIdRoute = GatekeepersAppIdRouteImport.update({
   path: '/gatekeepers/$appId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const IntegrationsAppIdRoute = IntegrationsAppIdRouteImport.update({
+  id: '/integrations_/$appId',
+  path: '/integrations/$appId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WorkspaceIdRoute = WorkspaceIdRouteImport.update({
   id: '/workspace/$id',
   path: '/workspace/$id',
@@ -135,10 +153,12 @@ const AdminSkillsSkillNameRoute = AdminSkillsSkillNameRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/assistant': typeof AssistantRoute
   '/blueprints': typeof BlueprintsRoute
   '/context': typeof ContextRoute
   '/explore': typeof ExploreRoute
   '/gatekeepers': typeof GatekeepersRoute
+  '/integrations': typeof IntegrationsRoute
   '/login': typeof LoginRoute
   '/outputs': typeof OutputsRoute
   '/profile': typeof ProfileRoute
@@ -149,6 +169,7 @@ export interface FileRoutesByFullPath {
   '/blueprint/$id': typeof BlueprintIdRoute
   '/gadget/$id': typeof GadgetIdRoute
   '/gatekeepers/$appId': typeof GatekeepersAppIdRoute
+  '/integrations/$appId': typeof IntegrationsAppIdRoute
   '/workspace/$id': typeof WorkspaceIdRoute
   '/admin/channels/$channel': typeof AdminChannelsChannelRoute
   '/admin/integrations/$vendorId': typeof AdminIntegrationsVendorIdRoute
@@ -157,10 +178,12 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/assistant': typeof AssistantRoute
   '/blueprints': typeof BlueprintsRoute
   '/context': typeof ContextRoute
   '/explore': typeof ExploreRoute
   '/gatekeepers': typeof GatekeepersRoute
+  '/integrations': typeof IntegrationsRoute
   '/login': typeof LoginRoute
   '/outputs': typeof OutputsRoute
   '/profile': typeof ProfileRoute
@@ -171,6 +194,7 @@ export interface FileRoutesByTo {
   '/blueprint/$id': typeof BlueprintIdRoute
   '/gadget/$id': typeof GadgetIdRoute
   '/gatekeepers/$appId': typeof GatekeepersAppIdRoute
+  '/integrations/$appId': typeof IntegrationsAppIdRoute
   '/workspace/$id': typeof WorkspaceIdRoute
   '/admin/channels/$channel': typeof AdminChannelsChannelRoute
   '/admin/integrations/$vendorId': typeof AdminIntegrationsVendorIdRoute
@@ -180,10 +204,12 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/assistant': typeof AssistantRoute
   '/blueprints': typeof BlueprintsRoute
   '/context': typeof ContextRoute
   '/explore': typeof ExploreRoute
   '/gatekeepers': typeof GatekeepersRoute
+  '/integrations': typeof IntegrationsRoute
   '/login': typeof LoginRoute
   '/outputs': typeof OutputsRoute
   '/profile': typeof ProfileRoute
@@ -194,6 +220,7 @@ export interface FileRoutesById {
   '/blueprint/$id': typeof BlueprintIdRoute
   '/gadget/$id': typeof GadgetIdRoute
   '/gatekeepers_/$appId': typeof GatekeepersAppIdRoute
+  '/integrations_/$appId': typeof IntegrationsAppIdRoute
   '/workspace/$id': typeof WorkspaceIdRoute
   '/admin_/channels/$channel': typeof AdminChannelsChannelRoute
   '/admin_/integrations/$vendorId': typeof AdminIntegrationsVendorIdRoute
@@ -204,10 +231,12 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/assistant'
     | '/blueprints'
     | '/context'
     | '/explore'
     | '/gatekeepers'
+    | '/integrations'
     | '/login'
     | '/outputs'
     | '/profile'
@@ -218,6 +247,7 @@ export interface FileRouteTypes {
     | '/blueprint/$id'
     | '/gadget/$id'
     | '/gatekeepers/$appId'
+    | '/integrations/$appId'
     | '/workspace/$id'
     | '/admin/channels/$channel'
     | '/admin/integrations/$vendorId'
@@ -226,10 +256,12 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin'
+    | '/assistant'
     | '/blueprints'
     | '/context'
     | '/explore'
     | '/gatekeepers'
+    | '/integrations'
     | '/login'
     | '/outputs'
     | '/profile'
@@ -240,6 +272,7 @@ export interface FileRouteTypes {
     | '/blueprint/$id'
     | '/gadget/$id'
     | '/gatekeepers/$appId'
+    | '/integrations/$appId'
     | '/workspace/$id'
     | '/admin/channels/$channel'
     | '/admin/integrations/$vendorId'
@@ -248,10 +281,12 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin'
+    | '/assistant'
     | '/blueprints'
     | '/context'
     | '/explore'
     | '/gatekeepers'
+    | '/integrations'
     | '/login'
     | '/outputs'
     | '/profile'
@@ -262,6 +297,7 @@ export interface FileRouteTypes {
     | '/blueprint/$id'
     | '/gadget/$id'
     | '/gatekeepers_/$appId'
+    | '/integrations_/$appId'
     | '/workspace/$id'
     | '/admin_/channels/$channel'
     | '/admin_/integrations/$vendorId'
@@ -271,10 +307,12 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
+  AssistantRoute: typeof AssistantRoute
   BlueprintsRoute: typeof BlueprintsRoute
   ContextRoute: typeof ContextRoute
   ExploreRoute: typeof ExploreRoute
   GatekeepersRoute: typeof GatekeepersRoute
+  IntegrationsRoute: typeof IntegrationsRoute
   LoginRoute: typeof LoginRoute
   OutputsRoute: typeof OutputsRoute
   ProfileRoute: typeof ProfileRoute
@@ -285,6 +323,7 @@ export interface RootRouteChildren {
   BlueprintIdRoute: typeof BlueprintIdRoute
   GadgetIdRoute: typeof GadgetIdRoute
   GatekeepersAppIdRoute: typeof GatekeepersAppIdRoute
+  IntegrationsAppIdRoute: typeof IntegrationsAppIdRoute
   WorkspaceIdRoute: typeof WorkspaceIdRoute
   AdminChannelsChannelRoute: typeof AdminChannelsChannelRoute
   AdminIntegrationsVendorIdRoute: typeof AdminIntegrationsVendorIdRoute
@@ -305,6 +344,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/assistant': {
+      id: '/assistant'
+      path: '/assistant'
+      fullPath: '/assistant'
+      preLoaderRoute: typeof AssistantRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/blueprints': {
@@ -333,6 +379,13 @@ declare module '@tanstack/react-router' {
       path: '/gatekeepers'
       fullPath: '/gatekeepers'
       preLoaderRoute: typeof GatekeepersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/integrations': {
+      id: '/integrations'
+      path: '/integrations'
+      fullPath: '/integrations'
+      preLoaderRoute: typeof IntegrationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -405,6 +458,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GatekeepersAppIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/integrations_/$appId': {
+      id: '/integrations_/$appId'
+      path: '/integrations/$appId'
+      fullPath: '/integrations/$appId'
+      preLoaderRoute: typeof IntegrationsAppIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/workspace/$id': {
       id: '/workspace/$id'
       path: '/workspace/$id'
@@ -439,10 +499,12 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
+  AssistantRoute: AssistantRoute,
   BlueprintsRoute: BlueprintsRoute,
   ContextRoute: ContextRoute,
   ExploreRoute: ExploreRoute,
   GatekeepersRoute: GatekeepersRoute,
+  IntegrationsRoute: IntegrationsRoute,
   LoginRoute: LoginRoute,
   OutputsRoute: OutputsRoute,
   ProfileRoute: ProfileRoute,
@@ -453,6 +515,7 @@ const rootRouteChildren: RootRouteChildren = {
   BlueprintIdRoute: BlueprintIdRoute,
   GadgetIdRoute: GadgetIdRoute,
   GatekeepersAppIdRoute: GatekeepersAppIdRoute,
+  IntegrationsAppIdRoute: IntegrationsAppIdRoute,
   WorkspaceIdRoute: WorkspaceIdRoute,
   AdminChannelsChannelRoute: AdminChannelsChannelRoute,
   AdminIntegrationsVendorIdRoute: AdminIntegrationsVendorIdRoute,

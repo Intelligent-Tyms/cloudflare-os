@@ -1,6 +1,6 @@
 import { useNavigate } from '@tanstack/react-router'
 import { DropdownMenu } from '@cloudflare/kumo'
-import { ChevronsUpDown, LogOut, Plug, ShieldCheck, SunMoon, User } from 'lucide-react'
+import { Bot, ChevronsUpDown, LogOut, Plug, ShieldCheck, SunMoon, User } from 'lucide-react'
 import { useAuthenticatedApi } from '../AuthContext'
 import { useAvatar } from '../useAvatar'
 import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER, MENU_POSITIONER_STYLE } from './menuStyles'
@@ -84,6 +84,12 @@ export default function UserMenu({ collapsed = false }: { collapsed?: boolean })
           className={MENU_ITEM}
         >
           <ItemContent icon={<User />}>Profile</ItemContent>
+        </DropdownMenu.Item>
+        <DropdownMenu.Item
+          onClick={() => navigate({ to: '/assistant' })}
+          className={MENU_ITEM}
+        >
+          <ItemContent icon={<Bot />}>Assistant</ItemContent>
         </DropdownMenu.Item>
         <DropdownMenu.Item
           onClick={() => navigate({ to: '/gatekeepers' })}

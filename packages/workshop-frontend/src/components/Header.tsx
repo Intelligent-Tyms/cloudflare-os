@@ -65,7 +65,7 @@ export default function Header() {
               Home
             </Link>
             <Link
-              to="/gatekeepers"
+              to="/integrations"
               className={navLinkClass}
               activeProps={{ className: navLinkActiveClass }}
               activeOptions={{ exact: true }}
@@ -82,7 +82,7 @@ export default function Header() {
             {gatekeeperApps.map((app) => (
               <Link
                 key={app.id}
-                to="/gatekeepers/$appId"
+                to="/integrations/$appId"
                 params={{ appId: app.id }}
                 className={navLinkClass}
                 activeProps={{ className: navLinkActiveClass }}
@@ -128,7 +128,7 @@ export default function Header() {
               Home
             </Link>
             <Link
-              to="/gatekeepers"
+              to="/integrations"
               onClick={closeMobileMenu}
               className={navLinkClass}
               activeProps={{ className: navLinkActiveClass }}
@@ -147,7 +147,7 @@ export default function Header() {
             {gatekeeperApps.map((app) => (
               <Link
                 key={app.id}
-                to="/gatekeepers/$appId"
+                to="/integrations/$appId"
                 params={{ appId: app.id }}
                 onClick={closeMobileMenu}
                 className={navLinkClass}
@@ -168,6 +168,14 @@ export default function Header() {
                   activeProps={{ className: navLinkActiveClass }}
                 >
                   Profile
+                </Link>
+                <Link
+                  to="/assistant"
+                  onClick={closeMobileMenu}
+                  className={navLinkClass}
+                  activeProps={{ className: navLinkActiveClass }}
+                >
+                  Assistant
                 </Link>
                 {auth.isAdmin && (
                   <Link
