@@ -16,6 +16,7 @@ import { formatBlueprintsManifestVersion, installFormatBlueprints } from './form
 import { FORMAT_BLUEPRINTS } from './generated/format-blueprints.js';
 import * as teamDirectory from './team-directory.js';
 import * as billingDirectory from './billing-directory.js';
+import type { UsageCollectorDurableObject } from './usage-collector.js';
 
 const logger = createWorkshopLogger("workshop.admin.settings");
 
@@ -885,7 +886,8 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
   // acting admin. It's plain data — not a user-DO dependency. `env` is needed for the team
   // directory client only.
   constructor(private admin: DurableObjectStub<AdminSettings>, private adminUserId: string,
-      private env: Cloudflare.Env) {
+      private env: Cloudflare.Env,
+      private usageCollector?: DurableObjectStub<UsageCollectorDurableObject>) {
     super();
   }
 
@@ -1145,6 +1147,10 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
   async getBillingOverview(): Promise<BillingOverview | null> {
     if (!billingDirectory.hasBillingDirectory(this.env)) return null;
     let {entitlements, usage} = await billingDirectory.fetchBillingSummary(this.env);
+    // The summary carries a fresh entitlements snapshot; pushing it into the usage
+    // collector's cache means whatever this page shows (a plan change or top-up that just
+    // landed via webhook) is also live at the enforcement gates, not stale for the TTL.
+    await this.usageCollector?.acceptEntitlements(entitlements).catch(() => {});
     return {...entitlements, usage: usage.rows};
   }
 

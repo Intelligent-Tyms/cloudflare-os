@@ -113,6 +113,15 @@ export class UsageCollectorDurableObject extends DurableObject<Cloudflare.Env> {
   }
 
   /**
+   * Cache an entitlements snapshot fetched elsewhere (the admin billing page's summary
+   * call), so a plan change or top-up the admin can already see on that page is also live
+   * at the enforcement gates instead of waiting out the TTL.
+   */
+  async acceptEntitlements(data: CentralEntitlements): Promise<void> {
+    await this.ctx.storage.put("entitlements", { fetchedAt: Date.now(), data });
+  }
+
+  /**
    * Claim the workspace-wide upgrade-request notification slot: true (and the slot is
    * stamped) when no request went out within the cooldown, false otherwise — so a stuck
    * teammate mashing "Request upgrade" can't flood the admins' inboxes.

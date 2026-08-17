@@ -23,6 +23,28 @@ const shortDate = (ts: number) =>
 
 const TOPUP_PRESETS_CENTS = [10_00, 25_00, 50_00]
 
+// Stripe checkout returns before its webhook applies the purchase, so the page would show
+// the pre-payment plan and balances. These sessionStorage stashes are written just before
+// redirecting to checkout and read back on the ?plan=success / ?topup=success return, so
+// we know what to poll for and when it has landed.
+const PENDING_PLAN_KEY = 'tyms.billing.pendingPlan'
+const PENDING_TOPUP_KEY = 'tyms.billing.pendingTopup'
+const CHECKOUT_POLL_MS = 2_500
+const CHECKOUT_POLL_ATTEMPTS = 24
+
+type PendingPlan = { code: string; name: string }
+type PendingTopup = { creditType: BillingCreditType; topupMicroUsd: number }
+
+const takeStash = <T,>(key: string): T | null => {
+  try {
+    const raw = sessionStorage.getItem(key)
+    sessionStorage.removeItem(key)
+    return raw ? (JSON.parse(raw) as T) : null
+  } catch {
+    return null
+  }
+}
+
 const STATUS_STYLES: Record<string, string> = {
   active: 'bg-kumo-success/10 text-kumo-success',
   trialing: 'bg-kumo-info/10 text-kumo-info',
@@ -69,9 +91,29 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin])
 
-  // Returning from a top-up or plan-change checkout: acknowledge and clean the URL. The
-  // balance/plan updates once Stripe's webhook lands, usually within seconds.
+  // Returning from a top-up or plan-change checkout: acknowledge, clean the URL, and —
+  // when we know what was bought (the pre-checkout stash) — poll until Stripe's webhook
+  // has actually applied it, so the page never claims success while showing the old state.
   useEffect(() => {
+    let cancelled = false
+    const pollUntil = async (
+      done: (billing: BillingOverview) => boolean,
+      onDone: () => void,
+      onTimeout: () => void,
+    ) => {
+      for (let attempt = 0; attempt < CHECKOUT_POLL_ATTEMPTS; attempt++) {
+        const billing = await reload().catch(() => null)
+        if (cancelled) return
+        if (billing && done(billing)) {
+          onDone()
+          return
+        }
+        await new Promise((resolve) => setTimeout(resolve, CHECKOUT_POLL_MS))
+        if (cancelled) return
+      }
+      onTimeout()
+    }
+
     const params = new URLSearchParams(window.location.search)
     const outcome = params.get('topup')
     const planOutcome = params.get('plan')
@@ -82,13 +124,35 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
     }
     if (!outcome && !planOutcome && !intent) return
     if (outcome === 'success') {
-      toasts.add({ title: 'Top-up complete. Your balance updates momentarily.', variant: 'success' })
+      const pending = takeStash<PendingTopup>(PENDING_TOPUP_KEY)
+      if (!pending) {
+        toasts.add({ title: 'Top-up complete. Your balance updates momentarily.', variant: 'success' })
+      } else {
+        toasts.add({ title: 'Payment complete. Adding your credits…', variant: 'success' })
+        void pollUntil(
+          (billing) => billing[pending.creditType].topupMicroUsd > pending.topupMicroUsd,
+          () => toasts.add({ title: 'Top-up complete. Your credits are available now.', variant: 'success' }),
+          () => toasts.add({ title: 'Payment received. Your credits can take a minute to appear.', variant: 'info' }),
+        )
+      }
     } else if (outcome === 'cancelled') {
+      sessionStorage.removeItem(PENDING_TOPUP_KEY)
       toasts.add({ title: 'Top-up cancelled.', variant: 'info' })
     }
     if (planOutcome === 'success') {
-      toasts.add({ title: 'Payment complete. Your new plan activates momentarily.', variant: 'success' })
+      const pending = takeStash<PendingPlan>(PENDING_PLAN_KEY)
+      if (!pending) {
+        toasts.add({ title: 'Payment complete. Your new plan activates momentarily.', variant: 'success' })
+      } else {
+        toasts.add({ title: 'Payment complete. Activating your new plan…', variant: 'success' })
+        void pollUntil(
+          (billing) => billing.planCode === pending.code,
+          () => toasts.add({ title: `You're now on the ${pending.name} plan.`, variant: 'success' }),
+          () => toasts.add({ title: 'Payment received. Your new plan can take a minute to activate.', variant: 'info' }),
+        )
+      }
     } else if (planOutcome === 'cancelled') {
+      sessionStorage.removeItem(PENDING_PLAN_KEY)
       toasts.add({ title: 'Plan change cancelled.', variant: 'info' })
     }
     params.delete('topup')
@@ -97,6 +161,7 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
     params.delete('period')
     const query = params.toString()
     window.history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : ''))
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -107,6 +172,10 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
       const base = `${window.location.origin}${window.location.pathname}`
       const url = await admin.createTopupCheckout(
         creditType, amountCents, `${base}?topup=success`, `${base}?topup=cancelled`)
+      sessionStorage.setItem(PENDING_TOPUP_KEY, JSON.stringify({
+        creditType,
+        topupMicroUsd: overview?.[creditType].topupMicroUsd ?? 0,
+      } satisfies PendingTopup))
       window.location.assign(url)
     } catch (err) {
       toasts.add({ title: err instanceof Error ? err.message : 'Could not start checkout', variant: 'error' })
@@ -135,6 +204,8 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
       const result = await admin.changePlan(
         target.code, billingPeriod, `${base}?plan=success`, `${base}?plan=cancelled`)
       if (!result.applied && result.checkoutUrl) {
+        sessionStorage.setItem(PENDING_PLAN_KEY,
+          JSON.stringify({ code: target.code, name: target.name } satisfies PendingPlan))
         window.location.assign(result.checkoutUrl)
         return
       }
