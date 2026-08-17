@@ -808,13 +808,23 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
             vendor.describe(),
             vendor.getSupportedResources({ userId: adminUserId }),
           ]);
+          // Display metadata shared by both vendor shapes, forwarded for the admin list and
+          // detail pages.
+          let display = {
+            displayName: description.displayName,
+            logo: description.logo,
+            url: description.url,
+            color: description.color,
+            tagline: description.tagline,
+            description: description.description,
+            departments: description.departments,
+          };
           if (description.autoProvisionsAccount) {
             // Auto-provisioning ("ambient") gatekeeper: a three-state mode, no resources to toggle.
             let mode = ambientGatekeeperMode(config, id);
             return {
               vendorId: id,
-              displayName: description.displayName,
-              logo: description.logo,
+              ...display,
               autoProvisions: true,
               ambientMode: mode,
             };
@@ -833,8 +843,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
           let disabled = new Set(config.disabledResources[id] ?? []);
           return {
             vendorId: id,
-            displayName: description.displayName,
-            logo: description.logo,
+            ...display,
             autoProvisions: false,
             enabled: !disabledGatekeeperSet.has(id),
             resources: supportedResources.map(r => ({

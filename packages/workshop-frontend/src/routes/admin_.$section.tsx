@@ -10,6 +10,10 @@ export const Route = createFileRoute('/admin_/$section')({
 
 function AdminSectionRoute() {
   const { section } = Route.useParams()
+  // The integrations section was previously called "connectors"; keep old links working.
+  if (section === 'connectors') {
+    return <Navigate to="/admin/$section" params={{ section: 'integrations' }} replace />
+  }
   if (!isAdminSectionId(section)) return <Navigate to="/admin" replace />
   return <AdminPage section={section} />
 }

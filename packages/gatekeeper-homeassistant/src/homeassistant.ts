@@ -364,6 +364,7 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
           "Connect your Home Assistant instance so Cloudflare OS can read entity state, call services " +
           "to control devices, edit dashboards, and render templates. Build agents that automate " +
           "your home, alert on sensor changes, or generate custom dashboards.",
+      departments: ["administration", "operations"],
     };
   }
 

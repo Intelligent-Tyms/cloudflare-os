@@ -165,7 +165,7 @@ export default function ConnectConnectorModal({
           ? accountDescription?.uniqueName
             ? `${accountDisplayName} / ${accountDescription.uniqueName}`
             : accountDisplayName
-          : 'Credentials expired; reconnect from the Connectors page'}
+          : 'Credentials expired; reconnect from the Integrations page'}
       </span>
     </div>
   ) : (

@@ -1062,6 +1062,7 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
       description:
           "Connect your GitHub account so Cloudflare OS can read and update issues, pull requests, " +
           "and reviews on the repositories you choose.",
+      departments: ["technology"],
       providesAuth: true,
       supportsAdminSetup: true,
     };

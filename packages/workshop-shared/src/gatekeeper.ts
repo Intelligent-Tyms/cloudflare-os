@@ -34,6 +34,29 @@ export type AvatarImage = {
   url: string;
 }
 
+// The departments an integration can serve, used to categorize integrations in admin and connect
+// UIs. Mirrors the product's department taxonomy; ids double as stable slugs.
+export const INTEGRATION_DEPARTMENTS = [
+  { id: "customer-service", label: "Customer service" },
+  { id: "finance", label: "Finance" },
+  { id: "sales", label: "Sales" },
+  { id: "marketing", label: "Marketing" },
+  { id: "compliance", label: "Compliance" },
+  { id: "hr", label: "HR" },
+  { id: "procurement", label: "Procurement" },
+  { id: "technology", label: "Technology" },
+  { id: "operations", label: "Operations" },
+  { id: "legal", label: "Legal" },
+  { id: "supply-chain", label: "Supply chain" },
+  { id: "administration", label: "Administration" },
+] as const;
+
+export type IntegrationDepartment = typeof INTEGRATION_DEPARTMENTS[number]["id"];
+
+export function integrationDepartmentLabel(id: IntegrationDepartment): string {
+  return INTEGRATION_DEPARTMENTS.find((d) => d.id === id)?.label ?? id;
+}
+
 // Describes a connected GatekeeperVendor, for display purposes.
 export type VendorDescription = {
   // Human-readable name of the service, e.g. "Google", "GitHub", etc.
@@ -51,6 +74,11 @@ export type VendorDescription = {
   // Short tagline shown beneath the name on cards on the Integrations page.
   // E.g., "Draft replies, edit docs, and analyze data"
   tagline?: string;
+
+  // Departments this service primarily serves (first entry is the primary one, used when a UI
+  // groups by a single department). Omit for cross-department services; UIs list those under a
+  // general group.
+  departments?: IntegrationDepartment[];
 
   // 2-3 sentence description of what this Gatekeeper does and enables users to build.
   // This is shown in detail modals on the Integrations page.

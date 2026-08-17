@@ -158,6 +158,7 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
       description:
           "Sign in with your Cloudflare account. Usage beyond the free tier can be billed to your " +
           "own Cloudflare AI Gateway credits.",
+      departments: ["technology"],
       providesAuth: true,
     };
   }

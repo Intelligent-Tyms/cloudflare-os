@@ -24,7 +24,7 @@
 // Gadget a stub pointing to the Gadget's server-side Durable Object interface.
 
 import { RpcCompatible, RpcStub, RpcTarget } from "capnweb";
-import { AccountDescription, ActionKind, ActionDescription, AvatarImage, GatekeeperUiFrame, ObservationDescription, ResourceDescription, ResourceConfiguratorFrame, SupportedResource, VendorDescription, VendorSetup, HookDescription } from "./gatekeeper.js";
+import { AccountDescription, ActionKind, ActionDescription, AvatarImage, GatekeeperUiFrame, IntegrationDepartment, ObservationDescription, ResourceDescription, ResourceConfiguratorFrame, SupportedResource, VendorDescription, VendorSetup, HookDescription } from "./gatekeeper.js";
 import type { UiFeatureFlags } from "./feature-flags.js";
 import type { ChannelsDescription, EmailInbox, TelegramBinding, TelegramLinkCode } from "./channels-admin.js";
 
@@ -685,6 +685,12 @@ export type AdminResourceVendor = {
   vendorId: string;
   displayName: string;
   logo?: AvatarImage;
+  // Display metadata forwarded from VendorDescription for the admin list and detail pages.
+  url?: string;
+  color?: string;
+  tagline?: string;
+  description?: string;
+  departments?: IntegrationDepartment[];
 } & (
   | {
     autoProvisions: false;
