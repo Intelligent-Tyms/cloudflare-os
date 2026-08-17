@@ -612,9 +612,30 @@ export interface AuthenticatedApi extends RpcTarget {
   // managed here; it stays env-var driven.)
   getAdminApi(): Promise<RpcStub<AdminApi> | null>;
 
+  // --- Central billing (all users) ---
+
+  // The central-billing state behind a `usage_limit` block, or null when this deployment has no
+  // central billing. Available to every user, not just admins, so the upgrade prompt can explain
+  // what was hit and route the user accordingly.
+  getBillingGate(): Promise<BillingGateInfo | null>;
+
+  // Ask the workspace's owner and admins (by email) to consider a plan upgrade. Available to
+  // every user; throttled per workspace. Returns whether a notification actually went out
+  // (false when a recent request already notified them).
+  requestPlanUpgrade(): Promise<{ notified: boolean }>;
+
   // TODO:
   // - Edit permissions on a connected account.
 }
+
+// The central-billing facts behind a `usage_limit` block, for the upgrade prompt.
+export type BillingGateInfo = {
+  planCode: string;
+  // True when the workspace is on the free plan (daily request limits instead of credits).
+  isFreePlan: boolean;
+  // The daily request allowance on the free plan; null on paid plans.
+  freeDailyLlmCalls: number | null;
+};
 
 // Describes a gatekeeper's management app, for the Workshop nav + page.
 export type GatekeeperAppInfo = {

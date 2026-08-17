@@ -122,6 +122,8 @@ import { safeExternalUrl } from "./utils/safeExternalUrl";
 import { useAuthenticatedApi } from "./AuthContext";
 import { useVendorBranding } from "./useVendorBranding";
 import OutOfCreditsModal from "./components/billing/OutOfCreditsModal";
+import UpgradeModal from "./components/billing/UpgradeModal";
+import { useCloudflareLimitsEnabled } from "./ServerConfigContext";
 import { useSlashCommandPicker } from "./components/chat/SlashCommandPicker";
 import { formatFullTimestamp } from "./utils/formatTimestamp";
 import { copyToClipboard } from "./clipboard";
@@ -4300,6 +4302,9 @@ function ChatInterface({
   // Persistent cache that survives reconnects
   const toasts = useKumoToastManager();
   const { currentUser } = useAuthenticatedApi();
+  // Which paywall a usage_limit error opens: the legacy Cloudflare-limits flow when that's
+  // what's enforcing, otherwise the central-billing upgrade prompt.
+  const cloudflareLimitsEnabled = useCloudflareLimitsEnabled();
   const getOverseer = useCallback(() => overseer, [overseer]);
   const cacheRef = useRef<ChatCache>({
     chats: new Map(),
@@ -7779,10 +7784,17 @@ function ChatInterface({
         initialResourceUrl={connectionAccept?.resourceUrl}
         initialResourceUrlPattern={connectionAccept?.resourceUrlPattern}
       />
-      <OutOfCreditsModal
-        open={usageModalOpen}
-        onClose={() => setUsageModalOpen(false)}
-      />
+      {cloudflareLimitsEnabled ? (
+        <OutOfCreditsModal
+          open={usageModalOpen}
+          onClose={() => setUsageModalOpen(false)}
+        />
+      ) : (
+        <UpgradeModal
+          open={usageModalOpen}
+          onClose={() => setUsageModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

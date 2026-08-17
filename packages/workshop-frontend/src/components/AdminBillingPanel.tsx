@@ -42,6 +42,9 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
   const [planBusy, setPlanBusy] = useState<string | null>(null)
   // Billing period for a plan switch; seeded from the current subscription once loaded.
   const [periodChoice, setPeriodChoice] = useState<'monthly' | 'annual'>('monthly')
+  // Plan the user picked on the pricing page before signing up (?intent=<code> deep link,
+  // carried through onboarding + first login): highlight that card so their choice is waiting.
+  const [intentPlan, setIntentPlan] = useState<string | null>(null)
 
   const reload = async () => {
     const [billing, teamView, planList] = await Promise.all([
@@ -72,7 +75,12 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
     const params = new URLSearchParams(window.location.search)
     const outcome = params.get('topup')
     const planOutcome = params.get('plan')
-    if (!outcome && !planOutcome) return
+    const intent = params.get('intent')
+    if (intent) {
+      setIntentPlan(intent)
+      if (params.get('period') === 'annual') setPeriodChoice('annual')
+    }
+    if (!outcome && !planOutcome && !intent) return
     if (outcome === 'success') {
       toasts.add({ title: 'Top-up complete. Your balance updates momentarily.', variant: 'success' })
     } else if (outcome === 'cancelled') {
@@ -85,6 +93,8 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
     }
     params.delete('topup')
     params.delete('plan')
+    params.delete('intent')
+    params.delete('period')
     const query = params.toString()
     window.history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : ''))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -307,11 +317,16 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
               const isCurrent =
                 overview.planCode === p.code &&
                 (p.priceCents === 0 || overview.billingPeriod === (annual ? 'annual' : 'monthly'))
+              const isIntent = !isCurrent && intentPlan === p.code
               return (
                 <div
                   key={p.code}
                   className={`rounded-lg border p-4 flex flex-col gap-3 ${
-                    isCurrent ? 'border-kumo-brand bg-kumo-brand/5' : 'border-kumo-line'
+                    isCurrent
+                      ? 'border-kumo-brand bg-kumo-brand/5'
+                      : isIntent
+                        ? 'border-kumo-brand ring-1 ring-kumo-brand'
+                        : 'border-kumo-line'
                   }`}
                 >
                   <div>
@@ -340,7 +355,7 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
                     )}
                   </ul>
                   <Button
-                    variant={isCurrent ? 'ghost' : 'secondary'}
+                    variant={isCurrent ? 'ghost' : isIntent ? 'primary' : 'secondary'}
                     size="sm"
                     disabled={isCurrent || planBusy !== null}
                     loading={planBusy === p.code}

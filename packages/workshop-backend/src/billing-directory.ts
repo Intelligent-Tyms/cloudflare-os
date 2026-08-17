@@ -135,6 +135,15 @@ export async function changePlan(env: Cloudflare.Env, opts: {
   return {applied: result.applied, checkoutUrl: result.checkoutUrl ?? null};
 }
 
+/**
+ * Ask the control plane to email the workspace's owner and admins that a teammate wants a
+ * plan upgrade. The caller throttles; this just fires the notification.
+ */
+export async function requestUpgrade(
+    env: Cloudflare.Env, opts: {requestedBy: string}): Promise<void> {
+  await call(env, "/billing/upgrade-request", opts);
+}
+
 /** Start a one-time credit top-up checkout; returns the Stripe Checkout URL. */
 export async function createTopupCheckout(env: Cloudflare.Env, opts: {
   creditType: "ai" | "messaging";

@@ -112,6 +112,19 @@ export class UsageCollectorDurableObject extends DurableObject<Cloudflare.Env> {
     };
   }
 
+  /**
+   * Claim the workspace-wide upgrade-request notification slot: true (and the slot is
+   * stamped) when no request went out within the cooldown, false otherwise — so a stuck
+   * teammate mashing "Request upgrade" can't flood the admins' inboxes.
+   */
+  async claimUpgradeRequestSlot(cooldownMs: number): Promise<boolean> {
+    let last = await this.ctx.storage.get<number>("upgradeRequestedAt");
+    let now = Date.now();
+    if (last != null && now - last < cooldownMs) return false;
+    await this.ctx.storage.put("upgradeRequestedAt", now);
+    return true;
+  }
+
   async #cachedEntitlements(): Promise<CachedEntitlements | undefined> {
     return await this.ctx.storage.get<CachedEntitlements>("entitlements");
   }

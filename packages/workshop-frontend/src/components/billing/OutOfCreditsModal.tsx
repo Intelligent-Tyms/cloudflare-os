@@ -3,6 +3,7 @@ import { CloudflareUsageInfo, CloudflareAccountOption } from '@gadgets/workshop-
 import { Dialog, Button, Loader, useKumoToastManager } from '@cloudflare/kumo'
 import { CloudAlert, Zap } from 'lucide-react'
 import { useOptionalAuthenticatedApi } from '../../AuthContext'
+import { useCloudflareLimitsEnabled } from '../../ServerConfigContext'
 import { buildAddCreditsUrl } from './creditsUrl'
 import ResetCountdown from './ResetCountdown'
 
@@ -16,6 +17,7 @@ interface OutOfCreditsModalProps {
 // up credits in the Cloudflare dashboard (if connected but low balance).
 export default function OutOfCreditsModal({ open, onClose }: OutOfCreditsModalProps) {
   const auth = useOptionalAuthenticatedApi()
+  const limitsEnabled = useCloudflareLimitsEnabled()
   const toasts = useKumoToastManager()
   const [usage, setUsage] = useState<CloudflareUsageInfo | null>(null)
   const [connecting, setConnecting] = useState(false)
@@ -84,6 +86,10 @@ export default function OutOfCreditsModal({ open, onClose }: OutOfCreditsModalPr
 
   const connected = usage?.connected ?? false
   const needsSelection = connected && (usage?.needsAccountSelection ?? false)
+
+  // This flow only makes sense where Cloudflare limits enforce usage; without the flag the
+  // server reports the "unlimited" stub and the copy here would be nonsense.
+  if (!limitsEnabled) return null
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => { if (!o) onClose() }}>

@@ -1,7 +1,7 @@
 import { RpcStub, RpcTarget, newWorkersRpcResponse } from "capnweb";
 import { validateRpc } from "capnweb-validate";
 import type { JWTPayload } from "jose";
-import { PublicApi, AuthenticatedApi, Overseer, GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiGatewayInfo, AiModelProvider, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, ObserverConfigCallback, BlueprintLibrarySummary, BlueprintPublicInfo, BlueprintUserSummary, BlueprintBindingAssignment, AgentSpawnerConfig, WorkpieceId, BLUEPRINT_SCREENSHOT_PATH_PREFIX, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ServerConfig, CloudflareUsageInfo, CloudflareAccountOption, LoginAttempt, GatekeeperAppInfo, AdminApi, GatekeeperVendorInfo, OutputFormatOffer, ListOutputsResult, createOpenGadgetError, getOpenGadgetErrorCode, OPEN_GADGET_ERROR_CODES, AssistantProfile } from '@gadgets/workshop-shared/api';
+import { PublicApi, AuthenticatedApi, Overseer, GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiGatewayInfo, AiModelProvider, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, ObserverConfigCallback, BlueprintLibrarySummary, BlueprintPublicInfo, BlueprintUserSummary, BlueprintBindingAssignment, AgentSpawnerConfig, WorkpieceId, BLUEPRINT_SCREENSHOT_PATH_PREFIX, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ServerConfig, CloudflareUsageInfo, CloudflareAccountOption, LoginAttempt, GatekeeperAppInfo, AdminApi, GatekeeperVendorInfo, OutputFormatOffer, ListOutputsResult, createOpenGadgetError, getOpenGadgetErrorCode, OPEN_GADGET_ERROR_CODES, AssistantProfile, BillingGateInfo } from '@gadgets/workshop-shared/api';
 import type { UiFeatureFlags } from "@gadgets/workshop-shared/feature-flags";
 import { getServerConfig } from "./deployment-config.js";
 import { isPasswordAuthEnabled, getAuthGatekeeperAllowlist, hasCentralLogin } from "./auth/config.js";
@@ -14,6 +14,8 @@ import { deploymentOutputForBlueprint, listFormatOffers, readAdminConfig } from 
 // Re-export the optional-feature Durable Objects + entrypoints so they can be bound in wrangler.
 export { PendingLogin, LoginConnectCallbackImpl };
 export { UsageCollectorDurableObject } from "./usage-collector.js";
+import { usageCollector } from "./usage-collector.js";
+import { hasBillingDirectory, requestUpgrade } from "./billing-directory.js";
 import { GatekeeperUiFrame } from "@gadgets/workshop-shared/gatekeeper";
 import { LanguageModelGatekeeper } from "./ai-models";
 import { getAiGatewayConfig } from "./ai-gateway.js";
@@ -600,7 +602,35 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     //     system doesn't know this.
     return new AdminApiImpl(this.adminSettings.getByName(""), adminUserId, this.env);
   }
+
+  // --- Central billing (all users) ---
+
+  async getBillingGate(): Promise<BillingGateInfo | null> {
+    if (!hasBillingDirectory(this.env)) return null;
+    let state = await usageCollector(this.ctx).getBillingState().catch(() => null);
+    if (!state) return null;
+    return {
+      planCode: state.planCode,
+      isFreePlan: state.freeDailyLlmCalls != null,
+      freeDailyLlmCalls: state.freeDailyLlmCalls,
+    };
+  }
+
+  async requestPlanUpgrade(): Promise<{ notified: boolean }> {
+    if (!hasBillingDirectory(this.env)) {
+      throw new Error("This deployment has no central billing configured.");
+    }
+    let requestedBy = this.user.id.name ?? "A teammate";
+    let allowed =
+        await usageCollector(this.ctx).claimUpgradeRequestSlot(UPGRADE_REQUEST_COOLDOWN_MS);
+    if (!allowed) return { notified: false };
+    await requestUpgrade(this.env, { requestedBy });
+    return { notified: true };
+  }
 }
+
+// One admin notification per workspace per window, shared by all requesters.
+const UPGRADE_REQUEST_COOLDOWN_MS = 4 * 60 * 60 * 1000;
 
 async function serveBlueprintScreenshot(env: Env, blueprintId: string): Promise<Response> {
   let object = await env.BLUEPRINT_CONTENT.get(`${BLUEPRINT_SCREENSHOT_R2_PREFIX}${blueprintId}`);
