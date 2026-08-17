@@ -83,6 +83,12 @@ type LoginSessionRecord = {
   created: Date,
 }
 
+// How long a login session token stays valid. Matches the central identity service's own
+// session TTL, so a workspace sign-in can't outlive the central sign-in that minted it by
+// more than one renewal period. Enforced at authenticate() time; records created before
+// this check existed simply read as expired.
+const SESSION_TTL_MS = 30 * 86_400_000;
+
 // Blueprint record stored in the user's `blueprints` collection.
 type BlueprintUserRecord = {
   id: string;
@@ -327,6 +333,20 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     if (!session) {
       throw new Error("invalid session token");
     }
+    if (session.created.valueOf() + SESSION_TTL_MS < Date.now()) {
+      this.storage.sessions.delete(tokenId);
+      throw new Error("invalid session token");
+    }
+  }
+
+  // Revoke every login session for this account, so all previously issued tokens stop
+  // authenticating. Existing live RPC sessions are unaffected (a session is checked only at
+  // authenticate() time), which keeps the caller's own connection alive long enough to
+  // finish signing out.
+  async revokeAllSessions(): Promise<void> {
+    for (let session of [...this.storage.sessions.list()]) {
+      this.storage.sessions.delete(session.tokenId);
+    }
   }
 
   // Returns true when this login created the account on first use. When the account doesn't yet
@@ -351,6 +371,15 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   }
 
   async #newSessionToken(): Promise<string> {
+    // Sweep expired sessions while we're here; sign-in is the only moment the collection
+    // reliably grows, so this bounds it without a separate alarm.
+    let cutoff = Date.now() - SESSION_TTL_MS;
+    for (let session of [...this.storage.sessions.list()]) {
+      if (session.created.valueOf() < cutoff) {
+        this.storage.sessions.delete(session.tokenId);
+      }
+    }
+
     let sessionToken = new Uint8Array(32);
     crypto.getRandomValues(sessionToken);
 

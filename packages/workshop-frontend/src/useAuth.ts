@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { RpcStub } from 'capnweb'
 import { PublicApi, AuthenticatedApi } from '@gadgets/workshop-shared/api'
+import { useServerConfig } from './ServerConfigContext'
 
 const CF_ACCESS_MODE = import.meta.env.VITE_CF_ACCESS_MODE === 'true'
 
@@ -14,6 +15,7 @@ interface AuthState {
 export { CF_ACCESS_MODE }
 
 export function useAuth(publicApi: RpcStub<PublicApi>) {
+  const serverConfig = useServerConfig()
   const [authState, setAuthState] = useState<AuthState>({
     token: null,
     authenticatedApi: null,
@@ -93,7 +95,14 @@ export function useAuth(publicApi: RpcStub<PublicApi>) {
     authenticateWithToken(token)
   }
 
-  const logout = () => {
+  const logout = async () => {
+    // Server-side revocation first: invalidate every issued token for this account on this
+    // deployment, not just our local copy. Best-effort with a timeout — a dead connection
+    // must not trap the user in a signed-in state.
+    const revoked = authenticatedApiRef.current?.logout()
+    revoked?.catch(() => {})
+    await Promise.race([revoked, new Promise((resolve) => setTimeout(resolve, 3000))])
+
     // Use functional updater to read current state (avoids stale closure).
     setAuthState(prev => {
       if (prev.authenticatedApi) {
@@ -109,6 +118,15 @@ export function useAuth(publicApi: RpcStub<PublicApi>) {
 
     if (!CF_ACCESS_MODE) {
       localStorage.removeItem('authToken')
+    }
+
+    // Central-login deployments: hop to the central sign-in page with a signout marker so it
+    // destroys the central session and fans out to the user's other workspaces. Without this
+    // the central session would silently sign the user straight back in on the next visit.
+    const centralLoginUrl = serverConfig?.centralLoginUrl
+    if (centralLoginUrl) {
+      window.location.replace(
+        `${centralLoginUrl}${centralLoginUrl.includes('?') ? '&' : '?'}signout=1`)
     }
   }
 

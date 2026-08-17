@@ -343,6 +343,12 @@ export interface AuthenticatedApi extends RpcTarget {
   // which case the change-password UI should be hidden.
   hasPasswordLogin(): Promise<boolean>;
 
+  // Sign out: revoke every login session token for this account on this deployment, so tokens
+  // already handed out (this browser's included) stop authenticating. The client discards its
+  // stored token afterwards; on central-login deployments it then visits the central sign-in
+  // page's signout flow, which revokes the central session and fans out to other workspaces.
+  logout(): Promise<void>;
+
   // List the AI models available on this deployment (gateway built-ins plus admin-configured
   // models). The catalog itself is admin-managed; see AdminApi.addModel()/deleteModel().
   //

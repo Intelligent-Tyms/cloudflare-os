@@ -131,6 +131,9 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
   hasPasswordLogin(): Promise<boolean> {
     return this.user.hasPasswordLogin();
   }
+  logout(): Promise<void> {
+    return this.user.revokeAllSessions();
+  }
   listModels(): Promise<AiChatAuthorInfo[]> {
     return this.user.listModels();
   }
@@ -707,6 +710,12 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
         typeof payload.jti !== "string" || typeof payload.exp !== "number") {
       throw new Error("Invalid handoff token.");
     }
+    // The central service signs other token kinds with the same key pair and audience (e.g.
+    // sign-out fan-out tokens), marked by a `purpose` claim. Only purpose-less tokens are
+    // login handoffs; anything else must not mint a session.
+    if (payload.purpose !== undefined) {
+      throw new Error("Invalid handoff token.");
+    }
 
     let email = payload.sub.toLowerCase();
     let userId = this.users.idFromName(email);
@@ -829,12 +838,59 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
   }
 }
 
+// Central sign-out fan-out: the central identity service posts a short-lived signed token here
+// to revoke every local login session for one account (sign-out-everywhere, password reset).
+// Same key pair and audience as login handoff tokens, distinguished by the `purpose: "signout"`
+// claim — and loginWithHandoffToken rejects any token carrying a `purpose`, so neither token
+// kind can stand in for the other. Replays within the ~60s TTL just re-revoke, so no jti
+// bookkeeping is needed.
+async function handleCentralSignout(req: Request, env: Env, ctx: ExecutionContext)
+    : Promise<Response> {
+  if (req.method !== "POST") {
+    return new Response("Method Not Allowed", { status: 405 });
+  }
+  if (!hasCentralLogin(env)) {
+    return Response.json({ error: "central login is not enabled" }, { status: 404 });
+  }
+
+  let body = await req.json().catch(() => ({})) as { token?: unknown };
+  if (typeof body.token !== "string") {
+    return Response.json({ error: "token required" }, { status: 400 });
+  }
+
+  let key = await importSPKI(
+      `-----BEGIN PUBLIC KEY-----\n${env.HANDOFF_PUBLIC_KEY}\n-----END PUBLIC KEY-----`,
+      "EdDSA");
+  let payload;
+  try {
+    ({ payload } = await jwtVerify(body.token, key, {
+      audience: env.HANDOFF_AUDIENCE,
+      clockTolerance: 5,
+    }));
+  } catch {
+    return Response.json({ error: "invalid token" }, { status: 403 });
+  }
+  if (payload.purpose !== "signout" || typeof payload.sub !== "string" ||
+      !payload.sub.includes("@")) {
+    return Response.json({ error: "invalid token" }, { status: 403 });
+  }
+
+  let email = payload.sub.toLowerCase();
+  let userId = ctx.exports.UserDurableObject.idFromName(email);
+  await ctx.exports.UserDurableObject.get(userId).revokeAllSessions();
+  return Response.json({ ok: true });
+}
+
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext) {
     let url = new URL(req.url);
 
     if (url.pathname === SITE_LOGO_PATH) {
       return serveSiteLogo(req, env.BLUEPRINT_CONTENT);
+    }
+
+    if (url.pathname === "/api/central/signout") {
+      return handleCentralSignout(req, env, ctx);
     }
 
     if (url.pathname.startsWith(BLUEPRINT_SCREENSHOT_PATH_PREFIX)) {
