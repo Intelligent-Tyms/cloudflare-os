@@ -7,12 +7,17 @@ import { AdminApi, BillingOverview, BillingCreditType, BillingPlanOption, TeamVi
 // current period's usage. Everything proxies through AdminApi to the central billing
 // directory; a null overview means this deployment has none configured.
 
-const usd = (microUsd: number) => {
-  const dollars = microUsd / 1_000_000
-  return dollars >= 100 ? `$${Math.round(dollars)}` : `$${dollars.toFixed(2)}`
+// Credits are the display unit: 1 credit = $0.001, so the micro-USD ledger converts at
+// 1,000 micro-USD per credit and plan cents at 10 credits per cent. Money the user
+// actually pays (plan prices, top-up purchases) stays in dollars.
+const credits = (microUsd: number) => {
+  const value = microUsd / 1_000
+  const rounded = value >= 100 ? Math.round(value) : Math.round(value * 10) / 10
+  return rounded.toLocaleString()
 }
+const creditsFromCents = (cents: number) => (cents * 10).toLocaleString()
 const usdFromCents = (cents: number) =>
-  cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`
+  cents % 100 === 0 ? `$${(cents / 100).toLocaleString()}` : `$${(cents / 100).toFixed(2)}`
 const shortDate = (ts: number) =>
   new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 
@@ -177,9 +182,9 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
       <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6 flex-1 min-w-[260px]">
         <div className="flex items-baseline justify-between gap-3">
           <h2 className="text-lg font-semibold text-kumo-strong">{label}</h2>
-          <span className="text-2xl font-semibold text-kumo-strong tabular-nums">{usd(bucket.balanceMicroUsd)}</span>
+          <span className="text-2xl font-semibold text-kumo-strong tabular-nums">{credits(bucket.balanceMicroUsd)}</span>
         </div>
-        <p className="text-xs text-kumo-subtle mt-0.5">Balance remaining</p>
+        <p className="text-xs text-kumo-subtle mt-0.5">Credits remaining</p>
 
         {bucket.monthlyGrantMicroUsd > 0 && (
           <div className="mt-4">
@@ -190,16 +195,16 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
               />
             </div>
             <p className="text-xs text-kumo-subtle mt-2">
-              {usd(bucket.monthlyGrantMicroUsd - bucket.allowanceMicroUsd)} of the{' '}
-              {usd(bucket.monthlyGrantMicroUsd)} monthly allowance used · resets {shortDate(overview.periodEnd)}
+              {credits(bucket.monthlyGrantMicroUsd - bucket.allowanceMicroUsd)} of the{' '}
+              {credits(bucket.monthlyGrantMicroUsd)} monthly credits used · resets {shortDate(overview.periodEnd)}
             </p>
           </div>
         )}
 
         <div className="mt-3 space-y-1 text-xs text-kumo-subtle">
-          <p>Spent this period: <span className="text-kumo-default font-medium">{usd(spentMicroUsd)}</span></p>
+          <p>Spent this period: <span className="text-kumo-default font-medium">{credits(spentMicroUsd)} credits</span></p>
           {bucket.topupMicroUsd > 0 && (
-            <p>Top-up balance (rolls over): <span className="text-kumo-default font-medium">{usd(bucket.topupMicroUsd)}</span></p>
+            <p>Top-up credits (roll over): <span className="text-kumo-default font-medium">{credits(bucket.topupMicroUsd)}</span></p>
           )}
           {footnote && <p>{footnote}</p>}
         </div>
@@ -217,12 +222,12 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
                   disabled={topupBusy !== null}
                   onClick={() => void handleTopup(creditType, cents)}
                 >
-                  {usdFromCents(cents)}
+                  {creditsFromCents(cents)} · {usdFromCents(cents)}
                 </Button>
               ))}
             </div>
             <p className="text-xs text-kumo-subtle mt-2">
-              One-time purchase through our secure checkout (Stripe). Top-ups never expire.
+              One-time credit purchase through our secure checkout (Stripe). Top-ups never expire.
             </p>
           </div>
         )}
@@ -291,7 +296,7 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
                       : 'text-kumo-subtle hover:bg-kumo-tint'
                   }`}
                 >
-                  {period === 'monthly' ? 'Monthly' : 'Annual · save 15%'}
+                  {period === 'monthly' ? 'Monthly' : 'Annual'}
                 </button>
               ))}
             </div>
@@ -315,7 +320,7 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
                       {p.priceCents === 0
                         ? 'Free'
                         : annual
-                          ? `${usdFromCents(Math.round((p.annualPriceCents ?? 0) / 12))}/mo · billed ${usdFromCents(p.annualPriceCents ?? 0)}/yr`
+                          ? `${usdFromCents(p.annualPriceCents ?? 0)}/year`
                           : `${usdFromCents(p.priceCents)}/month`}
                     </p>
                   </div>
@@ -327,11 +332,11 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
                     </li>
                     <li>
                       {p.aiCreditCentsMonthly > 0
-                        ? `${usdFromCents(p.aiCreditCentsMonthly)} AI credits / month`
+                        ? `${creditsFromCents(p.aiCreditCentsMonthly)} AI credits / month`
                         : 'AI with daily limits'}
                     </li>
                     {p.messagingCreditCentsMonthly > 0 && (
-                      <li>{usdFromCents(p.messagingCreditCentsMonthly)} messaging credits / month</li>
+                      <li>{creditsFromCents(p.messagingCreditCentsMonthly)} messaging credits / month</li>
                     )}
                   </ul>
                   <Button
@@ -349,7 +354,7 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
           </div>
           <p className="text-xs text-kumo-subtle mt-4">
             Upgrades take effect immediately with a prorated charge; downgrades apply immediately
-            and reduce your credit allowances. Need more than the Team plan?{' '}
+            and reduce your credit allowances. Need more than the Plus plan?{' '}
             <a href="https://tyms.ai/contact" target="_blank" rel="noreferrer" className="text-kumo-brand underline">
               Talk to us
             </a>{' '}
@@ -364,7 +369,7 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
           {creditCard('AI credits', 'ai', overview.ai, aiSpent,
             'Spent as your teammates and assistants do AI work.')}
           {creditCard('Messaging credits', 'messaging', overview.messaging, messagingSpent,
-            'Spent on channels with delivery costs; chat channels like Telegram and Slack are free.')}
+            'An email is 2 credits, WhatsApp 5, SMS 10, and voice 50 per message. Telegram and Slack are free.')}
         </div>
       )}
 
@@ -381,7 +386,7 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
             <div className="flex items-center gap-3 px-3 py-2 rounded-lg">
               <p className="flex-1 text-xs font-medium uppercase tracking-wide text-kumo-inactive">Item</p>
               <p className="w-24 text-right text-xs font-medium uppercase tracking-wide text-kumo-inactive">Count</p>
-              <p className="w-24 text-right text-xs font-medium uppercase tracking-wide text-kumo-inactive">Cost</p>
+              <p className="w-24 text-right text-xs font-medium uppercase tracking-wide text-kumo-inactive">Credits</p>
             </div>
             {overview.usage
               .toSorted((a, b) => b.costMicroUsd - a.costMicroUsd)
@@ -396,7 +401,7 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
                       : `${row.channel ?? 'channel'} messages${row.direction ? ` (${row.direction})` : ''}`}
                   </p>
                   <p className="w-24 text-right text-sm text-kumo-subtle tabular-nums">{row.quantity}</p>
-                  <p className="w-24 text-right text-sm text-kumo-default tabular-nums">{usd(row.costMicroUsd)}</p>
+                  <p className="w-24 text-right text-sm text-kumo-default tabular-nums">{credits(row.costMicroUsd)}</p>
                 </div>
               ))}
             <div className="flex items-center gap-3 px-3 py-2 rounded-lg border-t border-kumo-line mt-1">
@@ -405,7 +410,7 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
                 {overview.usage.reduce((sum, r) => sum + r.quantity, 0)}
               </p>
               <p className="w-24 text-right text-sm font-medium text-kumo-strong tabular-nums">
-                {usd(aiSpent + messagingSpent)}
+                {credits(aiSpent + messagingSpent)}
               </p>
             </div>
           </div>
