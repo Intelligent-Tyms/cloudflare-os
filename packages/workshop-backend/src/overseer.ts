@@ -618,6 +618,15 @@ const AGENT_RESPONSE_DELIVERED_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 // Safely convert an unknown thrown value to a human-readable string.
 // Plain objects would otherwise render as "[object Object]".
+// True when an RPC call failed only because the receiver doesn't provide the method — the shape
+// workerd/capnweb produce for an omitted optional contract method ("The RPC receiver does not
+// implement the method ..."), plus the plain "is not a function" seen with in-process test stubs.
+function isMissingRpcMethodError(err: unknown): boolean {
+  return err instanceof TypeError &&
+      (err.message.includes("does not implement the method") ||
+       err.message.includes("is not a function"));
+}
+
 function stringifyError(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
@@ -4856,9 +4865,10 @@ class OverseerImpl implements AgentHooks {
             using authorizer = new RpcStub<ObservationAuthorizer>(new ApprovalQueueImpl(
                 this, gatekeeperId, {from: "agent", chatId}));
             // The catalog comes from the installed gatekeeper facet (gadget-side), authorized as an
-            // observation via the approval queue. getAgentCatalog is optional on Gatekeeper; ambient
-            // resources always implement it (the agent relies on it for discovery), so we view the
-            // facet through CatalogGatekeeperFacet (derived from the contract) to call it directly.
+            // observation via the approval queue. getAgentCatalog is optional on Gatekeeper and most
+            // gatekeepers omit it (only those whose session benefits from a discovery index provide
+            // one), so we view the facet through CatalogGatekeeperFacet (derived from the contract)
+            // to call it directly and treat the routine "not implemented" miss as no-catalog below.
             // The DurableObjectStub proxy unstubifies the RpcStub param to its target type; the
             // native stub forwards transparently at runtime.
             let facet = this.getGatekeeperFacet(gatekeeperId) as unknown as CatalogGatekeeperFacet;
@@ -4867,6 +4877,10 @@ class OverseerImpl implements AgentHooks {
                 authorizer as unknown as ObservationAuthorizer);
             return catalog ? normalizeAgentCatalog(catalog) : null;
           } catch (error) {
+            // A gatekeeper that simply doesn't provide the optional method quietly caches null,
+            // matching the skills and prompt-context paths below; only genuine load failures from
+            // gatekeepers that do implement it are reported.
+            if (isMissingRpcMethodError(error)) return null;
             reportIssue("overseer.catalog-fallback", error, {
               handled: true,
               attributes: {
@@ -4964,7 +4978,8 @@ class OverseerImpl implements AgentHooks {
       let gk = this.storage.gatekeepers.get(target);
       if (!gk) continue;
       let info: SeedBindingInfo =
-          {name, target, title: gk.resourceTitle || "(untitled resource)", isGadget: false};
+          {name, target, title: gk.resourceTitle || "(untitled resource)", isGadget: false,
+           vendorId: gatekeeperVendorId(gk)};
       if (ambientSet.has(target)) {
         info.catalog = catalogs.get(target) ?? null;
         info.skills = skillLists.get(target) ?? null;
@@ -5728,7 +5743,9 @@ class OverseerImpl implements AgentHooks {
   // system prompt) call it on every turn — caching avoids hammering the user DO each time.
   #vendorsCache: {
     expires: number;
-    promise: Promise<{id: string, description: VendorDescription, supportedResources: SupportedResource[]}[]>;
+    promise: Promise<{id: string, description: VendorDescription,
+                      supportedResources: SupportedResource[],
+                      connectedAccountCount?: number}[]>;
   } | null = null;
   static readonly #VENDORS_CACHE_TTL_MS = 60_000;
 
@@ -5802,10 +5819,16 @@ class OverseerImpl implements AgentHooks {
     });
   }
 
-  async listConnectableVendors(): Promise<{id: string, displayName: string}[]> {
+  async listConnectableVendors(): Promise<{id: string, displayName: string, connected: boolean}[]> {
     try {
       let vendors = await this.#listGatekeeperVendorsCached();
-      return vendors.map(v => ({id: v.id, displayName: v.description.displayName}));
+      // `connected` is the owner's account status (the same accounts ambient provisioning and
+      // connection requests resolve against). The 60s vendor cache means a just-completed connect
+      // can take up to a minute to show here; the accept-a-connection flow does not wait on it.
+      return vendors.map(v => ({
+        id: v.id, displayName: v.description.displayName,
+        connected: (v.connectedAccountCount ?? 0) > 0,
+      }));
     } catch (err) {
       this.logger.warn("failed to list connectable vendors", {
         event: "connectable.vendors.list.failed", error: err,
@@ -7693,6 +7716,11 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
       gatekeeper_id: gatekeeperId,
       connection_type: connectionType,
       vendor_id: vendorId,
+    });
+    // Observability counterpart of the analytics event: the log trail from connect.completed to
+    // first use would otherwise skip the step where the integration actually joins a workspace.
+    this.impl.logger.info("integration attached", {
+      event: "integration.attached", gatekeeperId, connectionType, vendorId,
     });
   }
 

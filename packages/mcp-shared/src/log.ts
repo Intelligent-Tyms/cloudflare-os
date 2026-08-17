@@ -21,6 +21,8 @@ export type McpLogFields = {
   trust: ServerTrust;
   // Who chose the endpoint. Distinguishes a user-supplied server from a deployment's own gateway.
   provenance: "user" | "deployment";
+  // How the connection authenticates, recorded when a connect or reconnect completes.
+  auth: "none" | "oauth" | "token";
 };
 
 // The logger this package expects to be handed.

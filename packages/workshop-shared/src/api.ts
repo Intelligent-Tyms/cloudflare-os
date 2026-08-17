@@ -720,6 +720,10 @@ export type GatekeeperVendorInfo = {
   // Present when a bound gatekeeper could not be queried. UIs should surface this to the user but
   // not offer it as connectable.
   unavailable?: boolean;
+  // How many of the calling user's connected accounts belong to this vendor. Lets listings (the
+  // agent's integration list in particular) say "connected" without a second RPC; counted from
+  // the user's local records only, so it never touches account stubs.
+  connectedAccountCount?: number;
 };
 
 // Maximum length (characters) of the admin-authored agent system-prompt instructions.

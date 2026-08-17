@@ -1163,6 +1163,14 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     let config = await readAdminConfig(this.env);
     let disabledGatekeeperSet = new Set(config.disabledGatekeepers);
 
+    // This user's connected accounts per vendor, so each listing can carry connection status
+    // without a second round trip. Local record scan only; broken records are skipped by the
+    // generator, which slightly undercounts rather than failing the listing.
+    let accountCounts = new Map<string, number>();
+    for (let rec of this.#connectedAccountRecords()) {
+      accountCounts.set(rec.vendorId, (accountCounts.get(rec.vendorId) ?? 0) + 1);
+    }
+
     let promises: Promise<GatekeeperVendorInfo | null>[] = [];
 
     for (let [id, vendor] of this.vendors) {
@@ -1186,7 +1194,8 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
             return null;
           }
 
-          return {id, description, supportedResources: enabledResources};
+          return {id, description, supportedResources: enabledResources,
+                  connectedAccountCount: accountCounts.get(id) ?? 0};
         } catch (err) {
           logger.warn("failed to load gatekeeper vendor", {
             event: "gatekeeper.vendor.load.failed", vendorId: id, error: err,
@@ -1819,6 +1828,12 @@ export class GatekeeperConnectCallbackImpl
       description: await account.describe(),
       vendorId: this.ctx.props.vendorId,
       credentialExpiresAt: expiresAt,
+    });
+    // Counterpart of account.connect.started: without it a successful connect is
+    // indistinguishable in the logs from a popup the user abandoned.
+    logger.info("account connect completed", {
+      event: "account.connect.completed",
+      vendorId: this.ctx.props.vendorId, accountId: this.ctx.props.accountId,
     });
   }
 

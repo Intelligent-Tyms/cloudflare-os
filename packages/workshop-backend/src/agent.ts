@@ -93,6 +93,11 @@ export type SeedBindingInfo = {
   // Whether the target is a gadget (vs. an external resource gatekeeper).
   isGadget: boolean;
 
+  // The gatekeeper's vendor id when the target is an integration connection (absent for gadgets
+  // and for platform connections like AI models). Lets the prompt's integration list say which
+  // vendors are already attached to this chat and under what env names.
+  vendorId?: string;
+
   // Present when this entry is an always-available (ambient) resource, e.g. the read session of a
   // connected account that provides a singleton; carries its progressive-discovery catalog (null
   // when the gatekeeper provides none). Such entries get their own system-prompt section.
@@ -367,7 +372,7 @@ export interface AgentHooks {
   // List the gatekeeper vendors the user could connect (id + display name). Used to populate the
   // system prompt so the agent knows what it can request; resource patterns are fetched on demand
   // via listConnectableResources().
-  listConnectableVendors(): Promise<{id: string, displayName: string}[]>;
+  listConnectableVendors(): Promise<{id: string, displayName: string, connected?: boolean}[]>;
 
   // Describe the resource types a given vendor offers (urlPattern + title + description), so the
   // agent can construct a resourceUrl for requestConnection. Returns formatted text.
@@ -2246,13 +2251,33 @@ export async function runAgent(
     // not look trigger the agent to browse blueprints.
     let standardFormats = await hooks.describeStandardFormats();
 
-    // Build connectable-vendors section. We only list vendor names here; the agent fetches a
-    // vendor's resource URL patterns on demand via listConnectableResources.
+    // Build the available-integrations section. We only list vendor names and connection status
+    // here; the agent fetches a vendor's resource URL patterns on demand via
+    // listConnectableResources. Status has two independent layers, and conflating them produced
+    // real "no, you're not connected" answers to users whose account was connected all along:
+    // an account connected at the workspace level, and a resource attached to *this chat* (which
+    // is what env shows). Each line reports both.
     let connectableVendors = await hooks.listConnectableVendors();
     let systemPromptConnections: string;
     if (connectableVendors.length == 0) {
       systemPromptConnections = "";
     } else {
+      let attachedByVendor = new Map<string, string[]>();
+      for (let seed of seedBindings) {
+        if (!seed.vendorId) continue;
+        let names = attachedByVendor.get(seed.vendorId) ?? [];
+        names.push(`env.${seed.name}`);
+        attachedByVendor.set(seed.vendorId, names);
+      }
+      let vendorLines = connectableVendors.map(v => {
+        let attached = attachedByVendor.get(v.id);
+        let status = attached?.length
+            ? `connected, attached to this chat as ${attached.join(", ")}`
+            : v.connected
+                ? "connected, but not attached to this chat yet"
+                : "not connected";
+        return `* ${v.id}: ${v.displayName} — ${status}`;
+      });
       systemPromptConnections =
           `\n\nIf you need access to an external resource that isn't already a binding, you can ask ` +
           `the user to connect one with the requestConnection tool (pre-configure it as much as you ` +
@@ -2262,8 +2287,15 @@ export async function runAgent(
           `for the user's next message.\n` +
           `If one of these services likely holds information relevant to the task, consider ` +
           `requesting a connection and reading from it before you answer, instead of answering from ` +
-          `guesswork — a connection often gives you the real information. Connectable vendors:\n` +
-          `${connectableVendors.map(v => `* ${v.id}: ${v.displayName}`).join("\n")}`;
+          `guesswork — a connection often gives you the real information.\n` +
+          `An integration marked "connected" below has the user's account linked at the workspace ` +
+          `level even when nothing from it appears in your env yet: requestConnection then needs ` +
+          `only the user's accept, no sign-in. When the user asks whether an integration or its ` +
+          `service is connected, answer from this list — never say it is not connected just ` +
+          `because it is missing from your env; confirm the connection and offer to attach it to ` +
+          `this chat instead. Later attachments in this conversation are announced in the chat ` +
+          `itself and won't be reflected in this list.\n` +
+          `Available integrations:\n${vendorLines.join("\n")}`;
     }
 
     // Chats that arrived through a messaging gateway (Telegram/Slack) read as chat messages on

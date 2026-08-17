@@ -336,8 +336,8 @@ export abstract class McpAccountBase<E extends AccountEnv, P = unknown>
       const connected: ConnectedServer =
         server.auth === "token" ? server : { ...server, auth: "none" };
       this.ctx.storage.kv.put("server", connected);
+      // complete() logs the single connect.completed event for every auth kind.
       await this.complete(connected, info, generation);
-      log.info("connected without authorization", { event: "connect.completed" });
       return { kind: "done" };
     } catch (err) {
       if (!(err instanceof McpAuthRequiredError)) {
@@ -623,8 +623,18 @@ export abstract class McpAccountBase<E extends AccountEnv, P = unknown>
       this.ctx.storage.kv.delete("reconnecting");
       const expiresAt = this.ctx.storage.kv.get<OAuthTokens>("tokens")?.expiresAt;
       await callback.credentialsRestored(expiresAt ? new Date(expiresAt) : undefined);
+      this.log().info("reconnect completed", {
+        event: "reconnect.completed",
+        serverHost: hostOf(server.endpoint), auth: server.auth,
+      });
     } else {
       await callback.complete(this.mintAccount());
+      // The success counterpart of connect.failed. Without it a completed connect — OAuth ones in
+      // particular — leaves no log trail at all, indistinguishable from an abandoned popup.
+      this.log().info("connect completed", {
+        event: "connect.completed",
+        serverHost: hostOf(server.endpoint), provenance: server.provenance, auth: server.auth,
+      });
     }
     await this.ctx.storage.deleteAlarm();
   }
