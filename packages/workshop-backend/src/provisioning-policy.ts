@@ -4,9 +4,10 @@
 // Each such vendor has a three-state mode (see AmbientGatekeeperMode), set per deployment by the
 // admin and stored in AdminConfig.ambientGatekeeperModes:
 //   - 'disabled': not available; no account is provisioned, and any existing one stays dormant.
-//   - 'optional': users opt in from the Integrations page; not forced on anyone. THE DEFAULT — we don't
-//                 impose ambient authority on every user unless an admin explicitly turns it on.
-//   - 'enabled':  auto-provisioned for every user (forced); they can't remove it.
+//   - 'optional': users opt in from the Integrations page; not forced on anyone.
+//   - 'enabled':  auto-provisioned for every user (forced); they can't remove it. THE DEFAULT on
+//                 Tyms deployments: ambient capabilities (Knowledge, Scheduled Tasks, Doc converter,
+//                 Custom integration) work out of the box; admins opt out per vendor instead.
 //
 // These helpers are the single chokepoint for that decision; UserDurableObject reads AdminConfig and
 // calls them when provisioning, listing, and surfacing ambient accounts.
@@ -14,9 +15,9 @@
 import { AmbientGatekeeperMode } from "@gadgets/workshop-shared/api";
 import { AdminConfig } from "./admin-config.js";
 
-export const DEFAULT_AMBIENT_GATEKEEPER_MODE: AmbientGatekeeperMode = "optional";
+export const DEFAULT_AMBIENT_GATEKEEPER_MODE: AmbientGatekeeperMode = "enabled";
 
-// The configured mode for an ambient vendor, defaulting to "optional" when the admin hasn't set one.
+// The configured mode for an ambient vendor, defaulting to "enabled" when the admin hasn't set one.
 // Tolerates a config persisted before this field existed (ambientGatekeeperModes may be undefined).
 export function ambientGatekeeperMode(config: AdminConfig, vendorId: string): AmbientGatekeeperMode {
   return config.ambientGatekeeperModes?.[vendorId.toLowerCase()] ?? DEFAULT_AMBIENT_GATEKEEPER_MODE;

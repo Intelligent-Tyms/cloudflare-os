@@ -198,7 +198,7 @@ function groupVendorsByDepartment(vendors: AdminResourceVendor[]): { label: stri
 // One-line status for an integration row on the admin list.
 export function integrationStatus(vendor: AdminResourceVendor): { label: string; tone: 'on' | 'off' | 'attention' } {
   if (vendor.autoProvisions) {
-    const mode = vendor.ambientMode ?? 'optional'
+    const mode = vendor.ambientMode ?? 'enabled'
     if (mode === 'disabled') return { label: 'Off', tone: 'off' }
     return mode === 'enabled' ? { label: 'On for everyone', tone: 'on' } : { label: 'Optional', tone: 'on' }
   }
