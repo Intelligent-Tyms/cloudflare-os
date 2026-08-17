@@ -121,7 +121,8 @@ export default {
         }
         const form = await request.formData();
         return continueConnect(
-          account, initiationNonce, String(form.get("url") ?? ""), env, path);
+          account, initiationNonce, String(form.get("url") ?? ""), env, path,
+          String(form.get("token") ?? "").trim() || null);
       },
     });
   },
@@ -135,6 +136,7 @@ async function continueConnect(
   endpointUrl: string | null,
   env: Env,
   formPath: string,
+  preissuedToken: string | null = null,
 ): Promise<Response> {
   let target: ConnectedServer | null = null;
 
@@ -148,6 +150,8 @@ async function continueConnect(
     // server's own name, and `auth` is a guess that `beginConnect` corrects to `"none"` if the
     // endpoint turns out to be public. Provenance stays "user" — the person chose this server —
     // so a catalog entry can never repoint an existing account the way a deployment portal can.
+    // A supplied API key pins auth to "token": the probe then runs with the key (see
+    // `McpAccountBase.probe`), and the key persists as this account's bearer.
     await ensureCatalog(env);
     const entry = catalogEntryFor(validated.url);
     target = {
@@ -155,8 +159,12 @@ async function continueConnect(
       serverId: serverIdFromEndpoint(validated.url),
       serverName: entry?.name ?? hostOf(validated.url),
       provenance: "user",
-      auth: "oauth",
+      auth: preissuedToken ? "token" : "oauth",
     };
+    if (preissuedToken &&
+        !(await account.setPreissuedToken(initiationNonce, preissuedToken))) {
+      return htmlResponse(INVALID_LINK_HTML, 400);
+    }
   }
 
   let outcome: ConnectOutcome;
@@ -256,6 +264,20 @@ export class McpAccount extends McpAccountBase<Env> {
   // an endpoint, never a credential; consumed by the connect handler to skip the URL form.
   async setRequestedEndpoint(endpoint: string): Promise<void> {
     this.ctx.storage.kv.put("requestedCatalogEndpoint", endpoint);
+  }
+
+  // A user-supplied API key for a server that authenticates with a preissued bearer instead of
+  // OAuth. Accepted only while the connect link's nonce is still live, so a stale or replayed
+  // link cannot swap the credential; stored alongside the account's other secrets in this DO
+  // (the abandonment alarm's deleteAll covers it) and read back through `staticToken`.
+  async setPreissuedToken(initiationNonce: string, token: string): Promise<boolean> {
+    if (!(await this.awaitingSelection(initiationNonce))) return false;
+    this.ctx.storage.kv.put("preissuedToken", token);
+    return true;
+  }
+
+  protected override staticToken(_server: ConnectedServer): string | null {
+    return this.ctx.storage.kv.get<string>("preissuedToken") ?? null;
   }
 
   async requestedEndpoint(): Promise<string | null> {

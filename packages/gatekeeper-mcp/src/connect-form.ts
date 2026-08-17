@@ -9,12 +9,15 @@ const FORM_STYLE = `
   label { display: block; font-size: 14px; font-weight: 600; color: var(--strong); margin: 0 0 6px; }
   p.hint { margin: 6px 0 0; font-size: 13px; color: var(--subtle); }
 
-  input[type=url] { width: 100%; box-sizing: border-box; padding: 9px 11px; font: inherit;
+  input[type=url], input[type=password] {
+                    width: 100%; box-sizing: border-box; padding: 9px 11px; font: inherit;
                     background: var(--control); color: var(--text);
                     border: 1px solid var(--line); border-radius: 8px; }
-  input[type=url]::placeholder { color: var(--subtle); }
-  input[type=url]:focus { outline: 0; border-color: var(--brand);
+  input[type=url]::placeholder, input[type=password]::placeholder { color: var(--subtle); }
+  input[type=url]:focus, input[type=password]:focus { outline: 0; border-color: var(--brand);
                           box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 22%, transparent); }
+  label.later { margin-top: 14px; }
+  label .optional { font-weight: 400; color: var(--subtle); }
 
   button { width: 100%; margin-top: 20px; padding: 10px; border: 0; border-radius: 8px;
            background: var(--contrast); color: var(--on-contrast); font: inherit; font-weight: 600;
@@ -60,6 +63,12 @@ export function connectFormHtml(path: string, error?: string,
     <p class="hint">Only connect a server you trust. Its own annotations decide which of its tools
     run without asking you and which wait for your approval, and an annotation is only as
     trustworthy as the server that sent it.</p>
+    <label class="later" for="token">API key <span class="optional">— only if the server uses
+    one</span></label>
+    <input id="token" type="password" name="token" autocomplete="off"
+           placeholder="Leave empty for public or sign-in servers">
+    <p class="hint">Some servers authenticate with a preissued key instead of a sign-in. The key
+    is stored with this connection and sent only to this server, as a bearer token.</p>
     <button type="submit">Continue</button>
   </form>
 </main></body></html>`;

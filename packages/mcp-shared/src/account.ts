@@ -342,6 +342,7 @@ export abstract class McpAccountBase<E extends AccountEnv, P = unknown>
     } catch (err) {
       if (!(err instanceof McpAuthRequiredError)) {
         this.restoreSelection(initiationNonce);
+        await this.notifyConnectFailed(err);
         throw err;
       }
       if (server.auth === "token") {
@@ -349,9 +350,11 @@ export abstract class McpAccountBase<E extends AccountEnv, P = unknown>
         // fall back to. Keep the form retryable so an administrator can rotate the configured token
         // without forcing the user to start a new connect flow.
         this.restoreSelection(initiationNonce);
-        throw new Error(
-          `The MCP server "${server.serverName}" rejected this deployment's configured token.`,
+        const refused = new Error(
+          `The MCP server "${server.serverName}" rejected this connection's token.`,
           { cause: err });
+        await this.notifyConnectFailed(refused);
+        throw refused;
       }
       // The endpoint answered with an authorization challenge, so OAuth is now the observed auth
       // mode even if deployment configuration optimistically called the portal public. Persist that
@@ -363,6 +366,7 @@ export abstract class McpAccountBase<E extends AccountEnv, P = unknown>
         return await this.beginOAuth(oauthServer, err.resourceMetadataUrl, generation);
       } catch (oauthErr) {
         this.restoreSelection(initiationNonce);
+        await this.notifyConnectFailed(oauthErr);
         throw oauthErr;
       }
     }
@@ -571,13 +575,15 @@ export abstract class McpAccountBase<E extends AccountEnv, P = unknown>
       });
     } catch (err) {
       const tokens = this.ctx.storage.kv.get<OAuthTokens>("tokens");
-      throw safeOAuthError(err, [
+      const safe = safeOAuthError(err, [
         code,
         this.ctx.storage.kv.get<string>("oauthVerifier"),
         tokens?.access_token,
         tokens?.refresh_token,
       ],
         this.ctx.storage.kv.get<StoredOAuthClientInformation>("oauthClient"));
+      await this.notifyConnectFailed(safe);
+      throw safe;
     }
     if (result !== "AUTHORIZED") throw new Error("The authorization server requested another redirect.");
     if (!this.isCurrentConnection(server, pending.generation)) return false;
@@ -589,6 +595,21 @@ export abstract class McpAccountBase<E extends AccountEnv, P = unknown>
     if (!this.isCurrentConnection(server, pending.generation)) return false;
     await this.complete(server, info, pending.generation);
     return true;
+  }
+
+  // Best-effort: tells the Workshop this connect attempt failed, so its logs pair the failure
+  // with account.connect.started instead of reading as an abandoned popup. connectFailed is
+  // optional on the contract (older workshops lack it) and telemetry-only, so any error here —
+  // including "does not implement" from the far side — is swallowed; it must never mask the
+  // real failure being thrown to the user.
+  private async notifyConnectFailed(err: unknown): Promise<void> {
+    try {
+      // Cast around the Fetcher stub type, which models an optional interface method as a
+      // property fetch rather than a call.
+      const callback = this.ctx.storage.kv.get<Fetcher<GatekeeperConnectCallback>>("callback") as
+          undefined | { connectFailed?: (reason: string) => Promise<void> };
+      await callback?.connectFailed?.(err instanceof Error ? err.message : String(err));
+    } catch {}
   }
 
   // Hands the freshly-minted account back to the Workshop (or, on reconnect, just says so).

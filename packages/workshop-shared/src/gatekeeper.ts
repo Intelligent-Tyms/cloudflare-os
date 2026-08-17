@@ -699,6 +699,14 @@ export interface GatekeeperConnectCallback extends WorkerEntrypoint {
   // Note: If the authorization flow fails, the error can be displayed directly to the user, and
   // the callback can be discarded.
 
+  // Optionally reports that a connect attempt failed before completing. Best-effort telemetry
+  // only, so the Workshop can log the failure next to its account.connect.started event — the
+  // popup already showed the user the error, and the gatekeeper still discards its own half-built
+  // state. A gatekeeper may call this and then still complete a retry through the same link;
+  // never treat it as terminal for the callback. Optional so older gatekeepers stay compatible;
+  // callers must tolerate its absence.
+  connectFailed?(reason: string): Promise<void>;
+
   // Called when the gatekeeper discovers that credentials have expired or been revoked (e.g., a
   // token refresh fails with an authorization error). The Workshop records this and notifies
   // subscribers so the UI can reflect the expired state.

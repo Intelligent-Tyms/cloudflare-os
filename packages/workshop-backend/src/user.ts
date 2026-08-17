@@ -1870,6 +1870,17 @@ export class GatekeeperConnectCallbackImpl
     });
   }
 
+  async connectFailed(reason: string): Promise<void> {
+    // Telemetry only: pairs a failure with account.connect.started, so an abandoned-looking
+    // connect is distinguishable from one that actually errored. No state changes — the
+    // gatekeeper discards its own half-built account and the user already saw the error.
+    logger.warn("account connect failed", {
+      event: "account.connect.failed",
+      vendorId: this.ctx.props.vendorId, accountId: this.ctx.props.accountId,
+      error: reason,
+    });
+  }
+
   async credentialsExpired(): Promise<void> {
     let userStub = this.#getUserStub();
     await userStub.markCredentialsExpired(this.ctx.props.accountId);
