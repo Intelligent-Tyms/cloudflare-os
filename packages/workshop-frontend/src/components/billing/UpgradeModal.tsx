@@ -69,10 +69,8 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
               </p>
             ) : gate.isFreePlan ? (
               <p className="text-sm text-kumo-subtle">
-                You've reached the free daily limit
-                {gate.freeDailyLlmCalls != null ? ` of ${gate.freeDailyLlmCalls} AI requests` : ''}.
-                It resets at midnight UTC. Paid plans add a monthly credit allowance, more
-                teammates, and every AI model.
+                You've reached today's free limit. Upgrade for a monthly credit allowance,
+                more teammates, and every AI model.
               </p>
             ) : (
               <p className="text-sm text-kumo-subtle">

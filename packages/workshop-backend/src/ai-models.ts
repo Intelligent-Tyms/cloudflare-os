@@ -16,7 +16,7 @@ import { ApprovalQueue, Gatekeeper, ResourceDescription } from '@gadgets/worksho
 import { LanguageModelBinding } from "./ai-model-binding";
 import AI_MODEL_BINDING_TYPES from "./ai-model-binding.txt";
 import { AiChatAuthorInfo, AiModelConfig, SUGGESTED_MODELS, WORKERS_AI_OUTPUT_LIMIT,
-  freePlanModelNames, isFreePlanModel } from "@gadgets/workshop-shared/api";
+  isFreePlanModel } from "@gadgets/workshop-shared/api";
 import { AiGatewayConfig, fetchAiGatewayLogCostWithRetry, getAiGatewayConfig,
   type AiGatewayLogRoute } from "./ai-gateway.js";
 import { completeText } from "./ai-invoke.js";
@@ -682,8 +682,7 @@ export class LanguageModelGatekeeper
       // platform-funded, so bindings must not bypass the agent-turn gate in overseer.ts).
       if (billing?.freeDailyLlmCalls != null && !isFreePlanModel(config.model)) {
         throw new Error(
-            `This model isn't included in the free plan. The free plan includes ` +
-            `${freePlanModelNames().join(", ")}; upgrade for access to every model.`);
+            `This model isn't included in the free plan; upgrade for access to every model.`);
       }
       keyAlias = billing?.aiKeyAlias ?? undefined;
     }

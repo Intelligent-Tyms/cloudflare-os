@@ -274,13 +274,6 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
             <p className="text-sm font-medium text-kumo-default mt-0.5">{shortDate(overview.periodEnd)}</p>
           </div>
         </div>
-        {isFree && (
-          <p className="text-sm text-kumo-subtle mt-4 pt-4 border-t border-kumo-line">
-            The free plan includes {overview.freeDailyLlmCalls} AI requests per day, resetting at
-            midnight UTC. Paid plans add teammates and monthly AI and messaging credits — pick
-            one below.
-          </p>
-        )}
         {isEnterprise && (
           <p className="text-sm text-kumo-subtle mt-4 pt-4 border-t border-kumo-line">
             Your plan has custom AI and messaging volumes; credits are tracked below but never
