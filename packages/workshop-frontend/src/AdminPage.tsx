@@ -882,8 +882,8 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
           <h2 className="text-lg font-semibold text-kumo-strong mb-1">Top-bar notice</h2>
           <p className="text-sm text-kumo-subtle mb-5">
             Shown centered in the top navigation bar. Markdown is supported, so you can include
-            links. Keep it short — it renders on a single line. Leave empty to show nothing. Applies
-            on each user&rsquo;s next connection.
+            links. Keep it short — it renders on a single line. On the free plan, an upgrade
+            notice shows here until you set your own. Applies on each user&rsquo;s next connection.
           </p>
 
           <Textarea
