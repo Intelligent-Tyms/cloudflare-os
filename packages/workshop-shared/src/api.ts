@@ -138,6 +138,12 @@ export interface ConnectedAccountsSubscriber {
 export type GatekeeperVendorFilter = {
   // Filter for vendors that can connect to the given resource.
   resourceUrl?: string,
+  // Also return vendors that are normally hidden — admin-disabled ones (flagged disabledByAdmin)
+  // and ones awaiting deployment credentials (flagged needsAdminSetup) — so listings can explain
+  // a row's state instead of silently omitting it. Hidden vendors come back with no connectable
+  // resources; they are display-only. Defaults to false, which keeps the agent's and the connect
+  // modal's lists limited to vendors that actually work.
+  includeHidden?: boolean,
 };
 
 /** Options for subscribing to connected accounts. */
@@ -724,6 +730,14 @@ export type GatekeeperVendorInfo = {
   // agent's integration list in particular) say "connected" without a second RPC; counted from
   // the user's local records only, so it never touches account stubs.
   connectedAccountCount?: number;
+  // Only with GatekeeperVendorFilter.includeHidden. The admin turned this integration (or all of
+  // its resources) off for the deployment; show the row with a "Disabled by admin" state instead
+  // of offering to connect.
+  disabledByAdmin?: boolean;
+  // Only with GatekeeperVendorFilter.includeHidden. The integration needs deployment credentials
+  // an admin hasn't entered yet (VendorDescription.supportsAdminSetup); show the row with a
+  // "Needs admin setup" state instead of offering to connect.
+  needsAdminSetup?: boolean;
 };
 
 // Maximum length (characters) of the admin-authored agent system-prompt instructions.

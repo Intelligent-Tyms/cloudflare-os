@@ -24,7 +24,7 @@ export type CanonicalIndex = {
 // these links verbatim when citing, so it never constructs or encodes doc IDs itself.
 export function rewriteIndexLinks(collectionId: string, body: string): string {
   return body.replace(/\]\(\/([^)]+)\)/g, (_match, path: string) =>
-      `](/gatekeepers/context?p=${encodeURIComponent(encodeDocId(collectionId, path))})`);
+      `](/integrations/context?p=${encodeURIComponent(encodeDocId(collectionId, path))})`);
 }
 
 // One collection's contribution: heading, then its index with frontmatter stripped (YAML noise

@@ -77,7 +77,7 @@ export default function AdminSkillsPanel({
           files in a shared{' '}
           {driveApp ? (
             <Link
-              to="/gatekeepers/$appId"
+              to="/integrations/$appId"
               params={{ appId: driveApp.id }}
               className="text-kumo-brand underline"
             >

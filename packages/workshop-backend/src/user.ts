@@ -1175,7 +1175,24 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
 
     for (let [id, vendor] of this.vendors) {
       if (disabledGatekeeperSet.has(id)) {
-        continue;  // Whole gatekeeper disabled by admin.
+        // Whole gatekeeper disabled by admin. Hidden by default; with includeHidden (and no
+        // resource filter — a disabled vendor can't connect anything) it comes back flagged so
+        // the Integrations page can show "Disabled by admin" instead of a silent gap.
+        if (filter.includeHidden && !filter.resourceUrl) {
+          promises.push((async () => {
+            try {
+              return {id, description: await vendor.describe(), supportedResources: [],
+                      connectedAccountCount: accountCounts.get(id) ?? 0,
+                      disabledByAdmin: true as const};
+            } catch (err) {
+              logger.warn("failed to load gatekeeper vendor", {
+                event: "gatekeeper.vendor.load.failed", vendorId: id, error: err,
+              });
+              return unavailableGatekeeperVendorInfo(id);
+            }
+          })());
+        }
+        continue;
       }
       promises.push((async () => {
         if (filter && !(await checkGatekeeperVendorFilter(vendor, id, filter))) {
@@ -1190,7 +1207,23 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
           let enabledResources =
               filterEnabledResources(config, id, supportedResources);
           if (enabledResources.length == 0) {
-            // Every resource for this vendor is disabled (or it advertised none) — hide the vendor.
+            // Nothing connectable. Hidden by default; with includeHidden the row survives with
+            // an explanatory state: a vendor that advertised resources the admin turned off is
+            // "disabled by admin", and one that advertises nothing because its deployment
+            // credentials are missing (supportsAdminSetup vendors hide themselves that way) is
+            // "needs admin setup". A vendor with no resources and no setup story stays hidden —
+            // there is nothing to explain.
+            if (!filter.includeHidden || filter.resourceUrl) return null;
+            if (supportedResources.length > 0) {
+              return {id, description, supportedResources: [],
+                      connectedAccountCount: accountCounts.get(id) ?? 0,
+                      disabledByAdmin: true as const};
+            }
+            if (description.supportsAdminSetup === true) {
+              return {id, description, supportedResources: [],
+                      connectedAccountCount: accountCounts.get(id) ?? 0,
+                      needsAdminSetup: true as const};
+            }
             return null;
           }
 

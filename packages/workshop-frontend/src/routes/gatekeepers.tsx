@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useKumoToastManager } from '@cloudflare/kumo'
 import {
@@ -25,7 +25,13 @@ import { ConnectedAccountsSubscriber, GatekeeperVendorInfo } from '@gadgets/work
 import { useDocumentTitle } from '../useDocumentTitle'
 import { useSiteName } from '../ServerConfigContext'
 
+// Legacy path: the Integrations page now lives at /integrations (see routes/integrations.tsx,
+// which reuses ConnectorsPage). This route only redirects old links and bookmarks. The page
+// component stays in this file so upstream merges remain cheap.
 export const Route = createFileRoute('/gatekeepers')({
+  beforeLoad: () => {
+    throw redirect({ to: '/integrations' })
+  },
   component: ConnectorsPage,
 })
 
@@ -42,6 +48,10 @@ interface VendorEntry {
   id: string
   description: VendorDescription
   supportedResources: SupportedResource[]
+  // Display-only states (listGatekeeperVendors with includeHidden): the row is shown with an
+  // explanatory badge instead of a connect affordance.
+  disabledByAdmin?: boolean
+  needsAdminSetup?: boolean
 }
 
 function VendorIconTile({
@@ -81,7 +91,8 @@ interface ConnectorCardProps {
   badge?: { label: string; tone: 'new' | 'popular' }
   metaLine?: React.ReactNode
   tagline?: string
-  state: 'connected' | 'available' | 'expired'
+  // 'unavailable' renders the row inert: no connect affordance, no hover, explained by `badge`.
+  state: 'connected' | 'available' | 'expired' | 'unavailable'
   onClick: () => void
   onReconnect?: () => void
   reconnectBusy?: boolean
@@ -102,6 +113,7 @@ function ConnectorCard({
   reconnectBusy = false,
   view = 'grid',
 }: ConnectorCardProps) {
+  const interactive = state !== 'unavailable'
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.currentTarget !== event.target) return
     if (event.key === 'Enter' || event.key === ' ') {
@@ -149,7 +161,7 @@ function ConnectorCard({
         <RefreshCw size={12} strokeWidth={2.5} />
         {reconnectBusy ? 'Opening...' : 'Reconnect'}
       </button>
-    ) : (
+    ) : state === 'unavailable' ? null : (
       <div className="grid h-7 w-7 place-items-center text-kumo-inactive transition-colors group-hover:text-kumo-default">
         {state === 'available' ? (
           <Plus size={16} strokeWidth={2.5} />
@@ -162,11 +174,13 @@ function ConnectorCard({
   if (view === 'list') {
     return (
       <div
-        role="button"
-        tabIndex={0}
-        onClick={onClick}
-        onKeyDown={handleKeyDown}
-        className="group flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-150 ease-out hover:bg-kumo-tint"
+        role={interactive ? 'button' : undefined}
+        tabIndex={interactive ? 0 : undefined}
+        onClick={interactive ? onClick : undefined}
+        onKeyDown={interactive ? handleKeyDown : undefined}
+        className={interactive
+          ? 'group flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-150 ease-out hover:bg-kumo-tint'
+          : 'group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left opacity-70'}
       >
         <div className="relative shrink-0">
           <VendorIconTile
@@ -198,11 +212,13 @@ function ConnectorCard({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={handleKeyDown}
-      className="themed-card-hover-shadow group grid w-full cursor-pointer grid-cols-[48px_1fr_auto] items-center gap-4 rounded-2xl border border-kumo-line bg-kumo-base px-5 py-5 text-left transition-[border-color,transform,box-shadow] duration-150 ease-out hover:-translate-y-px hover:border-kumo-fill active:scale-[0.995]"
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onClick={interactive ? onClick : undefined}
+      onKeyDown={interactive ? handleKeyDown : undefined}
+      className={interactive
+        ? 'themed-card-hover-shadow group grid w-full cursor-pointer grid-cols-[48px_1fr_auto] items-center gap-4 rounded-2xl border border-kumo-line bg-kumo-base px-5 py-5 text-left transition-[border-color,transform,box-shadow] duration-150 ease-out hover:-translate-y-px hover:border-kumo-fill active:scale-[0.995]'
+        : 'group grid w-full grid-cols-[48px_1fr_auto] items-center gap-4 rounded-2xl border border-kumo-line bg-kumo-base px-5 py-5 text-left opacity-70'}
     >
       <div className="self-start">
         <div className="relative">
@@ -440,7 +456,7 @@ type ModalTarget =
   | { kind: 'manage'; accountId: number }
   | null
 
-function ConnectorsPage() {
+export function ConnectorsPage() {
   useDocumentTitle('Integrations')
   const siteName = useSiteName()
 
@@ -492,7 +508,9 @@ function ConnectorsPage() {
       })
 
     authenticatedApi
-      .listGatekeeperVendors()
+      // includeHidden: admin-disabled and needs-setup integrations come back flagged so this
+      // page can explain their state instead of showing a silent gap.
+      .listGatekeeperVendors({ includeHidden: true })
       .then((vendorList) => {
         if (cancelled) return
         const unavailable = vendorList.filter((v) => v.unavailable)
@@ -509,6 +527,8 @@ function ConnectorsPage() {
               id: v.id,
               description: v.description,
               supportedResources: v.supportedResources,
+              disabledByAdmin: v.disabledByAdmin,
+              needsAdminSetup: v.needsAdminSetup,
             })),
         )
         setVendorsLoaded(true)
@@ -690,10 +710,11 @@ function ConnectorsPage() {
   // An ambient vendor is recognized by `description.autoProvisionsAccount`, which routes the connect
   // action to a direct (no-OAuth) add instead.
   const availableVendors = useMemo<VendorEntry[]>(
-    () => [
-      ...vendors,
-      ...addable,
-    ],
+    () => {
+      // Inert rows (needs-setup, admin-disabled) sink below everything connectable.
+      const weight = (v: VendorEntry) => (v.disabledByAdmin ? 2 : v.needsAdminSetup ? 1 : 0)
+      return [...vendors, ...addable].sort((a, b) => weight(a) - weight(b))
+    },
     [vendors, addable],
   )
 
@@ -833,19 +854,29 @@ function ConnectorsPage() {
             <SectionEyebrow label="Available" />
             <div className={sectionGridClass}>
 
-              {filteredAvailable.map((vendor) => (
-                <ConnectorCard
-                  key={vendor.id}
-                  logoUrl={vendor.description.logo?.url}
-                  color={vendor.description.color}
-                  fallback={vendor.description.displayName}
-                  name={vendor.description.displayName}
-                  tagline={vendor.description.tagline}
-                  state="available"
-                  onClick={() => handleOpenConnect(vendor.id)}
-                  view={view}
-                />
-              ))}
+              {filteredAvailable.map((vendor) => {
+                const hidden = vendor.disabledByAdmin || vendor.needsAdminSetup
+                return (
+                  <ConnectorCard
+                    key={vendor.id}
+                    logoUrl={vendor.description.logo?.url}
+                    color={vendor.description.color}
+                    fallback={vendor.description.displayName}
+                    name={vendor.description.displayName}
+                    tagline={vendor.description.tagline}
+                    badge={vendor.disabledByAdmin
+                      ? { label: 'Disabled by admin', tone: 'popular' }
+                      : vendor.needsAdminSetup
+                        ? { label: 'Needs admin setup', tone: 'popular' }
+                        : undefined}
+                    state={hidden ? 'unavailable' : 'available'}
+                    onClick={() => {
+                      if (!hidden) handleOpenConnect(vendor.id)
+                    }}
+                    view={view}
+                  />
+                )
+              })}
             </div>
           </section>
         )}

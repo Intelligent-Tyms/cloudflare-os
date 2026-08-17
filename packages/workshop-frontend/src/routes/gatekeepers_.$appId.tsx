@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import GatekeeperAppPage from '../GatekeeperAppPage'
 import { useDocumentTitle } from '../useDocumentTitle'
 import { useGatekeeperApps } from '../useGatekeeperApps'
@@ -13,7 +13,13 @@ import { useGatekeeperApps } from '../useGatekeeperApps'
 // chat citation link). Bounded; the app decides what it means.
 type GatekeeperAppSearch = { p?: string }
 
+// Legacy path: gatekeeper-served apps now live at /integrations/$appId (see
+// routes/integrations_.$appId.tsx). This route only redirects old links, citations, and
+// bookmarks, carrying the appId param and the opaque `p` location through.
 export const Route = createFileRoute('/gatekeepers_/$appId')({
+  beforeLoad: ({ params, search }) => {
+    throw redirect({ to: '/integrations/$appId', params, search })
+  },
   component: GatekeeperApp,
   validateSearch: (search: Record<string, unknown>): GatekeeperAppSearch => {
     const p = typeof search.p === 'string' ? search.p.slice(0, 512) : ''

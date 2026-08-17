@@ -23,7 +23,7 @@ describe("rewriteIndexLinks", () => {
   it("rewrites bundle-absolute links into citation URLs with an encoded doc id", () => {
     let out = rewriteIndexLinks("abc123", "* [Incorporation](/incorporation.md) - Legal.");
     expect(out).toBe(
-        "* [Incorporation](/gatekeepers/context?p=abc123%2Fincorporation.md) - Legal.");
+        "* [Incorporation](/integrations/context?p=abc123%2Fincorporation.md) - Legal.");
   });
 
   it("encodes nested paths and leaves non-absolute links alone", () => {
@@ -44,7 +44,7 @@ describe("buildPromptContextBlock", () => {
     expect(block).not.toContain("okf_version");
     expect(block).not.toContain("pack_version");
     expect(block).toContain("The organization-wide truth core.");
-    expect(block).toContain("(/gatekeepers/context?p=abc123%2Fincorporation.md)");
+    expect(block).toContain("(/integrations/context?p=abc123%2Fincorporation.md)");
   });
 
   it("orders collections deterministically by title", () => {

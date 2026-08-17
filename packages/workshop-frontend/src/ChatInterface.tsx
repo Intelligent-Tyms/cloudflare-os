@@ -425,10 +425,11 @@ const CAPSULE_TOKEN_PREFIX = "GADGETS_CAPSULE_";
 const CAPSULE_TOKEN_SUFFIX = "_TOKEN";
 
 // Citation links into gatekeeper apps (e.g. Knowledge doc references the assistant reproduces
-// from its authoritative context). Only exact /gatekeepers/<id> paths with an optional query
-// navigate in-app; anything else still goes through safeExternalUrl. Length-capped because the
-// href is model-authored.
-const INTERNAL_APP_LINK_RE = /^\/gatekeepers\/([A-Za-z0-9_-]{1,64})(?:\?([^#]*))?$/;
+// from its authoritative context). Only exact /integrations/<id> paths — or the legacy
+// /gatekeepers/<id> form, still present in older chat history and backend-authored citations —
+// with an optional query navigate in-app; anything else still goes through safeExternalUrl.
+// Length-capped because the href is model-authored.
+const INTERNAL_APP_LINK_RE = /^\/(?:integrations|gatekeepers)\/([A-Za-z0-9_-]{1,64})(?:\?([^#]*))?$/;
 const INTERNAL_APP_LINK_MAX_LENGTH = 600;
 
 function parseInternalAppLink(
@@ -458,7 +459,7 @@ function InternalAppLink({ href, appId, search, children, ...props }: {
       href={href}
       onClick={(e) => {
         e.preventDefault();
-        navigate({ to: "/gatekeepers/$appId", params: { appId }, search });
+        navigate({ to: "/integrations/$appId", params: { appId }, search });
       }}
     >
       {children}

@@ -559,7 +559,7 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
 
   // The management apps available to the current user: their connected accounts that declare a
   // top-level UI (AccountDescription.providesUi). The app id is the gatekeeper's routing id (its
-  // vendor id, e.g. "context"), so each app is hosted at /gatekeepers/<vendorId>. UI-providing
+  // vendor id, e.g. "context"), so each app is hosted at /integrations/<vendorId>. UI-providing
   // accounts are auto-provisioned singletons (one per vendor), so the vendor id identifies them.
   async listGatekeeperApps(): Promise<GatekeeperAppInfo[]> {
     // listProvidedAccounts provisions auto-provisioned accounts first (idempotent), so their apps
@@ -576,7 +576,7 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
 
   async getGatekeeperApp(id: string): Promise<GatekeeperUiFrame | null> {
     // Self-sufficient: listProvidedAccounts provisions auto-provisioned accounts first (idempotent),
-    // so a direct URL load of /gatekeepers/$id works without racing the Header's listGatekeeperApps.
+    // so a direct URL load of /integrations/$id works without racing the Header's listGatekeeperApps.
     let accounts = await this.user.listProvidedAccounts();
     let app = accounts.find(account => account.vendorId === id && account.description.providesUi);
     if (!app) return null;

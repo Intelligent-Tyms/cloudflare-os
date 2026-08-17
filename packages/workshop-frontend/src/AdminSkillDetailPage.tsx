@@ -180,7 +180,7 @@ export default function AdminSkillDetailPage({ skillName }: { skillName: string 
                     {' '}
                     Edit or remove it in{' '}
                     <Link
-                      to="/gatekeepers/$appId"
+                      to="/integrations/$appId"
                       params={{ appId: driveApp.id }}
                       className="text-kumo-brand underline"
                     >
