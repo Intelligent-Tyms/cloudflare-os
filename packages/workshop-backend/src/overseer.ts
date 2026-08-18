@@ -3695,11 +3695,21 @@ class OverseerImpl implements AgentHooks {
 
     let readyRecord: ExternalMessageRecord = { ...record, status: "ready", responseText: text };
     this.storage.gadgetResponseDeliveries.put(readyRecord);
+    // The immediate alarm set here is the crash-safety net for the inline attempt below.
+    // Same-isolate, the alarm consumer skips in-flight keys — without that, both paths
+    // deliver concurrently and the delivery worker's dedupe races (double sends).
     this.#updateExternalMessageResponseDeliveryAlarm();
+    this.#inFlightExternalDeliveries.add(readyRecord.idempotencyKey);
     this.ctx.waitUntil(this.#deliverExternalMessageResponseToTarget(readyRecord).finally(() => {
+      this.#inFlightExternalDeliveries.delete(readyRecord.idempotencyKey);
       this.#updateExternalMessageResponseDeliveryAlarm();
     }));
   }
+
+  // Idempotency keys with an inline delivery attempt in flight in this isolate. In-memory
+  // on purpose: after a restart the set is empty and the alarm redelivers, keeping the
+  // at-least-once guarantee.
+  #inFlightExternalDeliveries = new Set<string>();
 
   async #deliverExternalMessageResponseToTarget(record: ExternalMessageRecord): Promise<void> {
     if (record.status !== "ready") return;
@@ -3728,7 +3738,8 @@ class OverseerImpl implements AgentHooks {
   }
 
   async deliverReadyExternalMessageResponses(): Promise<void> {
-    let readyRecords = [...this.storage.gadgetResponseDeliveries.readyByIdempotencyKey.list()];
+    let readyRecords = [...this.storage.gadgetResponseDeliveries.readyByIdempotencyKey.list()]
+      .filter((record) => !this.#inFlightExternalDeliveries.has(record.idempotencyKey));
 
     let results = await Promise.allSettled(
       readyRecords.map(record => this.#deliverExternalMessageResponseToTarget(record)),
