@@ -67,7 +67,7 @@ export default function TopBarNotice() {
                 {' '}
                 <Link
                   to="/admin/$section"
-                  params={{ section: 'billing' }}
+                  params={{ section: 'plans' }}
                   className="text-kumo-brand hover:underline pointer-events-auto"
                 >
                   Upgrade

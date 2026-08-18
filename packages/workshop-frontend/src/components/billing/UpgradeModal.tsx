@@ -32,9 +32,9 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
       .catch(() => setGate(null))
   }, [open, auth])
 
-  const openBilling = () => {
+  const openPlans = () => {
     onClose()
-    void navigate({ to: '/admin/$section', params: { section: 'billing' } })
+    void navigate({ to: '/admin/$section', params: { section: 'plans' } })
   }
 
   const requestUpgrade = async () => {
@@ -102,7 +102,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
                 {gate !== null && (isAdmin || requestState === 'idle') ? 'Maybe later' : 'Close'}
               </Button>
               {gate !== null && isAdmin && (
-                <Button variant="primary" onClick={openBilling}>
+                <Button variant="primary" onClick={openPlans}>
                   View plans
                 </Button>
               )}

@@ -10,6 +10,7 @@ import {
   CreditCard,
   FileText,
   Hexagon,
+  Layers,
   Megaphone,
   MessagesSquare,
   Palette,
@@ -30,6 +31,7 @@ import SiteLogo from './components/SiteLogo'
 import { useDocumentTitle } from './useDocumentTitle'
 import AdminBillingPanel from './components/AdminBillingPanel'
 import AdminChannelsPanel from './components/AdminChannelsPanel'
+import AdminPlansPanel from './components/AdminPlansPanel'
 import AdminFormatsPanel from './components/format/AdminFormatsPanel'
 import AdminProvidersPanel from './components/AdminProvidersPanel'
 import AdminSkillsPanel from './components/AdminSkillsPanel'
@@ -52,6 +54,7 @@ const ACCENT_PRESETS: { label: string; value: string }[] = [
 export type AdminSectionId =
   | 'organization'
   | 'teammates'
+  | 'plans'
   | 'billing'
   | 'brand'
   | 'announcements'
@@ -90,6 +93,14 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         description:
           'Invite teammates by email, see who hasn’t joined yet, and remove members. Membership controls who can sign in to this workspace.',
         icon: <Users size={18} />,
+      },
+      {
+        id: 'plans',
+        title: 'Plans',
+        blurb: 'Compare plans and change your workspace plan.',
+        description:
+          'Compare plans and switch your workspace to a new one. Upgrades take effect immediately with a prorated charge; downgrades apply immediately and reduce your credit allowances.',
+        icon: <Layers size={18} />,
       },
       {
         id: 'billing',
@@ -609,6 +620,9 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
 
       {/* Messaging channels */}
       {section === 'channels' && <AdminChannelsPanel channels={channels} />}
+
+      {/* Plans */}
+      {section === 'plans' && admin && <AdminPlansPanel admin={admin.api} />}
 
       {/* Billing & usage */}
       {section === 'billing' && admin && <AdminBillingPanel admin={admin.api} />}
