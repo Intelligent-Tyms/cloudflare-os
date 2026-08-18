@@ -155,6 +155,12 @@ export default function AdminPlansPanel({ admin }: { admin: RpcStub<AdminApi> })
   }
 
   const isEnterprise = overview.tier === 'enterprise'
+  // The grid sells the paid ladder only. The free plan never gets a card — it would soak
+  // up the current-plan highlight on free workspaces and describe what free includes;
+  // paid workspaces that want out use the quiet downgrade link under the footnote.
+  const paidPlans = plans.filter((p) => p.priceCents > 0)
+  const freePlan = plans.find((p) => p.priceCents === 0)
+  const currentPlan = plans.find((p) => p.code === overview.planCode)
 
   const statusChip = (
     <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${STATUS_STYLES[overview.subscriptionStatus] ?? 'bg-kumo-tint text-kumo-subtle'}`}>
@@ -207,16 +213,25 @@ export default function AdminPlansPanel({ admin }: { admin: RpcStub<AdminApi> })
             ))}
           </div>
         </div>
-        {plans.length === 0 ? (
+        {paidPlans.length === 0 ? (
           <p className="text-sm text-kumo-subtle">Plans are unavailable right now. Try again shortly.</p>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {plans.map((p) => {
+            {paidPlans.map((p) => {
               const annual = periodChoice === 'annual' && p.annualAvailable
               const isCurrent =
                 overview.planCode === p.code &&
-                (p.priceCents === 0 || overview.billingPeriod === (annual ? 'annual' : 'monthly'))
+                overview.billingPeriod === (annual ? 'annual' : 'monthly')
               const isIntent = !isCurrent && intentPlan === p.code
+              // Upgrading is the language of this page; period-only changes and downgrades
+              // say what they are instead.
+              const actionLabel = isCurrent
+                ? 'Current plan'
+                : p.code === overview.planCode
+                  ? `Switch to ${annual ? 'annual' : 'monthly'} billing`
+                  : p.priceCents > (currentPlan?.priceCents ?? 0)
+                    ? `Upgrade to ${p.name}`
+                    : `Downgrade to ${p.name}`
               return (
                 <div
                   key={p.code}
@@ -231,11 +246,9 @@ export default function AdminPlansPanel({ admin }: { admin: RpcStub<AdminApi> })
                   <div>
                     <p className="text-sm font-semibold text-kumo-strong">{p.name}</p>
                     <p className="text-sm text-kumo-default mt-1">
-                      {p.priceCents === 0
-                        ? 'Free'
-                        : annual
-                          ? `${usdFromCents(p.annualPriceCents ?? 0)}/year`
-                          : `${usdFromCents(p.priceCents)}/month`}
+                      {annual
+                        ? `${usdFromCents(p.annualPriceCents ?? 0)}/year`
+                        : `${usdFromCents(p.priceCents)}/month`}
                     </p>
                   </div>
                   <ul className="text-xs text-kumo-subtle space-y-1 flex-1">
@@ -244,11 +257,7 @@ export default function AdminPlansPanel({ admin }: { admin: RpcStub<AdminApi> })
                         ? `${p.seatLimit} teammate${p.seatLimit === 1 ? '' : 's'}, each with their own assistant`
                         : 'Custom teammate count'}
                     </li>
-                    <li>
-                      {p.aiCreditCentsMonthly > 0
-                        ? `${creditsFromCents(p.aiCreditCentsMonthly)} AI credits / month`
-                        : 'AI with daily limits'}
-                    </li>
+                    <li>{creditsFromCents(p.aiCreditCentsMonthly)} AI credits / month</li>
                     {p.messagingCreditCentsMonthly > 0 && (
                       <li>{creditsFromCents(p.messagingCreditCentsMonthly)} messaging credits / month</li>
                     )}
@@ -260,7 +269,7 @@ export default function AdminPlansPanel({ admin }: { admin: RpcStub<AdminApi> })
                     loading={planBusy === p.code}
                     onClick={() => void handlePlanChange(p)}
                   >
-                    {isCurrent ? 'Current plan' : `Switch to ${p.name}`}
+                    {actionLabel}
                   </Button>
                 </div>
               )
@@ -275,6 +284,19 @@ export default function AdminPlansPanel({ admin }: { admin: RpcStub<AdminApi> })
           </a>{' '}
           about a Custom plan.
         </p>
+        {freePlan && overview.planCode !== freePlan.code && (
+          <p className="text-xs text-kumo-subtle mt-2">
+            No longer need a paid plan?{' '}
+            <button
+              type="button"
+              disabled={planBusy !== null}
+              onClick={() => void handlePlanChange(freePlan)}
+              className="text-kumo-brand underline disabled:opacity-50"
+            >
+              Downgrade to {freePlan.name}
+            </button>
+          </p>
+        )}
       </div>
 
       <p className="text-sm text-kumo-subtle">
