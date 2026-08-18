@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AssistantRouteImport } from './routes/assistant'
 import { Route as BlueprintsRouteImport } from './routes/blueprints'
+import { Route as ChannelsRouteImport } from './routes/channels'
 import { Route as ContextRouteImport } from './routes/context'
 import { Route as ExploreRouteImport } from './routes/explore'
 import { Route as GatekeepersRouteImport } from './routes/gatekeepers'
@@ -51,6 +52,11 @@ const AssistantRoute = AssistantRouteImport.update({
 const BlueprintsRoute = BlueprintsRouteImport.update({
   id: '/blueprints',
   path: '/blueprints',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChannelsRoute = ChannelsRouteImport.update({
+  id: '/channels',
+  path: '/channels',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ContextRoute = ContextRouteImport.update({
@@ -155,6 +161,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRoute
   '/assistant': typeof AssistantRoute
   '/blueprints': typeof BlueprintsRoute
+  '/channels': typeof ChannelsRoute
   '/context': typeof ContextRoute
   '/explore': typeof ExploreRoute
   '/gatekeepers': typeof GatekeepersRoute
@@ -180,6 +187,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminRoute
   '/assistant': typeof AssistantRoute
   '/blueprints': typeof BlueprintsRoute
+  '/channels': typeof ChannelsRoute
   '/context': typeof ContextRoute
   '/explore': typeof ExploreRoute
   '/gatekeepers': typeof GatekeepersRoute
@@ -206,6 +214,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRoute
   '/assistant': typeof AssistantRoute
   '/blueprints': typeof BlueprintsRoute
+  '/channels': typeof ChannelsRoute
   '/context': typeof ContextRoute
   '/explore': typeof ExploreRoute
   '/gatekeepers': typeof GatekeepersRoute
@@ -233,6 +242,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/assistant'
     | '/blueprints'
+    | '/channels'
     | '/context'
     | '/explore'
     | '/gatekeepers'
@@ -258,6 +268,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/assistant'
     | '/blueprints'
+    | '/channels'
     | '/context'
     | '/explore'
     | '/gatekeepers'
@@ -283,6 +294,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/assistant'
     | '/blueprints'
+    | '/channels'
     | '/context'
     | '/explore'
     | '/gatekeepers'
@@ -309,6 +321,7 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRoute
   AssistantRoute: typeof AssistantRoute
   BlueprintsRoute: typeof BlueprintsRoute
+  ChannelsRoute: typeof ChannelsRoute
   ContextRoute: typeof ContextRoute
   ExploreRoute: typeof ExploreRoute
   GatekeepersRoute: typeof GatekeepersRoute
@@ -358,6 +371,13 @@ declare module '@tanstack/react-router' {
       path: '/blueprints'
       fullPath: '/blueprints'
       preLoaderRoute: typeof BlueprintsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/channels': {
+      id: '/channels'
+      path: '/channels'
+      fullPath: '/channels'
+      preLoaderRoute: typeof ChannelsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/context': {
@@ -501,6 +521,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRoute,
   AssistantRoute: AssistantRoute,
   BlueprintsRoute: BlueprintsRoute,
+  ChannelsRoute: ChannelsRoute,
   ContextRoute: ContextRoute,
   ExploreRoute: ExploreRoute,
   GatekeepersRoute: GatekeepersRoute,

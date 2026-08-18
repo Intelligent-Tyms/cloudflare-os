@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { Hexagon, Menu, X } from 'lucide-react'
 import { useOptionalAuthenticatedApi } from '../AuthContext'
 import { useGatekeeperApps } from '../useGatekeeperApps'
+import { useMyChannels } from '../useMyChannels'
 import { useSiteName } from '../ServerConfigContext'
 import { useState, useEffect, useRef } from 'react'
 import UserMenu from './UserMenu'
@@ -11,6 +12,7 @@ import SiteLogo from './SiteLogo'
 export default function Header() {
   const auth = useOptionalAuthenticatedApi()
   const gatekeeperApps = useGatekeeperApps()
+  const myChannels = useMyChannels()
   const siteName = useSiteName()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
@@ -177,6 +179,16 @@ export default function Header() {
                 >
                   Assistant
                 </Link>
+                {myChannels && (
+                  <Link
+                    to="/channels"
+                    onClick={closeMobileMenu}
+                    className={navLinkClass}
+                    activeProps={{ className: navLinkActiveClass }}
+                  >
+                    Channels
+                  </Link>
+                )}
                 {auth.isAdmin && (
                   <Link
                     to="/admin"

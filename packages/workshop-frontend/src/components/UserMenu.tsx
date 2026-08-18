@@ -1,8 +1,9 @@
 import { useNavigate } from '@tanstack/react-router'
 import { DropdownMenu } from '@cloudflare/kumo'
-import { Bot, ChevronsUpDown, LogOut, Plug, ShieldCheck, SunMoon, User } from 'lucide-react'
+import { Bot, ChevronsUpDown, LogOut, MessageSquare, Plug, ShieldCheck, SunMoon, User } from 'lucide-react'
 import { useAuthenticatedApi } from '../AuthContext'
 import { useAvatar } from '../useAvatar'
+import { useMyChannels } from '../useMyChannels'
 import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER, MENU_POSITIONER_STYLE } from './menuStyles'
 
 // Menu rows follow the standard leading-icon pattern: a fixed-size 15px icon in the muted color
@@ -27,6 +28,8 @@ function ItemContent({ icon, children }: { icon: React.ReactNode; children: Reac
 export default function UserMenu({ collapsed = false }: { collapsed?: boolean }) {
   const { authenticatedApi, logout, currentUser, isAdmin } = useAuthenticatedApi()
   const navigate = useNavigate()
+  // Non-null only on deployments with a channels worker, so most workspaces never see the entry.
+  const myChannels = useMyChannels()
 
   const avatarUrl = useAvatar(authenticatedApi, currentUser?.id)
 
@@ -91,6 +94,14 @@ export default function UserMenu({ collapsed = false }: { collapsed?: boolean })
         >
           <ItemContent icon={<Bot />}>Assistant</ItemContent>
         </DropdownMenu.Item>
+        {myChannels && (
+          <DropdownMenu.Item
+            onClick={() => navigate({ to: '/channels' })}
+            className={MENU_ITEM}
+          >
+            <ItemContent icon={<MessageSquare />}>Channels</ItemContent>
+          </DropdownMenu.Item>
+        )}
         <DropdownMenu.Item
           onClick={() => navigate({ to: '/gatekeepers' })}
           className={MENU_ITEM}
