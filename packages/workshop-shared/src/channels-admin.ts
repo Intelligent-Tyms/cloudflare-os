@@ -28,6 +28,14 @@ export type ChannelsDescription = {
     /** Where the credentials came from; admin-entered setup can be disconnected. */
     source?: "deployment" | "admin";
   };
+  /** ElevenLabs credentials behind voice notes (Telegram voice in/out). */
+  voice: {
+    configured: boolean;
+    /** Explicitly chosen ElevenLabs voice for spoken replies; absent = stock default. */
+    voiceId?: string;
+    /** Where the credentials came from; admin-entered setup can be disconnected. */
+    source?: "deployment" | "admin";
+  };
 };
 
 /** A Telegram account linked to a tenant email. */
@@ -133,4 +141,12 @@ export interface ChannelsAdmin {
   setupEmail(apiKey: string, domain?: string): Promise<void>;
   /** Remove admin-entered email credentials (best-effort webhook deregistration). */
   clearEmailSetup(): Promise<boolean>;
+  /**
+   * Enable voice notes from an ElevenLabs API key (+ optional voice id for spoken
+   * replies; a stock voice is the default). The key is validated with ElevenLabs
+   * before anything is stored. No webhook involved, so selfSetup is not required.
+   */
+  setupVoice(apiKey: string, voiceId?: string): Promise<void>;
+  /** Remove admin-entered voice credentials. */
+  clearVoiceSetup(): Promise<boolean>;
 }

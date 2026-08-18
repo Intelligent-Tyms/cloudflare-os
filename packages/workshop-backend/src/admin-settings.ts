@@ -1041,6 +1041,17 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
     return await this.#requireChannels().clearEmailSetup();
   }
 
+  async setupVoice(apiKey: string, voiceId?: string): Promise<void> {
+    let key = apiKey.trim();
+    if (!key || key.length > 512) throw new Error("A valid API key is required.");
+    if (voiceId !== undefined && voiceId.length > 128) throw new Error("Invalid voice id.");
+    await this.#requireChannels().setupVoice(key, voiceId);
+  }
+
+  async clearVoiceSetup(): Promise<boolean> {
+    return await this.#requireChannels().clearVoiceSetup();
+  }
+
   async mintTelegramLinkCode(email: string): Promise<TelegramLinkCode> {
     let normalized = email.trim().toLowerCase();
     if (!normalized.includes("@")) throw new Error("A valid email address is required.");
