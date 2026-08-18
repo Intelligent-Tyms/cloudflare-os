@@ -105,9 +105,9 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       {
         id: 'billing',
         title: 'Billing & usage',
-        blurb: 'Your plan, credit balances, and usage.',
+        blurb: 'Your plan, credit balances, usage, invoices, and payment details.',
         description:
-          'Your workspace plan, teammate and assistant limits, AI and channel messaging credit balances, and usage for the current period. Top up credits any time; monthly allowances renew automatically.',
+          'Your workspace plan, credit balances, usage for the current period, invoices, and payment details. Top up credits any time; monthly allowances renew automatically.',
         icon: <CreditCard size={18} />,
       },
       {

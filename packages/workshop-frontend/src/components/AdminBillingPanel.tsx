@@ -2,14 +2,18 @@ import { useState, useEffect } from 'react'
 import { RpcStub } from 'capnweb'
 import { Link } from '@tanstack/react-router'
 import { Button, useKumoToastManager } from '@cloudflare/kumo'
-import { AdminApi, BillingOverview, BillingCreditType, TeamView } from '@gadgets/workshop-shared/api'
+import {
+  AdminApi, BillingCreditType, BillingInvoice, BillingOverview, BillingPaymentDetails, TeamView,
+} from '@gadgets/workshop-shared/api'
+import { TabButton } from './TabButton'
 import {
   credits, creditsFromCents, usdFromCents, shortDate, STATUS_STYLES,
   PENDING_TOPUP_KEY, CHECKOUT_POLL_MS, CHECKOUT_POLL_ATTEMPTS, takeStash,
 } from './billing/billingFormat'
 
-// Admin → Billing and usage: the plan, teammate/assistant limits, credit balances, and the
-// current period's usage. Everything proxies through AdminApi to the central billing
+// Admin → Billing and usage: four tabs — Overview (plan + credit balances + top-ups),
+// Usage (the period's metered usage), Invoices, and Payment details (card on file +
+// Stripe billing portal). Everything proxies through AdminApi to the central billing
 // directory; a null overview means this deployment has none configured. Comparing and
 // switching plans lives on its own page (Admin → Plans, AdminPlansPanel).
 
@@ -17,12 +21,48 @@ const TOPUP_PRESETS_CENTS = [10_00, 25_00, 50_00]
 
 type PendingTopup = { creditType: BillingCreditType; topupMicroUsd: number }
 
+type BillingTab = 'overview' | 'usage' | 'invoices' | 'payment'
+const TABS: { id: BillingTab; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'usage', label: 'Usage' },
+  { id: 'invoices', label: 'Invoices' },
+  { id: 'payment', label: 'Payment details' },
+]
+
+const initialTab = (): BillingTab => {
+  const tab = new URLSearchParams(window.location.search).get('tab')
+  return TABS.some((t) => t.id === tab) ? (tab as BillingTab) : 'overview'
+}
+
+const INVOICE_STATUS_STYLES: Record<string, string> = {
+  paid: 'bg-kumo-success/10 text-kumo-success',
+  open: 'bg-kumo-warning/10 text-kumo-warning',
+  uncollectible: 'bg-kumo-danger/10 text-kumo-danger',
+  void: 'bg-kumo-tint text-kumo-subtle',
+}
+
+const invoiceAmount = (cents: number, currency: string) =>
+  currency.toLowerCase() === 'usd'
+    ? usdFromCents(cents)
+    : `${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`
+
+const cardBrand = (brand: string) =>
+  brand.length <= 4 ? brand.toUpperCase() : brand.charAt(0).toUpperCase() + brand.slice(1)
+
 export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> }) {
   const toasts = useKumoToastManager()
+  const [tab, setTab] = useState<BillingTab>(initialTab)
   const [overview, setOverview] = useState<BillingOverview | null>(null)
   const [team, setTeam] = useState<TeamView | null>(null)
   const [loading, setLoading] = useState(true)
   const [topupBusy, setTopupBusy] = useState<string | null>(null)
+  // Invoices and payment details hit the billing provider, so they load lazily on the
+  // first visit to their tab. null/undefined = not fetched yet.
+  const [invoices, setInvoices] = useState<BillingInvoice[] | null>(null)
+  const [invoicesError, setInvoicesError] = useState<string | null>(null)
+  const [payment, setPayment] = useState<BillingPaymentDetails | null | undefined>(undefined)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
+  const [portalBusy, setPortalBusy] = useState(false)
 
   const reload = async () => {
     const [billing, teamView] = await Promise.all([
@@ -40,6 +80,35 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin])
+
+  const selectTab = (next: BillingTab) => {
+    setTab(next)
+    const params = new URLSearchParams(window.location.search)
+    if (next === 'overview') params.delete('tab')
+    else params.set('tab', next)
+    const query = params.toString()
+    window.history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : ''))
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    if (tab === 'invoices' && invoices === null && invoicesError === null) {
+      admin.listBillingInvoices()
+        .then((rows) => { if (!cancelled) setInvoices(rows) })
+        .catch((err) => {
+          if (!cancelled) setInvoicesError(err instanceof Error ? err.message : 'Could not load invoices')
+        })
+    }
+    if (tab === 'payment' && payment === undefined && paymentError === null) {
+      admin.getBillingPaymentDetails()
+        .then((details) => { if (!cancelled) setPayment(details) })
+        .catch((err) => {
+          if (!cancelled) setPaymentError(err instanceof Error ? err.message : 'Could not load payment details')
+        })
+    }
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
 
   // Returning from a top-up checkout: acknowledge, clean the URL, and — when we know what
   // was bought (the pre-checkout stash) — poll until Stripe's webhook has actually applied
@@ -105,6 +174,18 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
     } catch (err) {
       toasts.add({ title: err instanceof Error ? err.message : 'Could not start checkout', variant: 'error' })
       setTopupBusy(null)
+    }
+  }
+
+  const handlePortal = async () => {
+    setPortalBusy(true)
+    try {
+      const url = await admin.createBillingPortalSession(
+        `${window.location.origin}${window.location.pathname}?tab=payment`)
+      window.location.assign(url)
+    } catch (err) {
+      toasts.add({ title: err instanceof Error ? err.message : 'Could not open the billing portal', variant: 'error' })
+      setPortalBusy(false)
     }
   }
 
@@ -206,7 +287,7 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
     )
   }
 
-  return (
+  const overviewTab = (
     <div className="space-y-6">
       {/* Plan */}
       <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
@@ -248,7 +329,7 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
         </div>
         {isEnterprise && (
           <p className="text-sm text-kumo-subtle mt-4 pt-4 border-t border-kumo-line">
-            Your plan has custom AI and messaging volumes; credits are tracked below but never
+            Your plan has custom AI and messaging volumes; credits are tracked but never
             enforced. Contact your account team to change terms.
           </p>
         )}
@@ -263,55 +344,177 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
             'An email is 2 credits, WhatsApp 5, SMS 10, and voice 50 per message. Telegram and Slack are free.')}
         </div>
       )}
+    </div>
+  )
 
-      {/* Usage this period */}
-      <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-kumo-strong mb-1">Usage this period</h2>
-        <p className="text-sm text-kumo-subtle mb-4">
-          {shortDate(overview.periodStart)} – {shortDate(overview.periodEnd)}
+  const usageTab = (
+    <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
+      <h2 className="text-lg font-semibold text-kumo-strong mb-1">Usage this period</h2>
+      <p className="text-sm text-kumo-subtle mb-4">
+        {shortDate(overview.periodStart)} – {shortDate(overview.periodEnd)}
+      </p>
+      {overview.usage.length === 0 ? (
+        <p className="text-sm text-kumo-subtle">No metered usage yet this period.</p>
+      ) : (
+        <div className="space-y-1">
+          <div className="flex items-center gap-3 px-3 py-2 rounded-lg">
+            <p className="flex-1 text-xs font-medium uppercase tracking-wide text-kumo-inactive">Item</p>
+            <p className="w-24 text-right text-xs font-medium uppercase tracking-wide text-kumo-inactive">Count</p>
+            <p className="w-24 text-right text-xs font-medium uppercase tracking-wide text-kumo-inactive">Credits</p>
+          </div>
+          {overview.usage
+            .toSorted((a, b) => b.costMicroUsd - a.costMicroUsd)
+            .map((row) => (
+              <div
+                key={`${row.kind}:${row.channel ?? ''}:${row.direction ?? ''}`}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-kumo-tint transition-colors"
+              >
+                <p className="flex-1 text-sm text-kumo-default">
+                  {row.kind === 'ai'
+                    ? 'AI requests'
+                    : `${row.channel ?? 'channel'} messages${row.direction ? ` (${row.direction})` : ''}`}
+                </p>
+                <p className="w-24 text-right text-sm text-kumo-subtle tabular-nums">{row.quantity}</p>
+                <p className="w-24 text-right text-sm text-kumo-default tabular-nums">{credits(row.costMicroUsd)}</p>
+              </div>
+            ))}
+          <div className="flex items-center gap-3 px-3 py-2 rounded-lg border-t border-kumo-line mt-1">
+            <p className="flex-1 text-sm font-medium text-kumo-strong">Total</p>
+            <p className="w-24 text-right text-sm text-kumo-subtle tabular-nums">
+              {overview.usage.reduce((sum, r) => sum + r.quantity, 0)}
+            </p>
+            <p className="w-24 text-right text-sm font-medium text-kumo-strong tabular-nums">
+              {credits(aiSpent + messagingSpent)}
+            </p>
+          </div>
+        </div>
+      )}
+      {messageCount > 0 && messagingSpent === 0 && (
+        <p className="text-xs text-kumo-subtle mt-3">
+          Messages on free channels are counted for visibility but cost nothing.
         </p>
-        {overview.usage.length === 0 ? (
-          <p className="text-sm text-kumo-subtle">No metered usage yet this period.</p>
-        ) : (
-          <div className="space-y-1">
-            <div className="flex items-center gap-3 px-3 py-2 rounded-lg">
-              <p className="flex-1 text-xs font-medium uppercase tracking-wide text-kumo-inactive">Item</p>
-              <p className="w-24 text-right text-xs font-medium uppercase tracking-wide text-kumo-inactive">Count</p>
-              <p className="w-24 text-right text-xs font-medium uppercase tracking-wide text-kumo-inactive">Credits</p>
-            </div>
-            {overview.usage
-              .toSorted((a, b) => b.costMicroUsd - a.costMicroUsd)
-              .map((row) => (
-                <div
-                  key={`${row.kind}:${row.channel ?? ''}:${row.direction ?? ''}`}
-                  className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-kumo-tint transition-colors"
-                >
-                  <p className="flex-1 text-sm text-kumo-default">
-                    {row.kind === 'ai'
-                      ? 'AI requests'
-                      : `${row.channel ?? 'channel'} messages${row.direction ? ` (${row.direction})` : ''}`}
-                  </p>
-                  <p className="w-24 text-right text-sm text-kumo-subtle tabular-nums">{row.quantity}</p>
-                  <p className="w-24 text-right text-sm text-kumo-default tabular-nums">{credits(row.costMicroUsd)}</p>
-                </div>
-              ))}
-            <div className="flex items-center gap-3 px-3 py-2 rounded-lg border-t border-kumo-line mt-1">
-              <p className="flex-1 text-sm font-medium text-kumo-strong">Total</p>
-              <p className="w-24 text-right text-sm text-kumo-subtle tabular-nums">
-                {overview.usage.reduce((sum, r) => sum + r.quantity, 0)}
+      )}
+    </div>
+  )
+
+  const invoicesTab = (
+    <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
+      <h2 className="text-lg font-semibold text-kumo-strong mb-4">Invoices</h2>
+      {invoicesError ? (
+        <p className="text-sm text-kumo-danger">{invoicesError}</p>
+      ) : invoices === null ? (
+        <p className="text-sm text-kumo-subtle">Loading invoices…</p>
+      ) : invoices.length === 0 ? (
+        <p className="text-sm text-kumo-subtle">
+          No invoices yet. They appear here once your workspace is on a paid plan.
+        </p>
+      ) : (
+        <div className="space-y-1">
+          <div className="hidden sm:flex items-center gap-3 px-3 py-2 rounded-lg">
+            <p className="w-28 text-xs font-medium uppercase tracking-wide text-kumo-inactive">Date</p>
+            <p className="flex-1 text-xs font-medium uppercase tracking-wide text-kumo-inactive">Description</p>
+            <p className="w-20 text-right text-xs font-medium uppercase tracking-wide text-kumo-inactive">Amount</p>
+            <p className="w-20 text-right text-xs font-medium uppercase tracking-wide text-kumo-inactive">Status</p>
+            <p className="w-24 text-right text-xs font-medium uppercase tracking-wide text-kumo-inactive">Links</p>
+          </div>
+          {invoices.map((inv) => (
+            <div
+              key={inv.id}
+              className="flex flex-wrap sm:flex-nowrap items-center gap-3 px-3 py-2 rounded-lg hover:bg-kumo-tint transition-colors"
+            >
+              <p className="w-28 text-sm text-kumo-default">{shortDate(inv.createdAt)}</p>
+              <p className="flex-1 min-w-[140px] text-sm text-kumo-default truncate">
+                {inv.description ?? inv.number ?? 'Invoice'}
               </p>
-              <p className="w-24 text-right text-sm font-medium text-kumo-strong tabular-nums">
-                {credits(aiSpent + messagingSpent)}
+              <p className="w-20 text-right text-sm text-kumo-default tabular-nums">
+                {invoiceAmount(inv.amountCents, inv.currency)}
+              </p>
+              <p className="w-20 text-right">
+                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${INVOICE_STATUS_STYLES[inv.status] ?? 'bg-kumo-tint text-kumo-subtle'}`}>
+                  {inv.status}
+                </span>
+              </p>
+              <p className="w-24 text-right text-sm space-x-2">
+                {inv.hostedUrl && (
+                  <a href={inv.hostedUrl} target="_blank" rel="noreferrer" className="text-kumo-brand hover:underline">
+                    View
+                  </a>
+                )}
+                {inv.pdfUrl && (
+                  <a href={inv.pdfUrl} target="_blank" rel="noreferrer" className="text-kumo-brand hover:underline">
+                    PDF
+                  </a>
+                )}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+
+  const paymentTab = (
+    <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
+      <h2 className="text-lg font-semibold text-kumo-strong mb-4">Payment details</h2>
+      {paymentError ? (
+        <p className="text-sm text-kumo-danger">{paymentError}</p>
+      ) : payment === undefined ? (
+        <p className="text-sm text-kumo-subtle">Loading payment details…</p>
+      ) : payment === null ? (
+        <p className="text-sm text-kumo-subtle">
+          No payment method on file. One is added with your first payment.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="text-xs text-kumo-subtle">Payment method</p>
+              <p className="text-sm font-medium text-kumo-default mt-0.5">
+                {payment.card
+                  ? `${cardBrand(payment.card.brand)} ending ${payment.card.last4}`
+                  : 'None on file'}
+              </p>
+              {payment.card && (
+                <p className="text-xs text-kumo-subtle mt-0.5">
+                  Expires {String(payment.card.expMonth).padStart(2, '0')}/{payment.card.expYear}
+                </p>
+              )}
+            </div>
+            <div>
+              <p className="text-xs text-kumo-subtle">Billing email</p>
+              <p className="text-sm font-medium text-kumo-default mt-0.5">
+                {payment.billingEmail ?? '—'}
               </p>
             </div>
           </div>
-        )}
-        {messageCount > 0 && messagingSpent === 0 && (
-          <p className="text-xs text-kumo-subtle mt-3">
-            Messages on free channels are counted for visibility but cost nothing.
-          </p>
-        )}
+          <div className="pt-4 border-t border-kumo-line">
+            <Button variant="secondary" size="sm" loading={portalBusy} onClick={() => void handlePortal()}>
+              Manage payment details
+            </Button>
+            <p className="text-xs text-kumo-subtle mt-2">
+              Update your card, billing email, address, and tax IDs through our secure
+              billing portal (Stripe).
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-5 border-b border-kumo-line">
+        {TABS.map((t) => (
+          <TabButton key={t.id} active={tab === t.id} onClick={() => selectTab(t.id)} className="h-9">
+            {t.label}
+          </TabButton>
+        ))}
       </div>
+
+      {tab === 'overview' && overviewTab}
+      {tab === 'usage' && usageTab}
+      {tab === 'invoices' && invoicesTab}
+      {tab === 'payment' && paymentTab}
     </div>
   )
 }
