@@ -307,6 +307,7 @@ export default function ShareModal({ open, onClose, overseer, metadata, currentU
   const [newShareLinkCopied, setNewShareLinkCopied] = useState(false)
   const [invitedName, setInvitedName] = useState<string | null>(null)
   const [invitedLinkCopied, setInvitedLinkCopied] = useState(false)
+  const [invitedEmailed, setInvitedEmailed] = useState(false)
   const [requirements, setRequirements] =
     useState<Record<CollaboratorRole, ObserverBindingNeed[]> | null>(null)
   const [requirementsFailed, setRequirementsFailed] = useState(false)
@@ -571,9 +572,15 @@ export default function ShareModal({ open, onClose, overseer, metadata, currentU
         setAddUsername('')
         setInvitedName(result.profile.name)
         setInvitedLinkCopied(false)
+        setInvitedEmailed(result.emailNotified === true)
         await loadData()
         showLandedRow('person', landedId)
-        toasts.add({ title: `Added ${result.profile.name} as a collaborator.`, variant: 'success' })
+        toasts.add({
+          title: result.emailNotified
+            ? `Added ${result.profile.name} and emailed them a link.`
+            : `Added ${result.profile.name} as a collaborator.`,
+          variant: 'success',
+        })
       }
     } catch (err: any) {
       toasts.add({ title: err.message || 'Failed to add collaborator.', variant: 'error' })
@@ -850,7 +857,11 @@ export default function ShareModal({ open, onClose, overseer, metadata, currentU
                     Added {invitedName}
                   </p>
                   <span className="text-[11px] leading-4 text-kumo-inactive">
-                    {invitedLinkCopied ? 'Link copied to your clipboard' : 'Send them this link to open it'}
+                    {invitedLinkCopied
+                      ? 'Link copied to your clipboard'
+                      : invitedEmailed
+                        ? 'We emailed them this link'
+                        : 'Send them this link to open it'}
                   </span>
                 </div>
                 <p className="truncate font-mono text-[11px] leading-4 text-kumo-subtle">{workspaceUrl}</p>
@@ -861,7 +872,7 @@ export default function ShareModal({ open, onClose, overseer, metadata, currentU
               </WorkshopButton>
               <WorkshopIconButton
                 aria-label="Dismiss added collaborator"
-                onClick={() => { setInvitedName(null); setInvitedLinkCopied(false) }}
+                onClick={() => { setInvitedName(null); setInvitedLinkCopied(false); setInvitedEmailed(false) }}
               >
                 <X size={14} />
               </WorkshopIconButton>

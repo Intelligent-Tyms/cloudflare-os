@@ -26,9 +26,9 @@
 import { RpcCompatible, RpcStub, RpcTarget } from "capnweb";
 import { AccountDescription, ActionKind, ActionDescription, AvatarImage, GatekeeperUiFrame, IntegrationDepartment, ObservationDescription, ResourceDescription, ResourceConfiguratorFrame, SupportedResource, VendorDescription, VendorSetup, HookDescription } from "./gatekeeper.js";
 import type { UiFeatureFlags } from "./feature-flags.js";
-import type { ChannelsDescription, EmailInbox, TelegramBinding, TelegramLinkCode } from "./channels-admin.js";
+import type { ChannelsDescription, EmailInbox, TelegramBinding, TelegramLinkCode, UserChannelsView } from "./channels-admin.js";
 
-export type { ChannelsDescription, EmailInbox, TelegramBinding, TelegramLinkCode } from "./channels-admin.js";
+export type { ChannelsDescription, EmailInbox, TelegramBinding, TelegramLinkCode, UserChannelsView } from "./channels-admin.js";
 
 export const SERVICE_SALT = new Uint8Array([
   0xd9, 0x4e, 0x54, 0x1d, 0x29, 0xc1, 0x03, 0x74, 0x73, 0x7e, 0xb3, 0xe3, 0x34, 0x6d, 0x8f, 0x21
@@ -392,6 +392,11 @@ export interface AuthenticatedApi extends RpcTarget {
   // length limits and the IANA time zone are validated, throwing a descriptive error on
   // violation.
   setAssistantProfile(profile: AssistantProfile): Promise<void>;
+
+  // The caller's own messaging-channel connections (their assistant email address, Telegram
+  // link, ...), for the user-facing Channels page. Null when the deployment has no channels
+  // worker bound or it is unreachable — the page and its menu entry then stay hidden.
+  getMyChannels(): Promise<UserChannelsView | null>;
 
   // --- Optional Cloudflare limits / top-up flow (only meaningful when enabled server-side) ---
 
@@ -2110,7 +2115,9 @@ export interface Overseer extends RpcTarget {
   // Add a collaborator by username/email. The caller must be the owner or an existing
   // collaborator. `role` is the access level to grant; the caller may not grant a role higher
   // than their own effective role. Returns the new collaborator's info, or null if the username
-  // doesn't correspond to an existing account.
+  // doesn't correspond to an existing account. On deployments with a central team directory, a
+  // brand-new grant also emails the recipient a link to the workspace (best-effort; the result's
+  // `emailNotified` reports whether it went out).
   addCollaborator(username: string, role: CollaboratorRole,
                   note?: string): Promise<CollaboratorInfo | null>;
 
@@ -3366,6 +3373,11 @@ export type CollaboratorInfo = {
   // The collaborator's effective role (the maximum role reachable from the owner). Absent implies
   // "build" for backwards compatibility.
   role?: CollaboratorRole;
+
+  // Set only on the result of addCollaborator(): true if the deployment emailed the collaborator
+  // that the workspace was shared with them (see share notifications in workshop-backend).
+  // Never set by listCollaborators().
+  emailNotified?: boolean;
 };
 
 // Describes a collaborator whose access would change (or did change) as a result of a removal or

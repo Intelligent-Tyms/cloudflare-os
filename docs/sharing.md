@@ -33,7 +33,7 @@ Authorization is capability-based: `open()` computes the caller's effective role
 
 There are two ways to grant someone collaborator access:
 
-**Direct add.** The owner or an existing collaborator enters a username (email address) in the Share modal. The system looks up the corresponding user account; if it exists, a collaborator record is created. The target user does not receive an in-product notification -- the sharer is expected to send them a link or tell them out of band.
+**Direct add.** The owner or an existing collaborator enters a username (email address) in the Share modal. The system looks up the corresponding user account; if it exists, a collaborator record is created. On deployments with a central team directory (CENTRAL_TEAM_API_URL / CENTRAL_TEAM_API_TOKEN), a brand-new grant also emails the recipient a link to the workspace, best-effort via the directory's notification endpoint (see `share-notify.ts`); the Share modal tells the sharer whether the email went out. On other deployments, and whenever the email fails, the sharer is expected to send them a link or tell them out of band. There is still no *in-product* notification.
 
 **Share link.** Any collaborator (or the owner) can create a share link, which encodes a secret key in the URL as a `#share=<key>` fragment. Anyone who opens this link is automatically added as a collaborator. A link is a durable handle that owns one or more keys: creating it mints its first key, and "copying" the link later mints another key for the same link. The raw key is shown to the creator only once at mint time and is never stored server-side, so re-copying can't reproduce an old key -- it mints a new one. Any of a link's keys can be redeemed by multiple people, or the same person multiple times, until the link is revoked, which invalidates every key minted for it.
 
@@ -166,4 +166,4 @@ Note this is only needed for removals/downgrades. Granting or raising access nev
 - **Share link expiration and usage limits.** Including single-use links.
 - **Un-revoking share links.** Revocation is non-destructive (the `revoked` flag), but there is no UI or RPC to list revoked links or clear the flag, so link revocation is currently one-way in practice.
 - **Garbage-collecting dead records.** Removed collaborators and revoked links accumulate in storage under the lazy model; a background sweep could reclaim entries that have been unreachable for a long time.
-- **Notifications.** Currently there are no in-product notifications for access grants or revocations.
+- **Notifications.** Direct adds email the recipient on deployments with a central team directory, but there are no in-product notifications for access grants or revocations, and share-link grants send nothing.

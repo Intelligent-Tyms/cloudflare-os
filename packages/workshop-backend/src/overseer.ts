@@ -35,6 +35,7 @@ import { dollarsToMicroUsd, recordUsage, usageCollector } from "./usage-collecto
 import { completeAgentCatalogSnapshot, completeAgentPromptContextSnapshot, completeAgentSkillSnapshot, normalizeAgentCatalog, normalizeAgentPromptContext, normalizeAgentSkillList, removeDisabledSkillEntries, removeDisabledSkills } from "./agent-catalog";
 import { refreshCachedBalance } from "./ai-gateway-billing/cloudflare/connection-service";
 import { SharingManager, SharingCaller, CollaboratorRecord, ShareKeyRecord } from "./sharing";
+import { hasShareNotifications, notifyWorkspaceShared } from "./share-notify";
 import { AutoApprovalDrainer } from "./auto-approval";
 import { collectSlashCommands, invokeSlashCommand } from "./slash-commands";
 import { createWorkshopLogger, obsContext } from "./observability";
@@ -8930,12 +8931,30 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
           "shared.");
     }
 
-    return (await this.impl.getSharingManager()).addCollaborator({
+    let sharing = await this.impl.getSharingManager();
+    // Captured before the add: only a brand-new grant emails the recipient. Re-adding or
+    // upgrading someone who already has access must not send a duplicate.
+    let hadAccess = sharing.getEffectiveRole(profile.id) !== undefined;
+
+    let result = sharing.addCollaborator({
       caller: this.#sharingCaller(),
       profile,
       role,
       note,
     });
+
+    if (!hadAccess && hasShareNotifications(this.impl.env)) {
+      // Awaited (not waitUntil) so the UI can tell the sharer whether an email went out; the
+      // notifier never throws and treats every failure as "not notified".
+      result.emailNotified = await notifyWorkspaceShared(this.impl.env, {
+        recipientEmail: profile.id,
+        sharedBy: this.clientProfileId,
+        workspaceId: this.impl.ctx.id.toString(),
+        workspaceTitle: this.impl.storage.title.get(),
+        role: result.role ?? role,
+      });
+    }
+    return result;
   }
 
   async previewRemoveCollaborator(profileId: string): Promise<AffectedCollaborator[]> {
