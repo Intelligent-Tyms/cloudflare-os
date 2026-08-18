@@ -1020,6 +1020,27 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
     return channels;
   }
 
+  async setupTelegram(botToken: string): Promise<{ botUserName: string }> {
+    let token = botToken.trim();
+    if (!token || token.length > 256) throw new Error("A valid bot token is required.");
+    return await this.#requireChannels().setupTelegram(token);
+  }
+
+  async clearTelegramSetup(): Promise<boolean> {
+    return await this.#requireChannels().clearTelegramSetup();
+  }
+
+  async setupEmail(apiKey: string, domain?: string): Promise<void> {
+    let key = apiKey.trim();
+    if (!key || key.length > 512) throw new Error("A valid API key is required.");
+    if (domain !== undefined && domain.length > 253) throw new Error("Invalid domain.");
+    await this.#requireChannels().setupEmail(key, domain);
+  }
+
+  async clearEmailSetup(): Promise<boolean> {
+    return await this.#requireChannels().clearEmailSetup();
+  }
+
   async mintTelegramLinkCode(email: string): Promise<TelegramLinkCode> {
     let normalized = email.trim().toLowerCase();
     if (!normalized.includes("@")) throw new Error("A valid email address is required.");

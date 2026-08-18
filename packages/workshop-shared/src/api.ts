@@ -1065,6 +1065,22 @@ export interface AdminApi {
   // AdminSettingsView.channels to know before calling). Slack needs no links: users are
   // identified by their Slack profile email.
 
+  // Connect Telegram from a BotFather bot token alone: the token is verified with Telegram
+  // (which yields the bot's username) and the webhook registers itself. The token transits
+  // this call once and is stored only in the channels worker.
+  setupTelegram(botToken: string): Promise<{ botUserName: string }>;
+
+  // Remove admin-entered Telegram credentials (deploy-time env credentials are untouched).
+  clearTelegramSetup(): Promise<boolean>;
+
+  // Connect email from an AgentMail API key (+ optional custom domain verified on that
+  // account). Validated and webhook-registered before anything is stored; the key transits
+  // this call once and is stored only in the channels worker.
+  setupEmail(apiKey: string, domain?: string): Promise<void>;
+
+  // Remove admin-entered email credentials (deploy-time env credentials are untouched).
+  clearEmailSetup(): Promise<boolean>;
+
   // Mint a one-time Telegram deep link; whoever taps it links their Telegram account to email.
   mintTelegramLinkCode(email: string): Promise<TelegramLinkCode>;
 

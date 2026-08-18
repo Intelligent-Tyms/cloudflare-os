@@ -5,10 +5,18 @@
 
 /** Which messaging channels this deployment has configured. */
 export type ChannelsDescription = {
+  /**
+   * Whether admin-entered setup can complete on its own: the worker knows its public
+   * origin, so it can register platform webhooks itself. False only on deployments whose
+   * deploy config can't compute the worker's URL — the setup forms then stay hidden.
+   */
+  selfSetup: boolean;
   telegram: {
     configured: boolean;
     /** Bot username (t.me/<botUserName>), present when configured. */
     botUserName?: string;
+    /** Where the credentials came from; admin-entered setup can be disconnected. */
+    source?: "deployment" | "admin";
   };
   slack: {
     configured: boolean;
@@ -17,6 +25,8 @@ export type ChannelsDescription = {
     configured: boolean;
     /** Domain assistant addresses are minted under, present when configured. */
     domain?: string;
+    /** Where the credentials came from; admin-entered setup can be disconnected. */
+    source?: "deployment" | "admin";
   };
 };
 
@@ -100,4 +110,27 @@ export interface ChannelsAdmin {
   /** One user's own channel connections (see UserChannelsView). Any email is accepted;
    * unknown emails simply report nothing linked. */
   describeUser(userEmail: string): Promise<UserChannelsView>;
+
+  // --- Admin-entered channel setup (tenant admins bring their own credentials) ---
+  //
+  // Credentials transit these calls once and are stored only in the channels worker;
+  // describeChannels never echoes them back. Deploy-time env secrets, where present,
+  // remain as a fallback that setup/clear does not touch.
+
+  /**
+   * Connect Telegram from a BotFather bot token alone: the token is verified with
+   * Telegram (which also yields the bot's username) and the webhook is registered at
+   * this worker with a generated secret. Requires selfSetup.
+   */
+  setupTelegram(botToken: string): Promise<{ botUserName: string }>;
+  /** Remove admin-entered Telegram credentials (best-effort webhook deregistration). */
+  clearTelegramSetup(): Promise<boolean>;
+  /**
+   * Connect email from an AgentMail API key (+ optional custom domain verified on that
+   * AgentMail account). The key is validated and the inbound webhook registered before
+   * anything is stored. Requires selfSetup.
+   */
+  setupEmail(apiKey: string, domain?: string): Promise<void>;
+  /** Remove admin-entered email credentials (best-effort webhook deregistration). */
+  clearEmailSetup(): Promise<boolean>;
 }

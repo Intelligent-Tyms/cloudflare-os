@@ -89,6 +89,16 @@ export default function AdminChannelDetailPage({ channel }: { channel: ChannelId
     }
   }, [isAdmin, authenticatedApi])
 
+  // Re-read the channels view after connect/disconnect so the page flips state in place.
+  const reloadChannels = async () => {
+    if (!admin) return
+    try {
+      setChannels((await admin.api.getSettings()).channels)
+    } catch (err) {
+      console.error('Failed to reload channels:', err)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center min-h-[60vh]">
@@ -144,12 +154,23 @@ export default function AdminChannelDetailPage({ channel }: { channel: ChannelId
       {channel === 'telegram' && (
         configured && admin ? (
           <>
-            <InfoCard title={`Connected as @${channels?.telegram.botUserName}`}>
+            <InfoCard
+              title={`Connected as @${channels?.telegram.botUserName}`}
+              action={channels?.telegram.source === 'admin' ? (
+                <DisconnectButton
+                  what="Telegram"
+                  disconnect={() => admin.api.clearTelegramSetup()}
+                  onDone={reloadChannels}
+                />
+              ) : undefined}
+            >
               Teammates message this bot on Telegram. Each teammate links once with a personal
               link from below.
             </InfoCard>
             <TelegramLinksCard admin={admin.api} />
           </>
+        ) : admin && channels?.selfSetup ? (
+          <TelegramSetupCard admin={admin.api} onConnected={reloadChannels} />
         ) : (
           <NotSetUpCard />
         )
@@ -169,13 +190,24 @@ export default function AdminChannelDetailPage({ channel }: { channel: ChannelId
       {channel === 'email' && (
         configured && admin ? (
           <>
-            <InfoCard title={`Addresses on ${channels?.email.domain}`}>
+            <InfoCard
+              title={`Addresses on ${channels?.email.domain}`}
+              action={channels?.email.source === 'admin' ? (
+                <DisconnectButton
+                  what="email"
+                  disconnect={() => admin.api.clearEmailSetup()}
+                  onDone={reloadChannels}
+                />
+              ) : undefined}
+            >
               Each teammate gets their own assistant address below. They write to it from their
               own email account and the assistant replies in the same thread; mail from anyone
               else is ignored.
             </InfoCard>
             <EmailInboxesCard admin={admin.api} />
           </>
+        ) : admin && channels?.selfSetup ? (
+          <EmailSetupCard admin={admin.api} onConnected={reloadChannels} />
         ) : (
           <NotSetUpCard />
         )
@@ -190,10 +222,21 @@ export default function AdminChannelDetailPage({ channel }: { channel: ChannelId
   )
 }
 
-function InfoCard({ title, children }: { title: string; children: React.ReactNode }) {
+function InfoCard({
+  title,
+  action,
+  children,
+}: {
+  title: string
+  action?: React.ReactNode
+  children: React.ReactNode
+}) {
   return (
     <div className="rounded-xl border border-kumo-line bg-kumo-elevated p-6">
-      <h2 className="text-lg font-semibold text-kumo-strong">{title}</h2>
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="text-lg font-semibold text-kumo-strong">{title}</h2>
+        {action}
+      </div>
       <p className="mt-0.5 text-sm text-kumo-subtle">{children}</p>
     </div>
   )
@@ -204,6 +247,211 @@ function NotSetUpCard() {
     <div className="rounded-xl border border-dashed border-kumo-line p-6 text-sm text-kumo-subtle">
       This channel isn't set up on this workspace yet. Whoever operates your deployment can
       enable it; the setup steps live in the deployment guide.
+    </div>
+  )
+}
+
+// Removes admin-entered credentials (never deploy-time ones — the button only renders for
+// source === 'admin'). Users' links/addresses are kept: reconnecting picks them back up.
+function DisconnectButton({
+  what,
+  disconnect,
+  onDone,
+}: {
+  what: string
+  disconnect: () => Promise<boolean>
+  onDone: () => Promise<void>
+}) {
+  const toasts = useKumoToastManager()
+  const [busy, setBusy] = useState(false)
+  const run = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await disconnect()
+      await onDone()
+      toasts.add({ title: `Disconnected ${what}`, variant: 'success' })
+    } catch (err) {
+      console.error(`Failed to disconnect ${what}:`, err)
+      toasts.add({
+        title: err instanceof Error ? err.message : `Couldn't disconnect ${what}`,
+        variant: 'error',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Button variant="secondary" disabled={busy} onClick={() => void run()}>
+      Disconnect
+    </Button>
+  )
+}
+
+// A numbered setup step; the shared shell of both setup cards.
+function SetupStep({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <li className="flex gap-3 text-sm text-kumo-subtle">
+      <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-kumo-tint text-[11px] font-semibold text-kumo-strong">
+        {n}
+      </span>
+      <span className="min-w-0">{children}</span>
+    </li>
+  )
+}
+
+// Telegram self-setup: one pasted BotFather token connects the channel — the token is
+// verified with Telegram (which yields the bot username) and the webhook registers itself.
+function TelegramSetupCard({
+  admin,
+  onConnected,
+}: {
+  admin: RpcStub<AdminApi>
+  onConnected: () => Promise<void>
+}) {
+  const toasts = useKumoToastManager()
+  const [token, setToken] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const connect = async () => {
+    if (!token.trim() || busy) return
+    setBusy(true)
+    try {
+      const { botUserName } = await admin.setupTelegram(token.trim())
+      setToken('')
+      await onConnected()
+      toasts.add({ title: `Connected @${botUserName}`, variant: 'success' })
+    } catch (err) {
+      console.error('Failed to connect Telegram:', err)
+      toasts.add({
+        title: err instanceof Error ? err.message : "Couldn't connect Telegram",
+        variant: 'error',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-kumo-line bg-kumo-elevated p-6">
+      <h2 className="mb-1 text-lg font-semibold text-kumo-strong">Connect your bot</h2>
+      <p className="mb-5 text-sm text-kumo-subtle">
+        Your workspace gets its own Telegram bot, owned by you. Setup takes about a minute:
+      </p>
+      <ol className="flex flex-col gap-3">
+        <SetupStep n={1}>
+          In Telegram, message <span className="font-mono text-[13px]">@BotFather</span> and
+          send <span className="font-mono text-[13px]">/newbot</span>. Give the bot a name
+          (e.g. your workspace name) and a username.
+        </SetupStep>
+        <SetupStep n={2}>
+          BotFather replies with an API token. Paste it below — we verify it with Telegram
+          and finish the wiring automatically.
+        </SetupStep>
+      </ol>
+      <div className="mt-5 flex flex-wrap items-center gap-2">
+        <div className="w-96 max-w-full">
+          <Input
+            type="password"
+            placeholder="123456789:AA...bot token from BotFather"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void connect() }}
+          />
+        </div>
+        <Button variant="primary" disabled={busy || !token.trim()} onClick={() => void connect()}>
+          {busy ? 'Connecting…' : 'Connect'}
+        </Button>
+      </div>
+      <p className="mt-2 text-[12px] text-kumo-subtle">
+        The token is stored on your workspace's channels service and never shown again.
+      </p>
+    </div>
+  )
+}
+
+// Email self-setup: the tenant brings its own AgentMail account, so addresses (and any
+// custom domain) are isolated per workspace.
+function EmailSetupCard({
+  admin,
+  onConnected,
+}: {
+  admin: RpcStub<AdminApi>
+  onConnected: () => Promise<void>
+}) {
+  const toasts = useKumoToastManager()
+  const [apiKey, setApiKey] = useState('')
+  const [domain, setDomain] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const connect = async () => {
+    if (!apiKey.trim() || busy) return
+    setBusy(true)
+    try {
+      await admin.setupEmail(apiKey.trim(), domain.trim() || undefined)
+      setApiKey('')
+      setDomain('')
+      await onConnected()
+      toasts.add({ title: 'Email connected', variant: 'success' })
+    } catch (err) {
+      console.error('Failed to connect email:', err)
+      toasts.add({
+        title: err instanceof Error ? err.message : "Couldn't connect email",
+        variant: 'error',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-kumo-line bg-kumo-elevated p-6">
+      <h2 className="mb-1 text-lg font-semibold text-kumo-strong">Connect an email service</h2>
+      <p className="mb-5 text-sm text-kumo-subtle">
+        Assistant inboxes are hosted on AgentMail under your own account, so your workspace's
+        addresses stay yours:
+      </p>
+      <ol className="flex flex-col gap-3">
+        <SetupStep n={1}>
+          Create an account at{' '}
+          <a href="https://agentmail.to" target="_blank" rel="noreferrer" className="text-kumo-brand underline">
+            agentmail.to
+          </a>{' '}
+          and create an API key.
+        </SetupStep>
+        <SetupStep n={2}>
+          Optional: verify a custom domain there (e.g.{' '}
+          <span className="font-mono text-[13px]">agents.yourcompany.com</span>) so assistant
+          addresses are minted under it.
+        </SetupStep>
+        <SetupStep n={3}>
+          Paste the API key (and domain, if you verified one) below — we validate it and
+          register the inbound wiring automatically.
+        </SetupStep>
+      </ol>
+      <div className="mt-5 flex flex-col gap-2 sm:max-w-96">
+        <Input
+          type="password"
+          placeholder="AgentMail API key"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+        />
+        <Input
+          type="text"
+          placeholder="Custom domain (optional)"
+          value={domain}
+          onChange={(e) => setDomain(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') void connect() }}
+        />
+        <div>
+          <Button variant="primary" disabled={busy || !apiKey.trim()} onClick={() => void connect()}>
+            {busy ? 'Connecting…' : 'Connect'}
+          </Button>
+        </div>
+      </div>
+      <p className="mt-2 text-[12px] text-kumo-subtle">
+        The key is stored on your workspace's channels service and never shown again.
+      </p>
     </div>
   )
 }
