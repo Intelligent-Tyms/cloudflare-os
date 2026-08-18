@@ -168,22 +168,12 @@ export default function AdminChannelDetailPage({ channel }: { channel: ChannelId
               link from below.
             </InfoCard>
             <TelegramLinksCard admin={admin.api} />
-            {channels?.voice?.configured ? (
-              <InfoCard
-                title="Voice replies on"
-                action={channels.voice.source === 'admin' ? (
-                  <DisconnectButton
-                    what="voice"
-                    disconnect={() => admin.api.clearVoiceSetup()}
-                    onDone={reloadChannels}
-                  />
-                ) : undefined}
-              >
+            {channels?.voice?.configured && (
+              <InfoCard title="Voice replies on">
                 Teammates can send the bot voice notes and it answers with a spoken reply.
-                Long or code-heavy answers still arrive as text.
+                Voice messages use messaging credits; long or code-heavy answers still
+                arrive as text.
               </InfoCard>
-            ) : (
-              <VoiceSetupCard admin={admin.api} onConnected={reloadChannels} />
             )}
           </>
         ) : admin && channels?.selfSetup ? (
@@ -458,90 +448,6 @@ function EmailSetupCard({
           placeholder="Custom domain (optional)"
           value={domain}
           onChange={(e) => setDomain(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') void connect() }}
-        />
-        <div>
-          <Button variant="primary" disabled={busy || !apiKey.trim()} onClick={() => void connect()}>
-            {busy ? 'Connecting…' : 'Connect'}
-          </Button>
-        </div>
-      </div>
-      <p className="mt-2 text-[12px] text-kumo-subtle">
-        The key is stored on your workspace's channels service and never shown again.
-      </p>
-    </div>
-  )
-}
-
-// Voice self-setup: an ElevenLabs key enables voice notes (spoken questions and replies)
-// on Telegram. No webhook is involved, so this works on any deployment.
-function VoiceSetupCard({
-  admin,
-  onConnected,
-}: {
-  admin: RpcStub<AdminApi>
-  onConnected: () => Promise<void>
-}) {
-  const toasts = useKumoToastManager()
-  const [apiKey, setApiKey] = useState('')
-  const [voiceId, setVoiceId] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const connect = async () => {
-    if (!apiKey.trim() || busy) return
-    setBusy(true)
-    try {
-      await admin.setupVoice(apiKey.trim(), voiceId.trim() || undefined)
-      setApiKey('')
-      setVoiceId('')
-      await onConnected()
-      toasts.add({ title: 'Voice replies on', variant: 'success' })
-    } catch (err) {
-      console.error('Failed to connect voice:', err)
-      toasts.add({
-        title: err instanceof Error ? err.message : "Couldn't connect voice",
-        variant: 'error',
-      })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="rounded-xl border border-kumo-line bg-kumo-elevated p-6">
-      <h2 className="mb-1 text-lg font-semibold text-kumo-strong">Voice replies</h2>
-      <p className="mb-5 text-sm text-kumo-subtle">
-        Optional: let teammates send voice notes and get spoken replies, powered by your own
-        ElevenLabs account:
-      </p>
-      <ol className="flex flex-col gap-3">
-        <SetupStep n={1}>
-          Create an account at{' '}
-          <a href="https://elevenlabs.io" target="_blank" rel="noreferrer" className="text-kumo-brand underline">
-            elevenlabs.io
-          </a>{' '}
-          and create an API key.
-        </SetupStep>
-        <SetupStep n={2}>
-          Optional: pick a voice in their voice library and copy its voice ID. Without one,
-          a stock voice is used.
-        </SetupStep>
-        <SetupStep n={3}>
-          Paste the API key (and voice ID, if you picked one) below.
-        </SetupStep>
-      </ol>
-      <div className="mt-5 flex flex-col gap-2 sm:max-w-96">
-        <Input
-          type="password"
-          placeholder="ElevenLabs API key"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-        />
-        <Input
-          type="text"
-          placeholder="Voice ID (optional)"
-          value={voiceId}
-          onChange={(e) => setVoiceId(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') void connect() }}
         />
         <div>

@@ -35,11 +35,16 @@ export class ExternalMessageGateway extends WorkerEntrypoint<Cloudflare.Env, Ext
     }
 
     // Messaging credits: channels with a real per-message delivery cost (per the central
-    // rate card) need a positive messaging balance. Free channels are never blocked, and
-    // the check fails open when billing is unconfigured or unreachable.
+    // rate card) need a positive messaging balance, and so do voice notes (transcription
+    // and synthesis run on the platform's speech account) even on otherwise-free channels.
+    // Free legs are never blocked, and the check fails open when billing is unconfigured
+    // or unreachable.
     let billing = await usageCollector(this.ctx).getBillingState().catch(() => null);
+    let paidLeg = billing !== null
+        && ((billing.channelRatesMicroUsd[source] ?? 0) > 0
+          || (input.voiceNote != null && (billing.channelRatesMicroUsd.voice ?? 0) > 0));
     if (billing && billing.tier !== "enterprise"
-        && (billing.channelRatesMicroUsd[source] ?? 0) > 0
+        && paidLeg
         && billing.messagingBalanceMicroUsd <= 0) {
       return {
         accepted: false,
@@ -64,14 +69,23 @@ export class ExternalMessageGateway extends WorkerEntrypoint<Cloudflare.Env, Ext
     });
 
     // Meter accepted inbound messages. The webhook-derived messageKey makes redelivered
-    // webhooks bill once.
+    // webhooks bill once. A voice note bills an additional "voice" leg for its
+    // transcription, priced by the rate card independently of the carrying channel.
     if (result.accepted !== false) {
-      recordUsage(this.ctx, this.env, [{
-        sourceKey: `msg:in:${source}:${input.messageKey}`,
-        kind: "message",
-        channel: source,
-        direction: "inbound",
-      }]);
+      recordUsage(this.ctx, this.env, [
+        {
+          sourceKey: `msg:in:${source}:${input.messageKey}`,
+          kind: "message",
+          channel: source,
+          direction: "inbound",
+        },
+        ...(input.voiceNote != null ? [{
+          sourceKey: `voice:in:${source}:${input.messageKey}`,
+          kind: "message" as const,
+          channel: "voice",
+          direction: "inbound" as const,
+        }] : []),
+      ]);
     }
     return result;
   }

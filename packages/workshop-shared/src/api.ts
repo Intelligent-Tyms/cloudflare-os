@@ -1081,14 +1081,6 @@ export interface AdminApi {
   // Remove admin-entered email credentials (deploy-time env credentials are untouched).
   clearEmailSetup(): Promise<boolean>;
 
-  // Enable voice notes from an ElevenLabs API key (+ optional voice id for spoken replies;
-  // a stock voice is the default). Validated before anything is stored; the key transits
-  // this call once and is stored only in the channels worker.
-  setupVoice(apiKey: string, voiceId?: string): Promise<void>;
-
-  // Remove admin-entered voice credentials (deploy-time env credentials are untouched).
-  clearVoiceSetup(): Promise<boolean>;
-
   // Mint a one-time Telegram deep link; whoever taps it links their Telegram account to email.
   mintTelegramLinkCode(email: string): Promise<TelegramLinkCode>;
 

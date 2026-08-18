@@ -4,13 +4,25 @@ export type GadgetResponse = {
 };
 
 /**
+ * How the gateway actually delivered a response, reported back so the workshop can meter
+ * modalities with a real per-delivery cost (synthesized voice). "text" or an absent report
+ * costs nothing extra; a deduplicated re-delivery reports nothing.
+ */
+export type ExternalMessageDeliveryReport = {
+  deliveredAs?: "voice" | "text";
+};
+
+/**
  * Service-binding RPC interface a chat gateway worker exposes for reply delivery. The
  * workshop calls it when the agent turn a gateway submitted completes. Implementations
  * must be idempotent because delivery is at-least-once when acknowledgements fail.
  */
 export interface ExternalMessageDelivery {
   /** Deliver the completed Gadget response for the conversation deliveryKey addresses. */
-  deliverGadgetResponse(deliveryKey: string, response: GadgetResponse): Promise<void>;
+  deliverGadgetResponse(
+    deliveryKey: string,
+    response: GadgetResponse,
+  ): Promise<ExternalMessageDeliveryReport | void>;
 }
 
 /** External message submission accepted by the backend gateway. */
@@ -26,6 +38,12 @@ export type SubmitExternalMessageInput = {
   messageKey: string;
   // User text sent to Gadgets.
   prompt: string;
+  // Present when the message arrived as a voice note the gateway transcribed (prompt is
+  // the transcript). Transcription runs on the platform's speech account, so accepted
+  // voice notes are metered as a paid "voice" message leg.
+  voiceNote?: {
+    durationSeconds?: number;
+  };
   // Names a service binding on the workshop worker that implements ExternalMessageDelivery
   // (injected by deploy tooling alongside the gateway's own binding). Stored durably with
   // deliveryKey as the reply route: plain strings survive restarts, unlike RPC stubs, which

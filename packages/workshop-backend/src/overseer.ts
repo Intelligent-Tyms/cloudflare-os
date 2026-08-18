@@ -3714,9 +3714,10 @@ class OverseerImpl implements AgentHooks {
   async #deliverExternalMessageResponseToTarget(record: ExternalMessageRecord): Promise<void> {
     if (record.status !== "ready") return;
 
+    let report;
     try {
       let delivery = resolveExternalMessageDelivery(this.env, record.replyBinding);
-      await delivery.deliverGadgetResponse(record.deliveryKey, {
+      report = await delivery.deliverGadgetResponse(record.deliveryKey, {
         text: record.responseText,
       });
     } catch (err) {
@@ -3726,6 +3727,18 @@ class OverseerImpl implements AgentHooks {
         error: err,
       });
       throw err;
+    }
+    // A reply the gateway synthesized into a voice message bills a "voice" outbound leg;
+    // text (and text fallbacks) cost nothing extra. Metered on the delivery report rather
+    // than at the ready transition because the modality is decided at send time; the
+    // idempotency-keyed sourceKey keeps at-least-once redeliveries single-billed.
+    if (report?.deliveredAs === "voice") {
+      recordUsage(this.ctx, this.env, [{
+        sourceKey: `voice:out:${record.idempotencyKey}`,
+        kind: "message",
+        channel: "voice",
+        direction: "outbound",
+      }]);
     }
     this.storage.gadgetResponseDeliveries.put({
       idempotencyKey: record.idempotencyKey,
