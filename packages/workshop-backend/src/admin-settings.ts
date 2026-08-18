@@ -1,4 +1,4 @@
-import { AdminApi, AdminFormat, AdminFormatPatch, AdminModel, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BillingCreditType, BillingOverview, BillingPlanChangeResult, BillingPlanOption, BlueprintPublicInfo, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { AdminApi, AdminFormat, AdminFormatPatch, AdminModel, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BillingCreditType, BillingInvoice, BillingOverview, BillingPaymentDetails, BillingPlanChangeResult, BillingPlanOption,BlueprintPublicInfo, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor, SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES, SkillPackage, SkillPackageFile, VendorSetup } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
@@ -1200,5 +1200,26 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
     // which owns the policy; its refusals are end-user-ready messages.
     return billingDirectory.changePlan(
         this.env, {planCode: planCode.trim(), billingPeriod, successUrl, cancelUrl});
+  }
+
+  async listBillingInvoices(): Promise<BillingInvoice[]> {
+    if (!billingDirectory.hasBillingDirectory(this.env)) return [];
+    return billingDirectory.fetchInvoices(this.env);
+  }
+
+  async getBillingPaymentDetails(): Promise<BillingPaymentDetails | null> {
+    if (!billingDirectory.hasBillingDirectory(this.env)) return null;
+    return billingDirectory.fetchPaymentDetails(this.env);
+  }
+
+  async createBillingPortalSession(returnUrl: string): Promise<string> {
+    if (!billingDirectory.hasBillingDirectory(this.env)) {
+      throw new Error("This deployment has no central billing configured.");
+    }
+    let parsed = URL.parse(returnUrl);
+    if (!parsed || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
+      throw new Error("Return URLs must be http(s) URLs.");
+    }
+    return billingDirectory.createBillingPortalSession(this.env, returnUrl);
   }
 }

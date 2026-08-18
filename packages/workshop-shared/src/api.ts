@@ -1131,6 +1131,18 @@ export interface AdminApi {
   // for the target plan's seats).
   changePlan(planCode: string, billingPeriod: "monthly" | "annual",
              successUrl: string, cancelUrl: string): Promise<BillingPlanChangeResult>;
+
+  // Invoice history from the billing provider, newest first. Empty when this deployment
+  // has no central billing configured or the workspace has never paid.
+  listBillingInvoices(): Promise<BillingInvoice[]>;
+
+  // The billing email and default card on file, or null when there is no billing profile
+  // (no central billing, or the workspace has never paid).
+  getBillingPaymentDetails(): Promise<BillingPaymentDetails | null>;
+
+  // Start a billing-portal session (update card, billing email, address, tax ids) and
+  // return the URL to send the browser to. Throws when there is no billing profile.
+  createBillingPortalSession(returnUrl: string): Promise<string>;
 }
 
 // One entry in the self-serve plan picker. Prices are the billed amounts in cents:
@@ -1152,6 +1164,26 @@ export type BillingPlanChangeResult = {
   applied: boolean;
   // Set when payment is needed first (free → paid): send the browser here.
   checkoutUrl: string | null;
+};
+
+// One invoice from the billing provider. Amounts are cents in `currency`; createdAt is
+// ms since epoch. hostedUrl opens the invoice in the browser, pdfUrl downloads it.
+export type BillingInvoice = {
+  id: string;
+  number: string | null;
+  createdAt: number;
+  description: string | null;
+  amountCents: number;
+  currency: string;
+  status: string;
+  hostedUrl: string | null;
+  pdfUrl: string | null;
+};
+
+// The billing email and default card on file with the billing provider.
+export type BillingPaymentDetails = {
+  billingEmail: string | null;
+  card: {brand: string; last4: string; expMonth: number; expYear: number} | null;
 };
 
 // The two credit pools a workspace plan grants monthly.

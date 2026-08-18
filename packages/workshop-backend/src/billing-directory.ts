@@ -144,6 +144,49 @@ export async function requestUpgrade(
   await call(env, "/billing/upgrade-request", opts);
 }
 
+/** One invoice from the tenant's Stripe history (Admin → Billing and usage). */
+export type CentralInvoice = {
+  id: string;
+  number: string | null;
+  createdAt: number;
+  description: string | null;
+  amountCents: number;
+  currency: string;
+  status: string;
+  hostedUrl: string | null;
+  pdfUrl: string | null;
+};
+
+/** Invoice history, newest first. Empty for workspaces that never paid. */
+export async function fetchInvoices(env: Cloudflare.Env): Promise<CentralInvoice[]> {
+  let {invoices} = await call<{invoices: CentralInvoice[]}>(env, "/billing/invoices");
+  return invoices;
+}
+
+/** The billing email and default card on file. */
+export type CentralPaymentDetails = {
+  billingEmail: string | null;
+  card: {brand: string; last4: string; expMonth: number; expYear: number} | null;
+};
+
+/** Payment details, or null for workspaces with no billing profile (never paid). */
+export async function fetchPaymentDetails(
+    env: Cloudflare.Env): Promise<CentralPaymentDetails | null> {
+  let {payment} = await call<{payment: CentralPaymentDetails | null}>(env, "/billing/payment");
+  return payment;
+}
+
+/**
+ * Start a Stripe billing-portal session (card, billing email, address, tax ids) and
+ * return its URL. Refused for workspaces with no billing profile.
+ */
+export async function createBillingPortalSession(
+    env: Cloudflare.Env, returnUrl: string): Promise<string> {
+  let {portalUrl} = await call<{portalUrl: string | null}>(env, "/billing/portal", {returnUrl});
+  if (!portalUrl) throw new Error("The billing service returned no portal link.");
+  return portalUrl;
+}
+
 /** Start a one-time credit top-up checkout; returns the Stripe Checkout URL. */
 export async function createTopupCheckout(env: Cloudflare.Env, opts: {
   creditType: "ai" | "messaging";
