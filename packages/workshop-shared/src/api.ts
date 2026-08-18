@@ -398,6 +398,15 @@ export interface AuthenticatedApi extends RpcTarget {
   // worker bound or it is unreachable — the page and its menu entry then stay hidden.
   getMyChannels(): Promise<UserChannelsView | null>;
 
+  // Mint a one-time Telegram deep link that binds the tapping Telegram account to the
+  // caller's own email — the self-service twin of AdminApi.mintTelegramLinkCode, safe for
+  // any user because it can only ever link the caller. Throws when the deployment has no
+  // channels worker or Telegram isn't configured.
+  linkMyTelegram(): Promise<TelegramLinkCode>;
+
+  // Remove the caller's own Telegram link; returns false when none exists.
+  unlinkMyTelegram(): Promise<boolean>;
+
   // --- Optional Cloudflare limits / top-up flow (only meaningful when enabled server-side) ---
 
   // Get the user's current free-tier usage and connected-account balance.

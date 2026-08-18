@@ -1,7 +1,7 @@
 import { RpcStub, RpcTarget, newWorkersRpcResponse } from "capnweb";
 import { validateRpc } from "capnweb-validate";
 import type { JWTPayload } from "jose";
-import { PublicApi, AuthenticatedApi, Overseer, GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiGatewayInfo, AiModelProvider, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, ObserverConfigCallback, BlueprintLibrarySummary, BlueprintPublicInfo, BlueprintUserSummary, BlueprintBindingAssignment, AgentSpawnerConfig, WorkpieceId, BLUEPRINT_SCREENSHOT_PATH_PREFIX, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ServerConfig, CloudflareUsageInfo, CloudflareAccountOption, LoginAttempt, GatekeeperAppInfo, AdminApi, GatekeeperVendorInfo, OutputFormatOffer, ListOutputsResult, createOpenGadgetError, getOpenGadgetErrorCode, OPEN_GADGET_ERROR_CODES, AssistantProfile, BillingGateInfo, UserChannelsView } from '@gadgets/workshop-shared/api';
+import { PublicApi, AuthenticatedApi, Overseer, GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiGatewayInfo, AiModelProvider, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, ObserverConfigCallback, BlueprintLibrarySummary, BlueprintPublicInfo, BlueprintUserSummary, BlueprintBindingAssignment, AgentSpawnerConfig, WorkpieceId, BLUEPRINT_SCREENSHOT_PATH_PREFIX, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ServerConfig, CloudflareUsageInfo, CloudflareAccountOption, LoginAttempt, GatekeeperAppInfo, AdminApi, GatekeeperVendorInfo, OutputFormatOffer, ListOutputsResult, createOpenGadgetError, getOpenGadgetErrorCode, OPEN_GADGET_ERROR_CODES, AssistantProfile, BillingGateInfo, UserChannelsView, TelegramLinkCode } from '@gadgets/workshop-shared/api';
 import type { UiFeatureFlags } from "@gadgets/workshop-shared/feature-flags";
 import { getServerConfig } from "./deployment-config.js";
 import { isPasswordAuthEnabled, getAuthGatekeeperAllowlist, hasCentralLogin } from "./auth/config.js";
@@ -160,6 +160,25 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
   }
   setAssistantProfile(profile: AssistantProfile): Promise<void> {
     return this.user.setAssistantProfile(profile);
+  }
+
+  // Self-service Telegram linking: both methods act only on the caller's own email, so no
+  // admin gate — the deep link can't bind anyone else, and unlink can't touch other users.
+  async linkMyTelegram(): Promise<TelegramLinkCode> {
+    let { channels, email } = this.#requireOwnChannels();
+    return await channels.mintTelegramLinkCode(email);
+  }
+
+  async unlinkMyTelegram(): Promise<boolean> {
+    let { channels, email } = this.#requireOwnChannels();
+    return await channels.unlinkTelegram(email);
+  }
+
+  #requireOwnChannels() {
+    let channels = this.env.CHANNELS;
+    let email = this.user.id.name;
+    if (!channels || !email) throw new Error("This deployment has no channels worker configured.");
+    return { channels, email };
   }
 
   // A user's own channel connections. Mirrors describeChannels() in admin-settings: a bound

@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useKumoToastManager } from '@cloudflare/kumo'
-import { Check, Copy, Mail, MessageSquare, Send, Slack } from 'lucide-react'
+import { Check, Copy, ExternalLink, Mail, MessageSquare, Send, Slack } from 'lucide-react'
 import type { UserChannelsView } from '@gadgets/workshop-shared/api'
 import { useAuthenticatedApi } from './AuthContext'
 import { useMyChannels } from './useMyChannels'
-import { PRIMARY_BTN, ICON_BTN, SectionLabel, FieldLabel } from './components/settingsControls'
+import { PRIMARY_BTN, ICON_BTN, GHOST_BTN, SectionLabel, FieldLabel } from './components/settingsControls'
 import { useDocumentTitle } from './useDocumentTitle'
 
 // The user-facing side of messaging channels (/channels, from the user menu): where your own
@@ -18,6 +18,14 @@ export default function ChannelsPage() {
   // Seed from the session cache for an instant paint, then refetch on mount so
   // "last received" is current rather than a session old.
   const [view, setView] = useState<UserChannelsView | null | undefined>(undefined)
+
+  const refresh = useCallback(async () => {
+    try {
+      setView(await authenticatedApi.getMyChannels())
+    } catch {
+      setView(null)
+    }
+  }, [authenticatedApi])
 
   useEffect(() => {
     let cancelled = false
@@ -61,7 +69,9 @@ export default function ChannelsPage() {
         {channels?.email.configured && (
           <EmailSection email={channels.email} userEmail={currentUser?.id} />
         )}
-        {channels?.telegram.configured && <TelegramSection telegram={channels.telegram} />}
+        {channels?.telegram.configured && (
+          <TelegramSection telegram={channels.telegram} onChanged={refresh} />
+        )}
         {channels?.slack.configured && <SlackSection />}
       </div>
     </div>
@@ -166,32 +176,137 @@ function EmailSection({
   )
 }
 
-// Telegram link state: linked account details, or where to get a personal link.
-function TelegramSection({ telegram }: { telegram: UserChannelsView['telegram'] }) {
+// Telegram link state: linked account details with self-unlink, or self-service linking —
+// mint a personal deep link (it can only bind the caller's own account) and poll while the
+// user taps it in Telegram so the section flips to linked on its own.
+function TelegramSection({
+  telegram,
+  onChanged,
+}: {
+  telegram: UserChannelsView['telegram']
+  onChanged: () => Promise<void>
+}) {
+  const { authenticatedApi } = useAuthenticatedApi()
+  const toasts = useKumoToastManager()
+  const [minted, setMinted] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const wasLinked = useRef(telegram.linked)
+
+  // While a minted link is outstanding, poll so tapping it in Telegram flips this section
+  // to linked without a manual reload.
+  useEffect(() => {
+    if (!minted || telegram.linked) return
+    const timer = setInterval(() => { void onChanged() }, 4000)
+    return () => clearInterval(timer)
+  }, [minted, telegram.linked, onChanged])
+
+  useEffect(() => {
+    if (telegram.linked && !wasLinked.current) {
+      setMinted(null)
+      toasts.add({ title: 'Telegram linked', variant: 'success' })
+    }
+    wasLinked.current = telegram.linked
+  }, [telegram.linked, toasts])
+
+  const mint = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const { link } = await authenticatedApi.linkMyTelegram()
+      setMinted(link)
+      setCopied(false)
+    } catch (err) {
+      console.error('Failed to create a Telegram link:', err)
+      toasts.add({
+        title: err instanceof Error ? err.message : "Couldn't create the link",
+        variant: 'error',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const unlink = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await authenticatedApi.unlinkMyTelegram()
+      await onChanged()
+      toasts.add({ title: 'Telegram unlinked', variant: 'success' })
+    } catch (err) {
+      console.error('Failed to unlink Telegram:', err)
+      toasts.add({
+        title: err instanceof Error ? err.message : "Couldn't unlink",
+        variant: 'error',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const copyMinted = async () => {
+    if (!minted) return
+    try {
+      await navigator.clipboard.writeText(minted)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      toasts.add({ title: 'Failed to copy', variant: 'error' })
+    }
+  }
+
   return (
     <ChannelSection label="Telegram" icon={<MessageSquare />}>
       {telegram.linked ? (
-        <>
-          <p className="text-sm text-kumo-default">
-            {telegram.telegramUserName ? `@${telegram.telegramUserName} is linked` : 'Your Telegram account is linked'}
-            {telegram.botUserName ? (
-              <> — message <span className="font-mono text-[13px]">@{telegram.botUserName}</span> any time.</>
-            ) : '.'}
-          </p>
-          <p className="mt-2 text-[12px] tracking-[-0.1px] text-kumo-subtle">
-            {lastMessageLabel(telegram.lastMessageAt)}
-            {telegram.linkedAt ? ` · linked ${new Date(telegram.linkedAt).toLocaleDateString()}` : ''}
-          </p>
-        </>
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm text-kumo-default">
+              {telegram.telegramUserName ? `@${telegram.telegramUserName} is linked` : 'Your Telegram account is linked'}
+              {telegram.botUserName ? (
+                <> — message <span className="font-mono text-[13px]">@{telegram.botUserName}</span> any time.</>
+              ) : '.'}
+            </p>
+            <p className="mt-2 text-[12px] tracking-[-0.1px] text-kumo-subtle">
+              {lastMessageLabel(telegram.lastMessageAt)}
+              {telegram.linkedAt ? ` · linked ${new Date(telegram.linkedAt).toLocaleDateString()}` : ''}
+            </p>
+          </div>
+          <button type="button" onClick={() => void unlink()} disabled={busy} className={`${GHOST_BTN} shrink-0`}>
+            Unlink
+          </button>
+        </div>
       ) : (
-        <p className="text-sm text-kumo-subtle">
-          Your Telegram account isn't linked yet. Ask your workspace admin for a personal link
-          — tapping it connects your account
-          {telegram.botUserName ? (
-            <> to <span className="font-mono text-[13px]">@{telegram.botUserName}</span></>
-          ) : null}
-          .
-        </p>
+        <>
+          <p className="text-sm text-kumo-subtle">
+            Chat with your assistant
+            {telegram.botUserName ? (
+              <> (<span className="font-mono text-[13px]">@{telegram.botUserName}</span>)</>
+            ) : null}{' '}
+            from Telegram. Linking takes one tap and only connects your own account.
+          </p>
+          {minted ? (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <a href={minted} target="_blank" rel="noreferrer" className={PRIMARY_BTN}>
+                <ExternalLink size={14} strokeWidth={2.5} />
+                Open in Telegram
+              </a>
+              <button type="button" onClick={() => void copyMinted()} aria-label="Copy link" className={ICON_BTN}>
+                {copied ? <Check size={14} /> : <Copy size={14} />}
+              </button>
+              <p className="w-full text-[12px] tracking-[-0.1px] text-kumo-subtle sm:w-auto">
+                On your phone? Copy the link and open it there. It works once and expires in a week.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-4">
+              <button type="button" onClick={() => void mint()} disabled={busy} className={PRIMARY_BTN}>
+                <MessageSquare size={14} strokeWidth={2.5} />
+                {busy ? 'Creating link…' : 'Link your Telegram'}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </ChannelSection>
   )
