@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type PointerEvent as ReactPointerEvent } from 'react'
 import { useParams, useNavigate, useSearch, Link } from '@tanstack/react-router'
-import { useKumoToastManager } from '@cloudflare/kumo'
+import { DropdownMenu, useKumoToastManager } from '@cloudflare/kumo'
 import {
   Share2,
   Pencil,
@@ -10,11 +10,13 @@ import {
   LayoutTemplate as Blueprint,
   Trash2,
   Maximize2,
+  Ellipsis as DotsThree,
   Activity as ActivityIcon,
   type LucideIcon,
 } from 'lucide-react'
 import { RpcStub, RpcTarget } from 'capnweb'
 import { useAuthenticatedApi } from './AuthContext'
+import { useConnectionLost } from './RpcContext'
 import UserMenu from './components/UserMenu'
 import SiteLogo from './components/SiteLogo'
 
@@ -51,10 +53,12 @@ import TopBarNotice from './TopBarNotice'
 import { WorkshopButton, WorkshopIconButton, WorkshopInput } from './components/WorkshopControls'
 import { useActions } from './useActions'
 import DeleteConfirmationDialog from './components/DeleteConfirmationDialog'
+import ReconnectingChip from './components/ReconnectingChip'
 import WorkspaceOpenErrorPage from './components/WorkspaceOpenErrorPage'
 import { useWorkspaceOpen } from './useWorkspaceOpen'
 import { reportIssue } from './errorReporting'
 import GadgetExportMenu from './GadgetExportMenu'
+import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER, MENU_POSITIONER_STYLE } from './components/menuStyles'
 
 const NO_GADGETS: ReadonlySet<WorkpieceId> = new Set()
 
@@ -446,6 +450,7 @@ export default function GadgetEditor() {
   isEditingTitleRef.current = isEditingTitle
   const [titleInput, setTitleInput] = useState('')
 
+  const rpcConnectionLost = useConnectionLost()
   const {
     overseer,
     metadata,
@@ -469,6 +474,10 @@ export default function GadgetEditor() {
     },
   })
   const [userInfo, setUserInfo] = useState<AiChatAuthorInfo | null>(null)
+
+  // The workspace-level flag covers reopen failures; the socket-level flag covers the outage
+  // window itself, during which the dead stub stays published and no reopen is attempted yet.
+  const showReconnecting = connectionLost || rpcConnectionLost
 
   // ── role gating ────────────────────────────────────────────────────────────────
   // "use"-role collaborators receive a restricted overseer that only permits rendering and
@@ -531,6 +540,7 @@ export default function GadgetEditor() {
   // Fullscreen overlay wrapper — we focus this on enter to move focus out of the now-occluded
   // Enter button. From here, Tab moves into the iframe.
   const fullscreenOverlayRef = useRef<HTMLDivElement>(null)
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
 
   const enterGadgetFullscreen = useCallback(() => {
     if (window.location.hash !== '#fullscreen') {
@@ -557,7 +567,11 @@ export default function GadgetEditor() {
     if (isGadgetFullscreen) {
       fullscreenOverlayRef.current?.focus()
     } else if (focusBeforeFullscreenRef.current) {
-      focusBeforeFullscreenRef.current.focus()
+      if (focusBeforeFullscreenRef.current.isConnected) {
+        focusBeforeFullscreenRef.current.focus()
+      } else {
+        mobileMenuButtonRef.current?.focus()
+      }
       focusBeforeFullscreenRef.current = null
     }
   }, [isGadgetFullscreen])
@@ -1210,13 +1224,17 @@ export default function GadgetEditor() {
   }, [authenticatedApi])
 
   // ── title save/cancel ─────────────────────────────────────────────────────────
+  const titleSaveInFlight = useRef(false)
   const handleSaveTitle = async () => {
     if (!overseer || !titleInput.trim()) return
+    if (titleSaveInFlight.current) return
+    titleSaveInFlight.current = true
     try {
       await overseer.stub.setTitle(titleInput.trim())
       updateTitle(titleInput.trim())
       setIsEditingTitle(false)
     } catch { toasts.add({ title: 'Failed to update title', variant: 'error' }) }
+    finally { titleSaveInFlight.current = false }
   }
   const handleCancelEdit = () => {
     setTitleInput(metadata?.title || '')
@@ -1248,7 +1266,6 @@ export default function GadgetEditor() {
   // ── shared height tokens ──────────────────────────────────────────────────────
   const TOPBAR_H = 56   // h-14 (matches home page Header)
   const TABBAR_H = 48   // h-12
-  const RIGHT_CONTENT_H = `calc(100vh - ${TOPBAR_H}px - ${TABBAR_H}px)`
 
   // ── error / loading states ────────────────────────────────────────────────────
   if (error?.kind === 'open') {
@@ -1263,7 +1280,7 @@ export default function GadgetEditor() {
 
   if (error?.kind === 'message') {
     return (
-      <div className="min-h-screen flex items-center justify-center flex-col gap-4 bg-kumo-base">
+      <div className="flex min-h-full items-center justify-center flex-col gap-4 bg-kumo-base">
         {/* Observer-verification denials list one line per failed connection, so preserve newlines. */}
         <p className="text-sm text-kumo-danger whitespace-pre-line text-center max-w-lg">
           {error.message}
@@ -1285,7 +1302,7 @@ export default function GadgetEditor() {
   if (!metadata || !overseer || !workpiecesReady ||
       (selectedGadgetId !== null && gadget === null)) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-kumo-base">
+      <div className="flex min-h-full items-center justify-center bg-kumo-base">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-2 border-kumo-brand border-t-transparent rounded-full animate-spin" />
           <p className="text-sm text-kumo-subtle">Loading workspace…</p>
@@ -1318,9 +1335,17 @@ export default function GadgetEditor() {
     )
   }
 
+  const openMobilePane = (tab: RightTab) => {
+    handleTabSelect(tab)
+    if (selectedGadgetId !== null) setWorkspaceVisibility('open', selectedGadgetId)
+  }
+
+  const mobilePreviewActive = showFullEditor && !paneShowsActivity && activeTab === 'app'
+  const mobileMoreActive = showFullEditor && !paneShowsActivity && activeTab !== 'app'
+
   // ── always render the full two-pane edit layout; preview overlays on top ──────
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-kumo-base relative">
+    <div className="relative flex h-full flex-col overflow-hidden bg-kumo-base">
       {/* ═══ SHARED TOP BAR (visible in both modes) ════════════════════════════ */}
       <div
         className="relative flex items-center justify-between px-4 sm:px-6 backdrop-blur-md border-b border-kumo-line flex-shrink-0 gap-3"
@@ -1328,7 +1353,7 @@ export default function GadgetEditor() {
       >
         <TopBarNotice />
         {/* Left: logo / title */}
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <Link
             to="/"
             aria-label="Home"
@@ -1342,7 +1367,7 @@ export default function GadgetEditor() {
           <span className="text-kumo-inactive flex-shrink-0">/</span>
 
           {isEditingTitle ? (
-            <div className="flex items-center gap-1">
+            <div className="flex min-w-0 items-center gap-1">
               <WorkshopInput
                 type="text"
                 value={titleInput}
@@ -1352,19 +1377,19 @@ export default function GadgetEditor() {
                   if (e.key === 'Escape') handleCancelEdit()
                 }}
                 autoFocus
-                className="!h-7 w-56 bg-kumo-tint text-[14px] leading-5 font-medium tracking-[-0.25px]"
+                className="!h-9 w-[min(14rem,45vw)] bg-kumo-tint text-[16px] leading-5 font-medium md:!h-7 md:text-[14px]"
               />
               <WorkshopIconButton
                 onClick={handleSaveTitle}
                 disabled={!titleInput.trim()}
-                className="!h-7 !w-7 hover:text-kumo-brand disabled:opacity-30"
+                className="!h-9 !w-9 hover:text-kumo-brand disabled:opacity-30 md:!h-7 md:!w-7"
                 aria-label="Save workspace title"
               >
                 <Check size={14} />
               </WorkshopIconButton>
               <WorkshopIconButton
                 onClick={handleCancelEdit}
-                className="!h-7 !w-7"
+                className="!h-9 !w-9 md:!h-7 md:!w-7"
                 aria-label="Cancel title edit"
               >
                 <X size={14} />
@@ -1375,26 +1400,28 @@ export default function GadgetEditor() {
               <span className="text-[14px] leading-5 font-medium tracking-[-0.25px] text-kumo-default truncate">
                 {metadata.title}
               </span>
-              <WorkshopIconButton
-                onClick={() => setIsEditingTitle(true)}
-                className="!h-7 !w-7 flex-shrink-0"
-                title="Rename workspace"
-                aria-label="Rename workspace"
-              >
-                <Pencil size={16} />
-              </WorkshopIconButton>
+              <span className="hidden md:inline-flex">
+                <WorkshopIconButton
+                  onClick={() => setIsEditingTitle(true)}
+                  className="!h-7 !w-7 flex-shrink-0"
+                  title="Rename workspace"
+                  aria-label="Rename workspace"
+                >
+                  <Pencil size={16} />
+                </WorkshopIconButton>
+              </span>
             </div>
           )}
 
           {metadata.owner && (
-            <span className="text-xs text-kumo-inactive flex-shrink-0">
+            <span className="hidden text-xs text-kumo-inactive sm:inline">
               by {metadata.owner.name}
             </span>
           )}
         </div>
 
         {/* Right: presence, cost, workspace, share, blueprints */}
-        <div className="flex items-center gap-1 flex-shrink-0">
+        <div className="hidden flex-shrink-0 items-center gap-1 md:flex">
           <GadgetPresence
             overseer={overseer.stub}
             authenticatedApi={authenticatedApi}
@@ -1402,7 +1429,7 @@ export default function GadgetEditor() {
           />
 
           {metadata.totalCost != null && (
-            <span className="mr-2 text-[12px] leading-4 font-normal tracking-[-0.2px] text-kumo-subtle">
+            <span className="ml-3 mr-2 text-[12px] leading-4 font-normal tracking-[-0.2px] text-kumo-subtle">
               {formatHeaderCost(metadata.totalCost)}
             </span>
           )}
@@ -1413,11 +1440,7 @@ export default function GadgetEditor() {
             onViewActivity={openActivity}
           />
 
-          {connectionLost && (
-            <span className="text-xs text-kumo-warning px-2 py-0.5 rounded-full bg-kumo-warning-tint border border-kumo-warning/20">
-              Reconnecting…
-            </span>
-          )}
+          {showReconnecting && <ReconnectingChip />}
 
           <WorkshopIconButton
             onClick={() => setShareModalOpen(true)}
@@ -1447,11 +1470,131 @@ export default function GadgetEditor() {
             </WorkshopIconButton>
           )}
 
-          {/* User menu */}
-          <div className="ml-2">
-            <UserMenu />
-          </div>
         </div>
+        <div className="ml-1 flex shrink-0 items-center gap-2">
+          <span className="md:hidden">{showReconnecting && <ReconnectingChip />}</span>
+          {/* Desktop reaches Export from the gadget pane's tab bar, which is hidden on phones. */}
+          <span className="md:hidden">
+            <GadgetExportMenu
+              gadget={selectedGadgetStub}
+              gadgetTitle={selectedGadgetSummary?.title ?? 'App'}
+              chatId={previewChatId}
+            />
+          </span>
+          <UserMenu />
+        </div>
+      </div>
+
+      <div className="flex h-12 shrink-0 items-center gap-1 border-b border-kumo-line bg-kumo-base px-2 md:hidden">
+        <button
+          type="button"
+          onClick={() => setWorkspaceVisibility('closed')}
+          aria-current={!showFullEditor ? 'page' : undefined}
+          className={`flex h-9 min-w-0 flex-1 items-center justify-center rounded-lg px-3 text-[14px] font-medium ${
+            !showFullEditor ? 'bg-kumo-tint text-kumo-default' : 'text-kumo-subtle'
+          }`}
+        >
+          Chat
+        </button>
+        <button
+          type="button"
+          onClick={() => openMobilePane('app')}
+          disabled={!selectedGadgetStub}
+          aria-current={mobilePreviewActive ? 'page' : undefined}
+          className={`flex h-9 min-w-0 flex-1 items-center justify-center rounded-lg px-3 text-[14px] font-medium disabled:opacity-40 ${
+            mobilePreviewActive ? 'bg-kumo-tint text-kumo-default' : 'text-kumo-subtle'
+          }`}
+        >
+          Preview
+        </button>
+        <button
+          type="button"
+          onClick={() => openActivity(pendingActionsCount > 0 ? 'review' : 'history')}
+          aria-current={paneShowsActivity ? 'page' : undefined}
+          className={`relative flex h-9 min-w-0 flex-1 items-center justify-center rounded-lg px-3 text-[14px] font-medium ${
+            paneShowsActivity ? 'bg-kumo-tint text-kumo-default' : 'text-kumo-subtle'
+          }`}
+        >
+          Activity
+          {pendingActionsCount > 0 && (
+            <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-kumo-brand" />
+          )}
+        </button>
+        <DropdownMenu>
+          <DropdownMenu.Trigger
+            render={
+              <button
+                type="button"
+                ref={mobileMenuButtonRef}
+                aria-label="More workspace views and actions"
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${
+                  mobileMoreActive ? 'bg-kumo-tint text-kumo-default' : 'text-kumo-subtle'
+                }`}
+              >
+                <DotsThree size={20} strokeWidth={2.5} />
+              </button>
+            }
+          />
+          <DropdownMenu.Content className={MENU_CONTENT} style={MENU_POSITIONER_STYLE}>
+            <DropdownMenu.Item
+              disabled={selectedFilesRoot === undefined}
+              onClick={() => openMobilePane('code')}
+              className={MENU_ITEM}
+            >
+              Code
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              disabled={!selectedGadgetStub}
+              onClick={() => openMobilePane('connections')}
+              className={MENU_ITEM}
+            >
+              Connections
+            </DropdownMenu.Item>
+            {visibleGadgets.length > 1 && <DropdownMenu.Separator />}
+            {visibleGadgets.length > 1 && visibleGadgets.map(workpiece => (
+              <DropdownMenu.Item
+                key={workpiece.id}
+                onClick={() => handleSelectWorkpiece(workpiece.id)}
+                className={MENU_ITEM}
+              >
+                {workpiece.title}
+              </DropdownMenu.Item>
+            ))}
+            <DropdownMenu.Separator />
+            <DropdownMenu.Item onClick={() => setIsEditingTitle(true)} className={MENU_ITEM}>
+              Rename workspace
+            </DropdownMenu.Item>
+            <DropdownMenu.Item onClick={() => setShareModalOpen(true)} className={MENU_ITEM}>
+              Share workspace
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              disabled={!selectedGadgetStub}
+              onClick={() => setBlueprintModalOpen(true)}
+              className={MENU_ITEM}
+            >
+              Templates
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              disabled={!mobilePreviewActive}
+              onClick={enterGadgetFullscreen}
+              className={MENU_ITEM}
+            >
+              Full-screen preview
+            </DropdownMenu.Item>
+            {!metadata.owner && (
+              <>
+                <DropdownMenu.Separator />
+                <DropdownMenu.Item
+                  variant="danger"
+                  onClick={() => setDeleteDialogOpen(true)}
+                  className={MENU_ITEM_DANGER}
+                >
+                  Delete workspace
+                </DropdownMenu.Item>
+              </>
+            )}
+          </DropdownMenu.Content>
+        </DropdownMenu>
       </div>
 
       {/* ═══ BODY ═════════════════════════════════════════════════════════════ */}
@@ -1459,7 +1602,7 @@ export default function GadgetEditor() {
 
         {isAgentActive && (
           <div
-            className="absolute left-0 h-0 z-10"
+            className="absolute left-0 z-10 h-0 max-md:!right-0 max-md:!top-0"
             style={{ top: simpleMode ? 0 : TABBAR_H, right: outputRailWidth }}
           >
             <div className="absolute left-0 right-0 h-0.5 bg-kumo-fill overflow-hidden">
@@ -1470,7 +1613,7 @@ export default function GadgetEditor() {
 
         {/* ── LEFT: Chat pane ──────────────────────────────────────────────────── */}
         <div
-          className={`flex flex-col flex-shrink-0 ${workspaceTransitionClass} ${showFullEditor ? 'border-r border-kumo-line' : ''}`}
+          className={`flex flex-col flex-shrink-0 max-md:!w-full ${showFullEditor ? 'max-md:hidden' : ''} ${workspaceTransitionClass} ${showFullEditor ? 'border-r border-kumo-line' : ''}`}
           style={{
             width: showFullEditor
               ? chatWidth
@@ -1482,6 +1625,7 @@ export default function GadgetEditor() {
               <div className={layoutModeReady ? 'h-full' : 'h-full invisible'}>
                 <ChatInterface
                   key={id}
+                  workspaceId={id}
                   overseer={overseer.stub}
                   selectedChatId={effectiveSelectedChatId}
                   onNavigateToChat={navigateToChat}
@@ -1531,7 +1675,7 @@ export default function GadgetEditor() {
 
         {/* ── Resize handle ───────────────────────────────────────────────────── */}
         <div
-          className={`flex-shrink-0 overflow-visible bg-kumo-line cursor-col-resize relative touch-none ${workspaceTransitionClass}`}
+          className={`relative flex-shrink-0 touch-none cursor-col-resize overflow-visible bg-kumo-line max-md:hidden ${workspaceTransitionClass}`}
           style={{ width: showFullEditor ? 1 : 0 }}
           onPointerDown={handleResizePointerDown}
           onPointerMove={handleResizePointerMove}
@@ -1543,7 +1687,7 @@ export default function GadgetEditor() {
 
         {/* ── RIGHT: App / Code / Connections tabs ───────────────────────────── */}
         <div
-          className={`flex flex-shrink-0 min-w-0 overflow-hidden bg-kumo-base ${workspaceTransitionClass}`}
+          className={`flex flex-shrink-0 min-w-0 overflow-hidden bg-kumo-base max-md:!w-full max-md:!opacity-100 ${!showFullEditor ? 'max-md:hidden' : ''} ${workspaceTransitionClass}`}
           style={{
             width: showFullEditor ? `calc(100% - ${chatWidth}px - 1px)` : 0,
             opacity: showFullEditor ? 1 : 0,
@@ -1551,7 +1695,7 @@ export default function GadgetEditor() {
         >
           <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
           <div
-            className="flex items-center gap-2 border-b border-kumo-line px-3 flex-shrink-0"
+            className="hidden flex-shrink-0 items-center gap-2 border-b border-kumo-line px-3 md:flex"
             style={{ height: TABBAR_H }}
           >
             <div className="flex min-w-0 flex-1 items-center overflow-hidden">
@@ -1599,7 +1743,6 @@ export default function GadgetEditor() {
                   gadget={selectedGadgetStub}
                   gadgetTitle={selectedGadgetSummary?.title ?? 'App'}
                   chatId={previewChatId}
-                  disabled={activeTab !== 'app' || previewMode}
                 />
               )}
 
@@ -1626,15 +1769,30 @@ export default function GadgetEditor() {
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {paneShowsActivity && (
-              <Activity
-                overseer={overseer.stub}
-                view={activityView}
-                onViewChange={setActivityView}
-                onAutoApproveChange={() => setAutoApproveReloadTrigger(t => t + 1)}
-                autoApproveReloadTrigger={autoApproveReloadTrigger}
-              />
+              <div className="flex h-11 items-center gap-1 overflow-x-auto border-b border-kumo-line px-2 md:hidden">
+                {ACTIVITY_TABS.map(tab => (
+                  <PaneTab
+                    key={tab.value}
+                    active={activityView === tab.value}
+                    label={tab.label}
+                    count={tab.value === 'review' ? pendingActionsCount : undefined}
+                    onClick={() => setActivityView(tab.value)}
+                  />
+                ))}
+              </div>
+            )}
+            {paneShowsActivity && (
+              <div className="min-h-0 flex-1">
+                <Activity
+                  overseer={overseer.stub}
+                  view={activityView}
+                  onViewChange={setActivityView}
+                  onAutoApproveChange={() => setAutoApproveReloadTrigger(t => t + 1)}
+                  autoApproveReloadTrigger={autoApproveReloadTrigger}
+                />
+              </div>
             )}
             <div className={paneShowsActivity ? 'hidden' : 'contents'}>
             <div
@@ -1647,7 +1805,7 @@ export default function GadgetEditor() {
                 activeTab !== 'app' || previewMode
                   ? 'hidden'
                   : isGadgetFullscreen
-                    ? 'fixed inset-0 z-20 bg-kumo-base outline-none'
+                    ? 'visual-viewport-fixed z-20 bg-kumo-base outline-none'
                     : 'h-full'
               }
             >
@@ -1655,7 +1813,7 @@ export default function GadgetEditor() {
                 <GadgetUI
                   key={selectedGadgetId}
                   gadget={selectedGadgetStub}
-                  height={isGadgetFullscreen ? '100%' : RIGHT_CONTENT_H}
+                  height="100%"
                   reloadTrigger={uiReloadTrigger}
                   isVisible={activeTab === 'app' && !previewMode}
                   chatId={previewChatId}
@@ -1663,7 +1821,7 @@ export default function GadgetEditor() {
                   onIframeEscape={isGadgetFullscreen ? exitGadgetFullscreen : undefined}
                 />
               ) : !previewMode && (
-                <NoGadgetPlaceholder height={RIGHT_CONTENT_H} />
+                <NoGadgetPlaceholder height="100%" />
               )}
               {isGadgetFullscreen && showFullscreenHint && (
                 <div
@@ -1683,7 +1841,7 @@ export default function GadgetEditor() {
                 <GadgetCodeInterface
                   overseer={overseer.stub}
                   filesRoot={selectedFilesRoot}
-                  height={RIGHT_CONTENT_H}
+                  height="100%"
                   onCodeChange={() => setUiReloadTrigger(t => t + 1)}
                   selectedChatId={effectiveSelectedChatId}
                   proposedChanges={proposedChanges}
@@ -1695,7 +1853,7 @@ export default function GadgetEditor() {
                   onHasCodeChange={setHasCode}
                 />
               ) : (
-                <NoGadgetPlaceholder height={RIGHT_CONTENT_H} />
+                <NoGadgetPlaceholder height="100%" />
               )}
             </div>
 
@@ -1712,7 +1870,7 @@ export default function GadgetEditor() {
                   onHasGatekeepersChange={setHasBindings}
                 />
               ) : (
-                <NoGadgetPlaceholder height={RIGHT_CONTENT_H} />
+                <NoGadgetPlaceholder height="100%" />
               )}
             </div>
 
@@ -1722,18 +1880,20 @@ export default function GadgetEditor() {
         </div>
 
         {showOutputRail && (
-          <WorkpiecePicker
-            gadgets={allGadgets}
-            selectedId={null}
-            agentEditingId={streamingActiveFile?.workpieceId ?? null}
-            hookedGadgetIds={hookedGadgetIds}
-            expanded={workpieceRailExpanded}
-            onExpandedChange={handleWorkpieceRailExpandedChange}
-            onSelect={handleSelectWorkpiece}
-            onRename={handleRenameWorkpiece}
-            pendingActivityCount={pendingActionsCount}
-            onOpenActivity={() => openActivity(pendingActionsCount > 0 ? 'review' : 'history')}
-          />
+          <div className="max-md:hidden">
+            <WorkpiecePicker
+              gadgets={allGadgets}
+              selectedId={null}
+              agentEditingId={streamingActiveFile?.workpieceId ?? null}
+              hookedGadgetIds={hookedGadgetIds}
+              expanded={workpieceRailExpanded}
+              onExpandedChange={handleWorkpieceRailExpandedChange}
+              onSelect={handleSelectWorkpiece}
+              onRename={handleRenameWorkpiece}
+              pendingActivityCount={pendingActionsCount}
+              onOpenActivity={() => openActivity(pendingActionsCount > 0 ? 'review' : 'history')}
+            />
+          </div>
         )}
       </div>
 

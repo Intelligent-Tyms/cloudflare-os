@@ -27,29 +27,35 @@ export interface ExternalMessageDelivery {
 
 /** External message submission accepted by the backend gateway. */
 export type SubmitExternalMessageInput = {
-  // Selects the Gadgets account used to submit the message.
-  // The backend trusts the gateway: supplying this email grants access as that account.
-  // Messages land in that account's home assistant workspace (created on first use);
-  // the gateway does not pick a workspace.
+  /**
+   * Selects the Gadgets account used to submit the message.
+   * The backend trusts the gateway: supplying this email grants access as that account.
+   * Messages land in that account's home assistant workspace (created on first use);
+   * the gateway does not pick a workspace.
+   */
   callerEmail: string;
-  // Selects the chat thread to create or reuse inside the home workspace.
+  /** Selects the chat thread to create or reuse inside the home workspace. */
   chatKey: string;
-  // Deduplicates the originating message and correlates the response target.
+  /** Deduplicates the originating message and correlates the response target. */
   messageKey: string;
-  // User text sent to Gadgets.
+  /** User text sent to Gadgets. */
   prompt: string;
-  // Present when the message arrived as a voice note the gateway transcribed (prompt is
-  // the transcript). Transcription runs on the platform's speech account, so accepted
-  // voice notes are metered as a paid "voice" message leg.
+  /**
+   * Present when the message arrived as a voice note the gateway transcribed (prompt is
+   * the transcript). Transcription runs on the platform's speech account, so accepted
+   * voice notes are metered as a paid "voice" message leg.
+   */
   voiceNote?: {
     durationSeconds?: number;
   };
-  // Names a service binding on the workshop worker that implements ExternalMessageDelivery
-  // (injected by deploy tooling alongside the gateway's own binding). Stored durably with
-  // deliveryKey as the reply route: plain strings survive restarts, unlike RPC stubs, which
-  // production workerd refuses to persist.
+  /**
+   * Names a service binding on the workshop worker that implements ExternalMessageDelivery
+   * (injected by deploy tooling alongside the gateway's own binding). Stored durably with
+   * deliveryKey as the reply route: plain strings survive restarts, unlike RPC stubs, which
+   * production workerd refuses to persist.
+   */
   replyBinding: string;
-  // Opaque address the gateway uses to route the reply to the right conversation.
+  /** Opaque address the gateway uses to route the reply to the right conversation. */
   deliveryKey: string;
 };
 
@@ -61,7 +67,7 @@ export type SubmitExternalMessageResult =
     }
   | {
       accepted: false;
-      // User-facing explanation of an actionable submission rejection.
+      /** User-facing explanation of an actionable submission rejection. */
       message: string;
     };
 

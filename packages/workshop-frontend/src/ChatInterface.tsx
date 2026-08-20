@@ -1,3 +1,4 @@
+import { isTransientRpcError, logRpcFailure } from "./rpcErrors";
 import {
   Fragment,
   memo,
@@ -84,6 +85,7 @@ import {
   WorkpieceId,
   BlueprintOutput,
   MessageFormatRef,
+  OutputIcon,
   OutputFormatOffer,
 } from "@gadgets/workshop-shared/api";
 import { ActionKind, ResourceDescription } from "@gadgets/workshop-shared/gatekeeper";
@@ -94,7 +96,7 @@ import {
   ComposerMirror, composerTextareaClass, type ComposerMirrorHandle, type MirrorToken,
 } from "./components/chat/ComposerMirror";
 import {
-  useSlashCommandChoice, type OverseerSource,
+  slashCommandKey, useSlashCommandChoice, type OverseerSource,
 } from "./components/chat/slash-command-catalog";
 import {
   removeComposerToken, snapCaretOutOfRanges, spliceComposerToken, type ComposerRange,
@@ -128,6 +130,14 @@ import { useSlashCommandPicker } from "./components/chat/SlashCommandPicker";
 import { formatFullTimestamp } from "./utils/formatTimestamp";
 import { copyToClipboard } from "./clipboard";
 import { useAssistantName } from "./AssistantProfileContext";
+import {
+  composerDraftStorageKey,
+  decorateComposerDraft,
+  readComposerDraft,
+  serializeComposerDraft,
+  writeComposerDraft,
+  type StoredComposerDraft,
+} from "./composerDraft";
 
 export interface StreamingProposedChanges {
   updates: Uint8Array[];
@@ -194,8 +204,10 @@ function CreatedGadgetChatCard({
   );
 }
 
-// The file an agent is currently streaming edits into. Files are identified by (workpiece,
-// filename) pairs since a chat can edit multiple gadgets.
+/**
+ * The file an agent is currently streaming edits into. Files are identified by (workpiece,
+ * filename) pairs since a chat can edit multiple gadgets.
+ */
 export type ActiveFileTarget = {
   workpieceId: WorkpieceId;
   filename: string;
@@ -319,11 +331,28 @@ const CAPSULE_LOGO_SLOT = "\u2003\u2060\u00a0";
 
 // The format a new workspace will be made from, as a token in the composer's text.
 type FormatToken = ComposerRange & {
-  format: OutputFormatOffer;
+  noun: string;
+  icon: OutputIcon;
   // Data URL for the format's icon, painted into the token's logo slot. Absent if it couldn't be
   // rendered, in which case the token carries no slot either.
   logo?: string;
 };
+
+function formatTokensFromDraft(draft: StoredComposerDraft | undefined): FormatToken[] {
+  return draft?.formats.map(({position, length, noun, icon}) => ({
+    start: position,
+    length,
+    noun,
+    icon,
+  })) ?? [];
+}
+
+function slashCommandFromDraft(draft: StoredComposerDraft | undefined): SelectedSlashCommand | null {
+  const command = draft?.command;
+  return command
+    ? { start: command.position, length: command.length, choice: command.choice }
+    : null;
+}
 
 const cssLogoUrls = new Map<string, string>();
 
@@ -1247,9 +1276,11 @@ function getMarkdownComponents(
 const REMARK_PLUGINS_NO_CAPSULES = [remarkGfm];
 const MARKDOWN_COMPONENTS_NO_CAPSULES = getMarkdownComponents();
 
-// Exported for unit testing (see ChatInterface.markdown.test.tsx), which verifies that a
-// single newline in a user message survives to the DOM as a literal "\n" so the
-// `whitespace-pre-wrap` wrapper at the user-message render site renders it as a hard break.
+/**
+ * Exported for unit testing (see ChatInterface.markdown.test.tsx), which verifies that a
+ * single newline in a user message survives to the DOM as a literal "\n" so the
+ * `whitespace-pre-wrap` wrapper at the user-message render site renders it as a hard break.
+ */
 export const MarkdownMessage = memo(function MarkdownMessage(
   { message, capsules, formats }: {
     message: string;
@@ -1387,7 +1418,7 @@ const AttachmentPreviewModal = memo(function AttachmentPreviewModal(
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div ref={containerRef} className={`relative max-h-[calc(100vh-32px)] ${modalWidthClass} overflow-hidden ${modalSurfaceClass} p-0 shadow-[0_24px_80px_rgba(0,0,0,0.28)]`}>
+      <div ref={containerRef} className={`relative max-h-[calc(var(--app-height)-32px)] ${modalWidthClass} overflow-hidden ${modalSurfaceClass} p-0 shadow-[0_24px_80px_rgba(0,0,0,0.28)]`}>
         <button
           type="button"
           onClick={onClose}
@@ -1402,7 +1433,7 @@ const AttachmentPreviewModal = memo(function AttachmentPreviewModal(
             <img
               src={objectUrl}
               alt={title}
-              className="max-h-[calc(100vh-96px)] w-full rounded-xl object-contain"
+              className="max-h-[calc(var(--app-height)-96px)] w-full rounded-xl object-contain"
             />
           ) : (
             <div className="grid min-h-56 place-items-center rounded-xl border border-kumo-line/70 bg-kumo-elevated/40 p-6 py-10 text-center">
@@ -1800,7 +1831,7 @@ const ToolGroupRow = memo(function ToolGroupRow({
         )
       )}
       {footerChangeSequence !== undefined && footerTimestamp && footerLabel && onFooterRevert && (
-        <div className="ml-0 mt-0.5 flex items-center gap-1 opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100 group-focus-within:opacity-100">
+        <div className="ml-0 mt-0.5 flex items-center gap-1 opacity-100 transition-opacity duration-150 ease-out sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
           <Tooltip content={footerLabel} asChild>
             <button
               type="button"
@@ -1845,9 +1876,11 @@ export const ChatInput = ({
   minRows = 2,
   seedText,
   seedNonce,
+  draftStorageKey,
   attachLabel,
   draftUpdateBanner,
   blockedReason,
+  chatKey,
   onStop,
   showThinkingTraces = true,
   onToggleThinkingTraces,
@@ -1856,8 +1889,10 @@ export const ChatInput = ({
     accountId: number,
     url: string,
   ) => Promise<RpcStub<GatekeeperClient<any>> | null>;
-  // Returns an overseer stub, used by the attach modal to create gatekeepers. Can be async
-  // to support lazy provisional-gadget creation on the Home page.
+  /**
+   * Returns an overseer stub, used by the attach modal to create gatekeepers. Can be async
+   * to support lazy provisional-gadget creation on the Home page.
+   */
   getOverseer: () => Promise<RpcStub<Overseer>> | RpcStub<Overseer>;
   onSend: (
     message: string | SlashCommandRequest,
@@ -1876,9 +1911,11 @@ export const ChatInput = ({
   onConsumeConsoleLogs?: () => string;
   onDiscardConsoleLogs?: () => void;
   newChat?: boolean;
-  // Whether the composer offers the deployment's standard formats. A chosen format rides along as
-  // an instruction on the message; it does not change which workspace is created. Only meaningful
-  // with `newChat`, since a format names something to build rather than something to say.
+  /**
+   * Whether the composer offers the deployment's standard formats. A chosen format rides along as
+   * an instruction on the message; it does not change which workspace is created. Only meaningful
+   * with `newChat`, since a format names something to build rather than something to say.
+   */
   offerFormats?: boolean;
   autoFocus?: boolean;
   /** Minimum number of textarea rows at rest. Defaults to 2. */
@@ -1887,12 +1924,16 @@ export const ChatInput = ({
    * whenever `seedNonce` changes, so the same text can be re-seeded by bumping the nonce. */
   seedText?: string;
   seedNonce?: number;
+  /** Session-storage key used to recover this composer's draft prompt after a page refresh. */
+  draftStorageKey?: string;
   /** Optional label for the attach menu item. */
   attachLabel?: string;
   draftUpdateBanner?: ReactNode;
   /** When set, the composer is disabled and shows this message — the user must resolve something
    * (e.g. accept/deny a pending connection request) before they can type or send. */
   blockedReason?: string;
+  /** Identity of the chat the composer is bound to; a change clears chat-scoped hints. */
+  chatKey?: number | null;
   onStop?: () => void;
   showThinkingTraces?: boolean;
   onToggleThinkingTraces?: () => void;
@@ -1904,12 +1945,21 @@ export const ChatInput = ({
   // The user's chosen assistant name personalizes the new-chat placeholder ("Ask Zuri…").
   const assistantName = useAssistantName();
   const toasts = useKumoToastManager();
-  const [inputValue, setInputValue] = useState("");
+  const [initialDraft] = useState(() => readComposerDraft(draftStorageKey));
+  const [inputValue, setInputValue] = useState(() => initialDraft?.text ?? "");
   const [capsules, setCapsules] = useState<InputCapsule[]>([]);
+  const [formatTokens, setFormatTokens] = useState<FormatToken[]>(() =>
+    formatTokensFromDraft(initialDraft));
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [isSending, setIsSending] = useState(false);
+  // The chat the "may not have been sent" hint belongs to; the render condition scopes it, and
+  // leaving the chat dismisses it.
+  const [sendHiccup, setSendHiccup] = useState<{ chatKey?: number | null } | null>(null);
+  useEffect(() => setSendHiccup(null), [chatKey]);
   const [isAttachmentDragActive, setIsAttachmentDragActive] = useState(false);
-  const [selectedSlashCommand, setSelectedSlashCommand] = useState<SelectedSlashCommand | null>(null);
+  const [selectedSlashCommand, setSelectedSlashCommand] = useState<SelectedSlashCommand | null>(
+    () => slashCommandFromDraft(initialDraft),
+  );
   // The caret the slash command picker parses at. Deliberately updated only when it moves to a
   // different command token (see `syncPickerCaret`): the mirror owns the caret the user sees,
   // so ordinary caret movement doesn't have to re-render the composer.
@@ -1962,13 +2012,145 @@ export const ChatInput = ({
   // Keep inputValue in a ref so handleCursorChange can read it without re-binding.
   const inputValueRef = useRef(inputValue);
   inputValueRef.current = inputValue;
+  const draftEditedRef = useRef(false);
+
+  const loadedDraftKeyRef = useRef(draftStorageKey);
+  const skipDraftWriteRef = useRef(false);
+  const draftRestoreGenerationRef = useRef(0);
+
+  const placeRestoredCaretAtEnd = (
+    text: string,
+    key: string | undefined,
+    generation: number,
+  ) => {
+    requestAnimationFrame(() => {
+      if (draftRestoreGenerationRef.current !== generation ||
+          loadedDraftKeyRef.current !== key || inputValueRef.current !== text) {
+        return;
+      }
+      const textarea = composerTextareaRef.current;
+      if (!textarea) return;
+      if (autoFocus) textarea.focus();
+      textarea.setSelectionRange(text.length, text.length);
+      autoResizeTextarea(textarea, minRows, newChat ? 10 : 4);
+    });
+  };
+
+  const composerMatchesStoredDraft = (draft: StoredComposerDraft) => {
+    const currentCommand = selectedSlashCommandRef.current;
+    const storedCommand = draft.command;
+    if (inputValueRef.current !== draft.text || capsulesRef.current.length > 0 ||
+        !!currentCommand !== !!storedCommand || currentCommand && storedCommand &&
+        (currentCommand.start !== storedCommand.position ||
+          currentCommand.length !== storedCommand.length ||
+          slashCommandKey(currentCommand.choice.selection) !==
+            slashCommandKey(storedCommand.choice.selection))) {
+      return false;
+    }
+    const currentFormats = formatTokensRef.current;
+    return currentFormats.length === draft.formats.length && currentFormats.every((format, index) => {
+      const stored = draft.formats[index];
+      return !format.logo && format.start === stored.position && format.length === stored.length &&
+        format.noun === stored.noun && format.icon === stored.icon;
+    });
+  };
+
+  const restoreDraftPresentation = (
+    draft: StoredComposerDraft,
+    key: string | undefined,
+    generation: number,
+  ) => {
+    placeRestoredCaretAtEnd(draft.text, key, generation);
+    if (draft.formats.length === 0) return;
+    void Promise.all(draft.formats.map(({icon}) => formatIconDataUrl(icon))).then((logos) => {
+      requestAnimationFrame(() => {
+        if (draftRestoreGenerationRef.current !== generation ||
+            loadedDraftKeyRef.current !== key || !composerMatchesStoredDraft(draft)) {
+          return;
+        }
+        const restored = decorateComposerDraft(draft, logos, CAPSULE_LOGO_SLOT);
+        setInputValue(restored.text);
+        setFormatTokens(restored.formats);
+        setSelectedSlashCommand(restored.command ?? null);
+        placeRestoredCaretAtEnd(restored.text, key, generation);
+      });
+    });
+  };
+
+  useEffect(() => {
+    // On a cold load the user-scoped key usually arrives after authentication; the key-change
+    // effect below restores that draft, while this path handles drafts available at mount.
+    if (!initialDraft) return;
+    const generation = ++draftRestoreGenerationRef.current;
+    restoreDraftPresentation(initialDraft, draftStorageKey, generation);
+    return () => {
+      if (draftRestoreGenerationRef.current === generation) {
+        draftRestoreGenerationRef.current++;
+      }
+    };
+    // Restoration belongs to the draft captured during initialization, not later prop values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (loadedDraftKeyRef.current === draftStorageKey) return;
+    const generation = ++draftRestoreGenerationRef.current;
+    const previousKey = loadedDraftKeyRef.current;
+    loadedDraftKeyRef.current = draftStorageKey;
+    skipDraftWriteRef.current = true;
+    const storedDraft = readComposerDraft(draftStorageKey);
+    const preserveLocalDraft = previousKey === undefined &&
+      (draftEditedRef.current || inputValueRef.current.length > 0);
+    if (preserveLocalDraft) {
+      writeComposerDraft(draftStorageKey, serializeComposerDraft(
+        inputValueRef.current,
+        capsulesRef.current.map(({start, length, description}) => ({
+          start,
+          length,
+          url: description.url,
+        })),
+        formatTokensRef.current,
+        selectedSlashCommandRef.current ?? undefined,
+      ));
+      skipDraftWriteRef.current = false;
+      return;
+    }
+    setInputValue(storedDraft?.text ?? "");
+    if (previousKey !== undefined) {
+      draftEditedRef.current = false;
+      setCapsules([]);
+    }
+    setFormatTokens(formatTokensFromDraft(storedDraft));
+    setSelectedSlashCommand(slashCommandFromDraft(storedDraft));
+    if (storedDraft) restoreDraftPresentation(storedDraft, draftStorageKey, generation);
+  }, [draftStorageKey]);
+
+  useEffect(() => {
+    if (skipDraftWriteRef.current) {
+      skipDraftWriteRef.current = false;
+      return;
+    }
+    writeComposerDraft(draftStorageKey, serializeComposerDraft(
+      inputValue,
+      capsules.map(({start, length, description}) => ({
+        start,
+        length,
+        url: description.url,
+      })),
+      formatTokens,
+      selectedSlashCommand ?? undefined,
+    ));
+  }, [capsules, draftStorageKey, formatTokens, inputValue, selectedSlashCommand]);
 
   // Seed the composer from an external suggestion (Home task cards). Re-runs whenever the nonce
   // changes so picking the same suggestion twice still works. Focus + move the cursor to the end.
   useEffect(() => {
     if (seedNonce === undefined) return;
+    draftRestoreGenerationRef.current++;
     const text = seedText ?? "";
     setSelectedSlashCommand(null);
+    setCapsules([]);
+    setFormatTokens([]);
     setInputValue(text);
     requestAnimationFrame(() => {
       const ta = composerTextareaRef.current;
@@ -2317,6 +2499,9 @@ export const ChatInput = ({
       capsule.start >= tokenEnd
         ? {...capsule, start: capsule.start + splice.delta}
         : capsule));
+    setFormatTokens(previous => previous.map(token => token.start >= tokenEnd
+      ? {...token, start: token.start + splice.delta}
+      : token));
     setSelectedSlashCommand({choice, start: splice.start, length: splice.length});
     requestAnimationFrame(() => {
       composerTextareaRef.current?.focus();
@@ -2333,6 +2518,13 @@ export const ChatInput = ({
       : previous);
   };
 
+  const shiftFormatTokens = (position: number, delta: number) => {
+    if (delta === 0) return;
+    setFormatTokens(previous => previous.map(token => token.start >= position
+      ? {...token, start: token.start + delta}
+      : token));
+  };
+
   const slashCommandPicker = useSlashCommandPicker({
     inputValue,
     cursorPosition,
@@ -2346,6 +2538,7 @@ export const ChatInput = ({
 
   const handleSend = async () => {
     if (sendInFlightRef.current || isSending || isBlocked) return;
+    setSendHiccup(null);
     const attachmentsSnapshot = pendingAttachments;
     const readyAttachments = attachmentsSnapshot
       .filter((attachment) => attachment.uploadState === "ready" && attachment.ref)
@@ -2365,6 +2558,7 @@ export const ChatInput = ({
 
     sendInFlightRef.current = true;
     setIsSending(true);
+    const sendingDraftKey = draftStorageKey;
     try {
       let messageInput = inputValue;
       let inputCapsules = capsules;
@@ -2376,7 +2570,7 @@ export const ChatInput = ({
         let delta = 0;
         for (const token of formatTokens) {
           if (token.start + token.length <= position) {
-            delta += token.format.output.noun.length - token.length;
+            delta += token.noun.length - token.length;
           }
         }
         return delta;
@@ -2389,7 +2583,7 @@ export const ChatInput = ({
         // back-to-front so earlier offsets stay valid while the text is rewritten.
         let text = messageInput;
         for (const token of [...formatTokens].toSorted((a, b) => b.start - a.start)) {
-          text = text.slice(0, token.start) + token.format.output.noun +
+          text = text.slice(0, token.start) + token.noun +
               text.slice(token.start + token.length);
         }
         inputCapsules = capsules.map(capsule => {
@@ -2502,12 +2696,15 @@ export const ChatInput = ({
       // arguments: the part the transcript renders as the user's words.
       const formatRefs = locateMessageFormatRefs(
           typeof message === "string" ? message : message.args,
-          [...formatTokens].toSorted((a, b) => a.start - b.start).map(token => token.format));
+          [...formatTokens].toSorted((a, b) => a.start - b.start));
 
       await onSend(message, selectedModel,
           capsuleSpecifiers?.length ? capsuleSpecifiers : undefined,
           readyAttachments.length ? readyAttachments : undefined,
           formatRefs);
+      writeComposerDraft(sendingDraftKey, undefined);
+      if (loadedDraftKeyRef.current !== sendingDraftKey) return;
+      draftEditedRef.current = false;
       for (const attachment of attachmentsSnapshot) {
         if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
       }
@@ -2524,8 +2721,15 @@ export const ChatInput = ({
   };
 
   const submitMessage = () => {
+    const submittedChatKey = chatKey;
     void handleSend().catch((err) => {
-      console.error("Failed to send chat message:", err);
+      if (isTransientRpcError(err)) {
+        setSendHiccup({ chatKey: submittedChatKey });
+      } else {
+        // The onSend handlers log the RPC failures they see; this is the only report for
+        // anything handleSend itself throws before reaching them.
+        console.error("Failed to send chat message:", err);
+      }
     });
   };
 
@@ -2565,6 +2769,7 @@ export const ChatInput = ({
 
         // Adjust positions of existing capsules and add the new one.
         shiftSelectedSlashCommand(urlEnd, splice.delta);
+        shiftFormatTokens(urlEnd, splice.delta);
         setCapsules((prev) => [
           ...prev.map((c) => c.start >= urlEnd ? { ...c, start: c.start + splice.delta } : c),
           {
@@ -2611,6 +2816,7 @@ export const ChatInput = ({
 
     // Adjust positions of any capsules that come after the URL.
     shiftSelectedSlashCommand(urlEnd, lengthDiff);
+    shiftFormatTokens(urlEnd, lengthDiff);
     if (lengthDiff !== 0) {
       setCapsules((prev) => {
         const adjusted = prev.map((c) =>
@@ -2676,6 +2882,7 @@ export const ChatInput = ({
 
     // Shift any existing capsules after the insertion point.
     shiftSelectedSlashCommand(insertPos, splice.delta);
+    shiftFormatTokens(insertPos, splice.delta);
     setCapsules((prev) => [
       ...prev.map((c) =>
         c.start >= insertPos ? { ...c, start: c.start + splice.delta } : c),
@@ -2951,7 +3158,6 @@ export const ChatInput = ({
   // Formats named in the message are inline tokens like capsules, addressed by the caret as one
   // unit. There can be several, and where each sits says which part of the request it belongs to,
   // so they stay in the text rather than becoming a separate field.
-  const [formatTokens, setFormatTokens] = useState<FormatToken[]>([]);
   const formatTokensRef = useRef(formatTokens);
   formatTokensRef.current = formatTokens;
 
@@ -2978,7 +3184,13 @@ export const ChatInput = ({
       ...previous.map(token => token.start >= at
         ? {...token, start: token.start + splice.delta}
         : token),
-      {format, logo, start: splice.start, length: splice.length},
+      {
+        noun: format.output.noun,
+        icon: format.output.icon,
+        logo,
+        start: splice.start,
+        length: splice.length,
+      },
     ]);
     requestAnimationFrame(() => {
       composerTextareaRef.current?.focus();
@@ -3046,7 +3258,7 @@ export const ChatInput = ({
     // captured-log floating chip with z-10, the textarea/mirror with z-[1])
     // so they can't paint on top of body-level portaled popovers like the
     // model picker dropdown opening above the composer.
-    <div className={`px-4 py-4 relative isolate ${styles.chatInputRoot}`}>
+    <div className={`relative isolate px-2 py-2 sm:px-4 sm:py-4 ${styles.chatInputRoot}`}>
       <input
         ref={attachmentInputRef}
         type="file"
@@ -3120,6 +3332,14 @@ export const ChatInput = ({
           </div>
         )}
         {draftUpdateBanner}
+        {sendHiccup && sendHiccup.chatKey === chatKey && (
+          <div className="px-4 pt-2 text-xs text-kumo-warning">
+            {/* Composers without a chatKey (new-chat, home page) have no thread to check. */}
+            {chatKey != null
+              ? "Connection hiccup — your message may not have been sent. Check the thread, then try again; if it keeps failing, reload the page."
+              : "Connection hiccup — your message may not have been sent. Try again; if it keeps failing, reload the page."}
+          </div>
+        )}
         {/* Textarea */}
         <div className="relative px-4 pb-1 pt-3">
           {slashCommandPicker.popup}
@@ -3159,6 +3379,8 @@ export const ChatInput = ({
               aria-controls={slashCommandPicker.open ? slashCommandPicker.listboxId : undefined}
               aria-activedescendant={slashCommandPicker.activeDescendant}
               onChange={(e) => {
+                draftEditedRef.current = true;
+                draftRestoreGenerationRef.current++;
                 handleInputChange(e.target.value, e.target.selectionStart ?? 0);
                 syncPickerCaret(e.target.selectionStart ?? 0);
                 requestAnimationFrame(handleCursorChange);
@@ -3297,7 +3519,7 @@ export const ChatInput = ({
                   syncMirrorScroll(el);
                 }
               }}
-              className={`relative z-[1] w-full resize-none border-none bg-transparent p-0 text-[14px] leading-[22px] tracking-[-0.25px] outline-none placeholder:text-kumo-inactive disabled:cursor-not-allowed ${composerTextareaClass}`}
+              className={`relative z-[1] w-full resize-none border-none bg-transparent p-0 text-[16px] leading-[22px] outline-none placeholder:text-kumo-inactive disabled:cursor-not-allowed sm:text-[14px] ${composerTextareaClass}`}
             />
           </div>
         </div>
@@ -3338,7 +3560,7 @@ export const ChatInput = ({
                 render={
                   <button
                     type="button"
-                    className="group flex h-8 w-8 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg text-kumo-inactive transition-[background-color,color,transform] duration-150 ease-out hover:bg-kumo-tint hover:text-kumo-subtle focus-visible:bg-kumo-tint focus-visible:text-kumo-subtle focus-visible:outline-none active:scale-[0.96] data-[popup-open]:bg-kumo-tint data-[popup-open]:text-kumo-subtle"
+                    className="group flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg text-kumo-inactive transition-[background-color,color,transform] duration-150 ease-out hover:bg-kumo-tint hover:text-kumo-subtle focus-visible:bg-kumo-tint focus-visible:text-kumo-subtle focus-visible:outline-none active:scale-[0.96] data-[popup-open]:bg-kumo-tint data-[popup-open]:text-kumo-subtle sm:h-8 sm:w-8"
                     aria-label="Open chat options"
                   >
                     <Plus size={18} />
@@ -3378,7 +3600,7 @@ export const ChatInput = ({
             <button
               type="button"
               onClick={handleAttachOpen}
-              className="inline-flex h-8 flex-shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-[13px] leading-none tracking-[-0.25px] text-kumo-inactive transition-[background-color,color,transform] duration-150 ease-out hover:bg-kumo-tint hover:text-kumo-subtle focus-visible:bg-kumo-tint focus-visible:text-kumo-subtle focus-visible:outline-none active:scale-[0.97]"
+              className="inline-flex h-10 flex-shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-[14px] leading-none text-kumo-inactive transition-[background-color,color,transform] duration-150 ease-out hover:bg-kumo-tint hover:text-kumo-subtle focus-visible:bg-kumo-tint focus-visible:text-kumo-subtle focus-visible:outline-none active:scale-[0.97] sm:h-8 sm:text-[13px]"
             >
               <Plug size={15} className="flex-shrink-0" />
               <span className={`leading-none ${styles.attachLabelText}`}>{attachLabel ?? "Add resource"}</span>
@@ -3392,7 +3614,7 @@ export const ChatInput = ({
                   render={
                     <button
                       type="button"
-                      className="group inline-flex h-8 min-w-0 max-w-[180px] cursor-pointer items-center gap-1.5 rounded-lg px-2 text-[13px] leading-5 tracking-[-0.25px] text-kumo-subtle transition-[background-color,color,transform] duration-150 ease-out hover:bg-kumo-tint hover:text-kumo-default focus-visible:bg-kumo-tint focus-visible:text-kumo-default focus-visible:outline-none active:scale-[0.97] data-[popup-open]:bg-kumo-tint data-[popup-open]:text-kumo-default"
+                      className="group inline-flex h-10 min-w-0 max-w-[110px] cursor-pointer items-center gap-1.5 rounded-lg px-2 text-[14px] leading-5 text-kumo-subtle transition-[background-color,color,transform] duration-150 ease-out hover:bg-kumo-tint hover:text-kumo-default focus-visible:bg-kumo-tint focus-visible:text-kumo-default focus-visible:outline-none active:scale-[0.97] data-[popup-open]:bg-kumo-tint data-[popup-open]:text-kumo-default sm:h-8 sm:max-w-[180px] sm:text-[13px]"
                       aria-label="Select model"
                     >
                       <span className="min-w-0 truncate">{selectedModelLabel}</span>
@@ -3436,7 +3658,7 @@ export const ChatInput = ({
                 <WorkshopIconButton
                   onClick={onStop}
                   tone="primary"
-                  className="!h-8 !w-8"
+                  className="!h-10 !w-10 sm:!h-8 sm:!w-8"
                   aria-label="Stop agent"
                 >
                   <svg
@@ -3453,7 +3675,7 @@ export const ChatInput = ({
                   onClick={submitMessage}
                   disabled={!canSend}
                   tone="primary"
-                  className="!h-8 !w-8 disabled:cursor-not-allowed disabled:opacity-30"
+                  className="!h-10 !w-10 disabled:cursor-not-allowed disabled:opacity-30 sm:!h-8 sm:!w-8"
                   aria-label="Send message"
                 >
                   {/* Arrow-up icon */}
@@ -4081,6 +4303,7 @@ function inferSelectedModelFromMessages(messages: AiChatMessage[]): string | nul
 }
 
 interface ChatInterfaceProps {
+  workspaceId: string | undefined;
   overseer: RpcStub<Overseer>;
   selectedChatId: number | null;
   onNavigateToChat: (
@@ -4172,7 +4395,7 @@ function formatChatRowTime(date: Date, bucket: ChatTimeBucket, now: Date): strin
   );
 }
 
-// A compaction checkpoint reported with a history page.
+/** A compaction checkpoint reported with a history page. */
 export type CompactionBoundary = NonNullable<AiChatHistoryPage["compacted"]>;
 
 // Client-side cache for chats and messages (survives reconnects)
@@ -4274,6 +4497,7 @@ function getOrCreateProvisionalToolCall(
 }
 
 function ChatInterface({
+  workspaceId,
   overseer,
   selectedChatId,
   onNavigateToChat,
@@ -5276,9 +5500,10 @@ function ChatInterface({
           forceUpdate();
         }
       } catch (err) {
-        console.error("Failed to subscribe to chats:", err);
-        reportIssue('chat.subscription-load', err)
-        toasts.add({ title: "Unable to load conversations", variant: "error" });
+        if (!logRpcFailure("Failed to subscribe to chats:", err)) {
+          reportIssue('chat.subscription-load', err)
+          toasts.add({ title: "Unable to load conversations", variant: "error" });
+        }
       }
     };
 
@@ -5429,8 +5654,9 @@ function ChatInterface({
         );
       }
     } catch (err) {
-      console.error("Failed to send message:", err);
-      toasts.add({ title: "Failed to send message", variant: "error" });
+      if (!logRpcFailure("Failed to send message:", err, { reportSite: "chat.send" })) {
+        toasts.add({ title: "Failed to send message", variant: "error" });
+      }
       throw err;
     }
   };
@@ -5451,8 +5677,9 @@ function ChatInterface({
           message, model, capsules, attachments, formats);
       onNavigateToChatRef.current(newChatId);
     } catch (err) {
-      console.error("Failed to create new chat:", err);
-      toasts.add({ title: "Failed to start conversation", variant: "error" });
+      if (!logRpcFailure("Failed to create new chat:", err, { reportSite: "chat.new" })) {
+        toasts.add({ title: "Failed to start conversation", variant: "error" });
+      }
       throw err;
     }
   };
@@ -6636,7 +6863,7 @@ function ChatInterface({
                             <WorkshopIconButton
                               aria-label={`Actions for ${chat.title}`}
                               onClick={(e) => e.stopPropagation()}
-                              className="!h-7 !w-7 flex-shrink-0 text-kumo-inactive opacity-0 focus:opacity-100 group-hover:opacity-100 data-[popup-open]:opacity-100"
+                              className="!h-9 !w-9 flex-shrink-0 text-kumo-inactive opacity-100 focus:opacity-100 group-hover:opacity-100 data-[popup-open]:opacity-100 sm:!h-7 sm:!w-7 sm:opacity-0"
                             >
                               <EllipsisVertical size={14} />
                             </WorkshopIconButton>
@@ -6682,7 +6909,9 @@ function ChatInterface({
           extra p-4 (which would shrink the input vs. the in-chat composer). */}
       <div className="flex-shrink-0 border-t border-kumo-line">
         <div className={useConstrainedChatWidth ? "mx-auto w-full max-w-[920px]" : ""}>
+          {/* Attachments and pending resource operations belong to this workspace's composer. */}
           <ChatInput
+            key={workspaceId}
             createCapsuleGatekeeper={(accountId, url) =>
               overseer.newGatekeeper(accountId, url)
             }
@@ -6696,6 +6925,9 @@ function ChatInterface({
             onToggleThinkingTraces={toggleShowThinkingTraces}
             minRows={2}
             newChat
+            draftStorageKey={currentUser && workspaceId
+              ? composerDraftStorageKey(currentUser.id, `workspace:${workspaceId}:new`)
+              : undefined}
           />
           {/* Reserve the same height as the token/cost row to avoid layout shift. */}
           <div aria-hidden className="min-h-[1rem]" />
@@ -6735,7 +6967,7 @@ function ChatInterface({
       {!sidebarMode && selectedChatId === null ? (
         chatListPanel
       ) : selectedChatId !== null ? (
-        <div className="flex-1 flex flex-col overflow-auto">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* Tab bar — in sidebar mode, show Chat / Connections tabs */}
           {sidebarMode && (
             <div className="flex h-12 flex-shrink-0 items-center gap-5 border-b border-kumo-line px-4">
@@ -6847,7 +7079,7 @@ function ChatInterface({
               <div
                 ref={messagesContainerRef}
                 onScroll={handleMessagesScroll}
-                className="flex-1 overflow-y-auto chat-panel"
+                className="chat-panel min-h-0 flex-1 overscroll-contain overflow-y-auto"
               >
                 {isLoading ? (
                   <div className="flex items-center justify-center py-10">
@@ -6855,7 +7087,7 @@ function ChatInterface({
                   </div>
                 ) : (
                   <div
-                    className={`flex flex-col px-6 pt-8 ${pendingConsoleLogCount > 0 ? "pb-16" : "pb-8"} ${useConstrainedChatWidth ? "mx-auto w-full max-w-[920px]" : ""}`}
+                    className={`flex flex-col px-3 pt-5 sm:px-6 sm:pt-8 ${pendingConsoleLogCount > 0 ? "pb-16" : "pb-8"} ${useConstrainedChatWidth ? "mx-auto w-full max-w-[920px]" : ""}`}
                   >
                     {isLoadingEarlier && (
                       <div className="mx-auto mb-6 text-[12px] leading-4 font-medium text-kumo-inactive">
@@ -6996,7 +7228,7 @@ function ChatInterface({
                               <span className="min-w-0 truncate font-medium">
                                 {label}
                               </span>
-                              <div className="flex flex-shrink-0 items-center gap-1 opacity-0 transition-opacity duration-150 ease-out group-hover/savedChanges:opacity-100 group-focus-within/savedChanges:opacity-100">
+                              <div className="flex flex-shrink-0 items-center gap-1 opacity-100 transition-opacity duration-150 ease-out sm:opacity-0 sm:group-hover/savedChanges:opacity-100 sm:group-focus-within/savedChanges:opacity-100">
                                 <Tooltip content={discardLabel} asChild>
                                   <button
                                     type="button"
@@ -7091,7 +7323,7 @@ function ChatInterface({
                                 />
                               </span>
                             </div>
-                            <div className="mt-0.5 flex items-center justify-end gap-2 pr-1 text-[11px] leading-4 text-kumo-inactive opacity-0 transition-opacity duration-150 ease-out group-hover/message:opacity-100 group-focus-within/message:opacity-100">
+                            <div className="mt-0.5 flex items-center justify-end gap-2 pr-1 text-[11px] leading-4 text-kumo-inactive opacity-100 transition-opacity duration-150 ease-out sm:opacity-0 sm:group-hover/message:opacity-100 sm:group-focus-within/message:opacity-100">
                               {!(hideOwnUserName && msg.author.id === currentUser?.id) && (
                                 <span className="font-medium">{msg.author.name}</span>
                               )}
@@ -7140,7 +7372,7 @@ function ChatInterface({
                                   </div>
                                 )}
                               </div>
-                              <div className="mt-0.5 flex items-center justify-end gap-2 pr-1 text-[11px] leading-4 text-kumo-inactive opacity-0 transition-opacity duration-150 ease-out group-hover/message:opacity-100 group-focus-within/message:opacity-100">
+                              <div className="mt-0.5 flex items-center justify-end gap-2 pr-1 text-[11px] leading-4 text-kumo-inactive opacity-100 transition-opacity duration-150 ease-out sm:opacity-0 sm:group-hover/message:opacity-100 sm:group-focus-within/message:opacity-100">
                                 {/* hideOwnUserName implies currentUser is non-null (see memo). */}
                                 {!(hideOwnUserName && msg.author.id === currentUser?.id) && (
                                   <span className="font-medium">{msg.author.name}</span>
@@ -7199,7 +7431,7 @@ function ChatInterface({
                                 <div className={`mt-0.5 -ml-1 flex items-center gap-1 transition-opacity duration-150 ease-out ${
                                   keepActionsVisible
                                     ? "opacity-100"
-                                    : "opacity-0 group-hover/agentMessage:opacity-100 group-focus-within/agentMessage:opacity-100"
+                                    : "opacity-100 sm:opacity-0 sm:group-hover/agentMessage:opacity-100 sm:group-focus-within/agentMessage:opacity-100"
                                 }`}>
                                   {hasMessageText && (
                                     <Tooltip content="Copy message" asChild>
@@ -7638,7 +7870,10 @@ function ChatInterface({
               {/* ── Bottom: input, update state, and cost ──────────────── */}
               <div className={`flex-shrink-0 bg-kumo-base ${sidebarMode ? "" : "border-t border-kumo-line"}`}>
                 <div className={useConstrainedChatWidth ? "mx-auto w-full max-w-[920px]" : ""}>
+                  {/* Remount all transient composer state when the conversation changes. */}
                   <ChatInput
+                    key={`${workspaceId}:${selectedChatId}`}
+                    chatKey={selectedChatId}
                     createCapsuleGatekeeper={(accountId, url) =>
                       overseer.newGatekeeper(accountId, url)
                     }
@@ -7656,6 +7891,12 @@ function ChatInterface({
                     onStop={handleStop}
                     showThinkingTraces={showThinkingTraces}
                     onToggleThinkingTraces={toggleShowThinkingTraces}
+                    draftStorageKey={currentUser && workspaceId && selectedChatId !== null
+                      ? composerDraftStorageKey(
+                          currentUser.id,
+                          `workspace:${workspaceId}:chat:${selectedChatId}`,
+                        )
+                      : undefined}
                     blockedReason={
                       hasPendingConnectionRequest
                         ? "Set up or deny the connection request above to continue."

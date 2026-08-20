@@ -1,8 +1,9 @@
+import { logRpcFailure } from './rpcErrors'
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { useNavigate, useParams, useRouter } from '@tanstack/react-router'
-import { RpcStub, RpcTarget } from 'capnweb'
-import { PublicApi, AuthenticatedApi, AdminApi, BlueprintPublicInfo, BlueprintBinding, BlueprintBindingAssignment, BlueprintUserSummary, AiChatAuthorInfo, ConnectedAccountsSubscriber } from '@gadgets/workshop-shared/api'
-import { AccountDescription, SupportedResource, VendorDescription, ResourceConfiguratorFrame } from '@gadgets/workshop-shared/gatekeeper'
+import { RpcStub } from 'capnweb'
+import { PublicApi, AuthenticatedApi, AdminApi, BlueprintPublicInfo, BlueprintBinding, BlueprintBindingAssignment, BlueprintUserSummary, AiChatAuthorInfo } from '@gadgets/workshop-shared/api'
+import { SupportedResource, VendorDescription, ResourceConfiguratorFrame } from '@gadgets/workshop-shared/gatekeeper'
 import { Button, Dialog, DropdownMenu, Select, Tooltip, useKumoToastManager } from '@cloudflare/kumo'
 import { Maximize2, ArrowLeft, ExternalLink, Ellipsis, Download, Zap, Plus, Bot, Sparkles, Star, Trash2, X } from 'lucide-react'
 
@@ -19,6 +20,7 @@ import ResourceConfiguratorHost from './ResourceConfiguratorHost'
 import { WorkshopButton, WorkshopIconButton } from './components/WorkshopControls'
 import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER } from './components/menuStyles'
 import { useDocumentTitle } from './useDocumentTitle'
+import { AccountsSubscriberAdapter } from './accountsSubscriber'
 
 interface Props {
   rpcStub: RpcStub<PublicApi>
@@ -120,7 +122,9 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
   // When authenticated, fetch models for binding assignment.
   useEffect(() => {
     if (isAuthenticated && authenticatedApi) {
-      authenticatedApi.listModels().then(setModels).catch(console.error)
+      authenticatedApi.listModels()
+        .then(setModels)
+        .catch(err => logRpcFailure('Failed to load models:', err))
     } else {
       setModels([])
     }
@@ -152,17 +156,9 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
     }
     let cancelled = false
     const accountMap = new Map<number, AccountOption>()
-    let subStub: { [Symbol.dispose](): void } | null = null
 
-    class AccountsSubscriber extends RpcTarget implements ConnectedAccountsSubscriber {
-      add(
-        accountId: number,
-        description: AccountDescription,
-        vendor: VendorDescription,
-        supportedResources: SupportedResource[] = [],
-        credentialsValid: boolean = true,
-        vendorId: string = '',
-      ) {
+    const subscriber = new AccountsSubscriberAdapter({
+      add({ id: accountId, description, vendor, supportedResources, credentialsValid, vendorId }) {
         if (cancelled) return
         accountMap.set(accountId, {
           id: accountId, description, vendorId, vendorDescription: vendor,
@@ -172,30 +168,23 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
         if (credentialsValid) {
           setReconnectingAccountId(prev => prev === accountId ? null : prev)
         }
-      }
-      remove(accountId: number) {
+      },
+      remove(accountId) {
         if (cancelled) return
         accountMap.delete(accountId)
         setAccounts(Array.from(accountMap.values()))
-      }
-      ready() {}
-    }
+      },
+    })
 
-    authenticatedApi.subscribeConnectedAccounts(new AccountsSubscriber())
-      .then(stub => {
-        if (cancelled) {
-          stub[Symbol.dispose]()
-        } else {
-          subStub = stub
-        }
-      })
-      .catch(err => {
-        console.error('Failed to subscribe to connected accounts:', err)
-      })
+    const subscription = authenticatedApi.subscribeConnectedAccounts(subscriber)
+    subscription.catch(err => {
+      if (cancelled) return
+      logRpcFailure('Failed to subscribe to connected accounts:', err)
+    })
 
     return () => {
       cancelled = true
-      subStub?.[Symbol.dispose]()
+      subscription[Symbol.dispose]()
     }
   }, [isAuthenticated, authenticatedApi])
 
@@ -1015,7 +1004,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
       >
         <Dialog
           // The configurator iframe measures getBoundingClientRect(), which includes transforms.
-          className="!z-[1000] !top-[clamp(28px,10vh,96px)] !flex !max-h-[calc((100vh_-_clamp(28px,10vh,96px)_-_28px)_*_0.9)] !w-[min(760px,calc(100vw-32px))] !-translate-y-0 data-ending-style:!scale-100 data-starting-style:!scale-100 flex-col overflow-hidden bg-kumo-base p-0"
+          className="responsive-dialog !z-[1000] !top-[clamp(28px,10vh,96px)] !flex !max-h-[calc((100vh_-_clamp(28px,10vh,96px)_-_28px)_*_0.9)] !w-[min(760px,calc(100vw-32px))] !-translate-y-0 data-ending-style:!scale-100 data-starting-style:!scale-100 flex-col overflow-hidden bg-kumo-base p-0"
           size="lg"
         >
           {activeBinding && activeBindingName && authenticatedApi && (
@@ -1087,7 +1076,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
         open={showDeleteConfirm}
         onOpenChange={(open) => { if (!open) setShowDeleteConfirm(false) }}
       >
-        <Dialog className="p-8" size="sm">
+        <Dialog className="responsive-dialog overflow-y-auto p-8" size="sm">
           <Dialog.Title className="text-lg font-semibold">
             Delete template
           </Dialog.Title>
@@ -1146,7 +1135,7 @@ function BlueprintScreenshotHero({
         )}
       />
       <Dialog
-        className="!z-[1200] !w-[min(1120px,calc(100vw-32px))] overflow-hidden bg-kumo-base p-0"
+        className="responsive-dialog !z-[1200] !w-[min(1120px,calc(100vw-32px))] overflow-hidden bg-kumo-base p-0"
         size="lg"
       >
         <Dialog.Title className="sr-only">Screenshot of {title}</Dialog.Title>
@@ -1165,7 +1154,7 @@ function BlueprintScreenshotHero({
           <img
             src={screenshotUrl}
             alt={`Screenshot of ${title}`}
-            className="max-h-[calc(100vh-96px)] w-full rounded-xl object-contain"
+            className="max-h-[calc(var(--app-height)-96px)] w-full rounded-xl object-contain"
           />
         </div>
       </Dialog>

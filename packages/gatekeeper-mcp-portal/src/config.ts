@@ -6,31 +6,36 @@
 // connector instead of offering a dead end. See the README.
 
 import type { SupportedResource } from "@gadgets/workshop-shared/gatekeeper";
+import type { ConfiguratorUIOption } from "@gadgets/configurator-ui";
 import type { ConnectedServer, ServerAuthKind } from "@gadgets/mcp-shared/account";
-import type { ToolScope } from "@gadgets/mcp-shared/scope";
+import { isValidToolName, type McpTool } from "@gadgets/mcp-shared/client";
+import { scopeAllows, type ToolScope } from "@gadgets/mcp-shared/scope";
 import { fetchOptions } from "@gadgets/mcp-shared/fetch";
 import { sameEndpoint } from "@gadgets/mcp-shared/scope";
-import type { ServerTrust } from "@gadgets/mcp-shared/tools";
+import { isPortalNativeTool, type PortalServer } from "@gadgets/mcp-shared/portal";
+import { classifyTool, type ServerTrust } from "@gadgets/mcp-shared/tools";
 
-// The configured portal, once the deployment's vars have been read and validated.
+/** The configured portal, once the deployment's vars have been read and validated. */
 export type PortalConfig = {
-  // The portal's MCP endpoint URL (Streamable HTTP).
+  /** The portal's MCP endpoint URL (Streamable HTTP). */
   endpoint: string;
-  // Display name shown in the connector list and in every approval prompt.
+  /** Display name shown in the connector list and in every approval prompt. */
   name: string;
-  // How to authenticate.
+  /** How to authenticate. */
   auth: ServerAuthKind;
 };
 
-// Stable id used in binding names, action kinds, and generated type names.
+/** Stable id used in binding names, action kinds, and generated type names. */
 export const PORTAL_SERVER_ID = "portal";
 
-// Whether this portal's tool annotations may drive auto-approval. Off unless a deployment asserts
-// that the upstreams are trusted, since a portal relays annotations written by servers the
-// administrator never reviewed.
-//
-// Call it at the point of use, every time. Persisting the answer would leave accounts vetted after
-// an administrator withdrew the assertion, until each one reconnected.
+/**
+ * Whether this portal's tool annotations may drive auto-approval. Off unless a deployment asserts
+ * that the upstreams are trusted, since a portal relays annotations written by servers the
+ * administrator never reviewed.
+ *
+ * Call it at the point of use, every time. Persisting the answer would leave accounts vetted after
+ * an administrator withdrew the assertion, until each one reconnected.
+ */
 export function portalTrust(env: Env): ServerTrust {
   return (env.MCP_PORTAL_TRUST_ANNOTATIONS ?? "").toLowerCase() === "true" ? "vetted" : "byo";
 }
@@ -59,9 +64,11 @@ function envSetupValues(env: Env): PortalSetupValues {
   };
 }
 
-// Parses one source's values into the portal configuration, or null when unusable. A missing or
-// unusable `MCP_PORTAL_URL` returns null rather than throwing, so the connector advertises no
-// resources and the Workshop hides it.
+/**
+ * Parses one source's values into the portal configuration, or null when unusable. A missing or
+ * unusable `MCP_PORTAL_URL` returns null rather than throwing, so the connector advertises no
+ * resources and the Workshop hides it.
+ */
 export function parsePortalConfig(values: PortalSetupValues, allowInsecure: boolean): PortalConfig | null {
   const raw = values.MCP_PORTAL_URL?.trim();
   if (!raw) return null;
@@ -145,24 +152,82 @@ export async function loadPortalConfig(
     fetchOptions(env).allowInsecure === true);
 }
 
-// Refuses a grant that does not name one upstream server.
-//
-// A portal flattens many systems behind one endpoint, so a scope with no `serverId` is a grant over
-// all of them at once -- `scopeAllows` permits every tool that is not portal-native -- and that is
-// the one breadth this connector deliberately does not offer.
-//
-// This is the enforcement, not the configurator. The form refuses to *emit* such a URL, but a
-// resource URL is not only ever produced by the form: an agent passes a concrete one to
-// `requestConnection`, and any URL under the portal's origin reaches `getGatekeeperClassFor`. A
-// rule that lives only in the iframe is a suggestion; the facet is minted here.
-export function requirePortalServerScope(scope: ToolScope): void {
-  if (scope.serverId !== undefined) return;
-  throw new Error(
-    "A portal grant has to name one of the servers behind the portal. Granting the portal itself " +
-    "would cover every system connected to it, including ones added later.");
+/**
+ * Refuses a grant that does not name one upstream server.
+ *
+ * A portal flattens many systems behind one endpoint, so a scope with no `serverId` is a grant over
+ * all of them at once -- `scopeAllows` permits every tool that is not portal-native -- and that is
+ * the one breadth this connector deliberately does not offer.
+ *
+ * This is the enforcement, not the configurator. The form refuses to *emit* such a URL, but a
+ * resource URL is not only ever produced by the form: an agent passes a concrete one to
+ * `requestConnection`, and any URL under the portal's origin reaches `getGatekeeperClassFor`. A
+ * rule that lives only in the iframe is a suggestion; the facet is minted here. The assertion
+ * narrows the scope so callers do not need to repeat the invariant.
+ */
+export function requirePortalServerScope(
+  scope: ToolScope,
+): asserts scope is ToolScope & { serverId: string } {
+  if (scope.serverId === undefined) {
+    throw new Error(
+      "A portal grant has to name one of the servers behind the portal. Granting the portal itself " +
+      "would cover every system connected to it, including ones added later.");
+  }
+  if (!isValidToolName(scope.serverId)) throw new Error("Invalid portal server id.");
+  for (const name of scope.tools ?? []) {
+    if (!isValidToolName(name)) throw new Error("Invalid MCP tool name.");
+    if (isPortalNativeTool(name)) {
+      throw new Error(`Portal management tool "${name}" cannot be granted.`);
+    }
+    if (!isPortalToolGrantable(name, scope.serverId)) {
+      throw new Error(`Tool "${name}" does not belong to portal server "${scope.serverId}".`);
+    }
+  }
 }
 
-// The single resource type this connector offers, scoped to the configured portal's origin.
+/** Whether one tool may appear in a grant for this portal server. */
+export function isPortalToolGrantable(name: string, serverId: string): boolean {
+  return scopeAllows({ serverId }, name, true);
+}
+
+/** Which catalog evidence is needed to validate one portal scope. */
+export function portalCatalogValidationMode(
+  scope: ToolScope & { serverId: string },
+  reportedServers: readonly Pick<PortalServer, "id">[],
+): "named-tools" | "reported-server" | "server-evidence" {
+  if ((scope.tools?.length ?? 0) > 0) return "named-tools";
+  return reportedServers.some(server => server.id === scope.serverId)
+    ? "reported-server"
+    : "server-evidence";
+}
+
+/**
+ * Renders one upstream server's tools as choices on the grant form.
+ *
+ * The bounded summaries carry both display text and the annotations classification is decided from,
+ * so the picker cannot disagree with runtime policy merely because a full schema did not fit.
+ */
+export function toolGrantOptions(args: {
+  serverId: string;
+  tools: readonly McpTool[];
+  trust: ServerTrust;
+}): ConfiguratorUIOption[] {
+  return args.tools.map(tool => {
+    return {
+      value: tool.name,
+      // Within a chosen server the `{server_id}_` prefix is noise, so it is shown stripped while
+      // `value` keeps the wire name the grant is actually recorded with.
+      title: tool.title ?? tool.name.slice(args.serverId.length + 1),
+      subtitle: tool.description?.split(/\r?\n/)[0],
+      // Surfaced here so the person granting can see, per tool, whether calls will interrupt them.
+      meta: classifyTool(tool, args.trust).mode === "read"
+        ? "read-only"
+        : "needs approval",
+    };
+  });
+}
+
+/** The single resource type this connector offers, scoped to the configured portal's origin. */
 export function portalResource(config: PortalConfig): SupportedResource {
   return {
     // Origin-scoped, so a resource URL for anything else matches nothing this connector offers.
@@ -173,9 +238,11 @@ export function portalResource(config: PortalConfig): SupportedResource {
   };
 }
 
-// The connected-server record stored on an account, derived entirely from configuration.
-// `provenance` is what keeps the far side from renaming itself over `MCP_PORTAL_NAME` in every
-// approval prompt (see `McpAccountBase.complete`).
+/**
+ * The connected-server record stored on an account, derived entirely from configuration.
+ * `provenance` is what keeps the far side from renaming itself over `MCP_PORTAL_NAME` in every
+ * approval prompt (see `McpAccountBase.complete`).
+ */
 export function portalServer(config: PortalConfig): ConnectedServer {
   return {
     endpoint: config.endpoint,
@@ -186,8 +253,10 @@ export function portalServer(config: PortalConfig): ConnectedServer {
   };
 }
 
-// Probing may legitimately move between none and OAuth. A preissued token is deployment authority,
-// so entering or leaving that mode requires the account to reconnect against current configuration.
+/**
+ * Probing may legitimately move between none and OAuth. A preissued token is deployment authority,
+ * so entering or leaving that mode requires the account to reconnect against current configuration.
+ */
 export function portalAuthRequiresReconnect(
   connected: ServerAuthKind, configured: ServerAuthKind,
 ): boolean {

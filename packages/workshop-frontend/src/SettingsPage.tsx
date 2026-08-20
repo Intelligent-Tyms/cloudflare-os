@@ -223,8 +223,8 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-2xl flex-col px-6 pb-16 sm:px-10">
-      <header className="px-1 pb-2 pt-10">
+    <div className="mx-auto flex h-full w-full max-w-2xl flex-col px-4 pb-16 sm:px-10">
+      <header className="px-1 pb-2 pt-6 sm:pt-10">
         <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">Profile</h1>
         <p className="mt-1 text-[13px] leading-[18px] tracking-[-0.25px] text-kumo-subtle">
           Manage your account and security.
@@ -249,7 +249,7 @@ export default function SettingsPage() {
                 ) : (
                   <User size={28} className="text-kumo-subtle" />
                 )}
-                <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
                   <Camera size={18} className="text-white" />
                 </div>
                 {avatarUploading && (

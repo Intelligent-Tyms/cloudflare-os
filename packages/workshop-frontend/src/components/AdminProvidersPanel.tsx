@@ -9,7 +9,7 @@
 // - BYOK mode (models == null, self-hosted deployments): the original provider management --
 //   add models with your own API tokens, pick a quick model, delete.
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { DropdownMenu, Switch, useKumoToastManager } from '@cloudflare/kumo'
 import { RpcStub } from 'capnweb'
 import { useAuthenticatedApi } from '../AuthContext'
@@ -353,7 +353,12 @@ export default function AdminProvidersPanel({
     }
   }
 
+  // Overlapping setQuickModel calls have no ordering guarantee, so ignore clicks while one is
+  // in flight.
+  const quickInFlight = useRef(false)
   const handleSetQuick = async (modelId: string) => {
+    if (quickInFlight.current) return
+    quickInFlight.current = true
     const next = quickModel === modelId ? null : modelId
     setQuickModel(next)
     try {
@@ -362,6 +367,8 @@ export default function AdminProvidersPanel({
       console.error('Failed to set quick model:', err)
       setQuickModel(quickModel) // revert
       toasts.add({ title: 'Failed to update default model', variant: 'error' })
+    } finally {
+      quickInFlight.current = false
     }
   }
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { RpcStub } from 'capnweb'
 import { PublicApi, AuthenticatedApi } from '@gadgets/workshop-shared/api'
 import { useServerConfig } from './ServerConfigContext'
+import { setReportedUserId } from './errorReporting'
 
 const CF_ACCESS_MODE = import.meta.env.VITE_CF_ACCESS_MODE === 'true'
 
@@ -27,6 +28,34 @@ export function useAuth(publicApi: RpcStub<PublicApi>) {
   // State closures go stale in cleanup functions, so we use a ref.
   const authenticatedApiRef = useRef<RpcStub<AuthenticatedApi> | null>(null)
   authenticatedApiRef.current = authState.authenticatedApi
+
+  /**
+   * Names the signed-in user on error reports, for as long as this stub is the current one.
+   *
+   * Keyed on the stub rather than called from each authenticate path, so it covers however the
+   * session was established — stored token, inline login, or CF Access. This is why the claim lives
+   * in the hook and not in `AuthProvider`: the public blueprint page renders outside that provider
+   * and logs in inline, so reports from the rest of its session would otherwise name nobody.
+   *
+   * `whoami` is pipelined rather than awaited, so its answer can outlive the session that asked.
+   * The cleanup drops it when the stub is replaced or cleared, which is what stops a logout or a
+   * newer login from being overwritten by the previous user. Disposal would not be enough on its
+   * own: capnweb does not guarantee that disposing a stub rejects calls already in flight.
+   *
+   * Nothing is cleared here. Cleanup also runs on unmount, and two instances of this hook can be
+   * mounted at once — the blueprint page runs its own inside the root's — so an inner one going
+   * away must not blank an identity the outer still holds. `logout` is the only thing that clears.
+   */
+  useEffect(() => {
+    const authenticatedApi = authState.authenticatedApi
+    if (!authenticatedApi) return
+    let cancelled = false
+    authenticatedApi.whoami().then((info) => {
+      // Only a real user account names a person: for a gadget author `id` is its owner's id.
+      if (!cancelled && info.type === 'user') setReportedUserId(info.id)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [authState.authenticatedApi])
 
   useEffect(() => {
     if (CF_ACCESS_MODE) {
@@ -96,12 +125,19 @@ export function useAuth(publicApi: RpcStub<PublicApi>) {
   }
 
   const logout = async () => {
+    setReportedUserId(undefined)
+
     // Server-side revocation first: invalidate every issued token for this account on this
     // deployment, not just our local copy. Best-effort with a timeout — a dead connection
     // must not trap the user in a signed-in state.
     const revoked = authenticatedApiRef.current?.logout()
     revoked?.catch(() => {})
     await Promise.race([revoked, new Promise((resolve) => setTimeout(resolve, 3000))])
+
+    if (CF_ACCESS_MODE) {
+      window.location.assign('/cdn-cgi/access/logout')
+      return
+    }
 
     // Use functional updater to read current state (avoids stale closure).
     setAuthState(prev => {
@@ -116,9 +152,7 @@ export function useAuth(publicApi: RpcStub<PublicApi>) {
       }
     })
 
-    if (!CF_ACCESS_MODE) {
-      localStorage.removeItem('authToken')
-    }
+    localStorage.removeItem('authToken')
 
     // Central-login deployments: hop to the central sign-in page with a signout marker so it
     // destroys the central session and fans out to the user's other workspaces. Without this

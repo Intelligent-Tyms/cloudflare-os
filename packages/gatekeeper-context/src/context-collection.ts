@@ -22,7 +22,9 @@ import { lintCollection } from "./okf-lint.js";
 import { KNOWLEDGE_PACKS } from "./generated/knowledge-packs.js";
 import { metadataToSummary } from "./collection-kv.js";
 import { domainName } from "./domain.js";
-import { readArtifactRepoDocuments } from "./artifact-sync.js";
+import {
+  readArtifactRepoDocuments, type ArtifactContextDocument,
+} from "./artifact-sync.js";
 import {
   convertStoredDocumentToMarkdown, isConvertibleDocumentContentType,
 } from "./document-conversion.js";
@@ -30,6 +32,9 @@ import {
   isSkillManifestPath, parseSkillManifest, type SkillIndexEntry,
 } from "./agent-skill.js";
 import { obsContext } from "./observability.js";
+import {
+  decodeStoredContextBody, encodeStoredContextBody, truncateContextDescription,
+} from "./context-storage.js";
 
 const logger = obsContext.createLogger({
   component: "gatekeeper.context", vendorId: VENDOR_ID,
@@ -91,12 +96,22 @@ type ContextRecord = {
   name: string;
   description: string;
   contentType: string;
-  body: string;
+  // Text is stored as UTF-8 and binary as raw bytes to keep SQLite values close to source size.
+  // Legacy records have string bodies: literal text or base64 for binary content.
+  body: string | Uint8Array;
   // Derived text for convertible binary documents (see document-conversion.ts). Regenerated on
   // every write; never edited, so it cannot diverge from `body`.
   extractedText?: string;
   lastUpdated: Date;
 };
+
+function contextRecord(document: ContextDocument): ContextRecord & { body: Uint8Array } {
+  return {
+    ...document,
+    description: truncateContextDescription(document.description),
+    body: encodeStoredContextBody(document.contentType, document.body),
+  };
+}
 
 // Old records that predate git-based collections won't have `content` set in storage.
 // Unset `content` is defaulted to { "source": "web" } at the API layer, which is why
@@ -187,8 +202,10 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     return created.remote;
   }
 
-  // Initialize a new collection. Private collections pass an owner; public collections pass "".
-  // Rejects re-initialization so a (vanishingly unlikely) id reuse can't clobber existing content.
+  /**
+   * Initialize a new collection. Private collections pass an owner; public collections pass "".
+   * Rejects re-initialization so a (vanishingly unlikely) id reuse can't clobber existing content.
+   */
   async initialize(metadata: ContextCollectionMetadata, sharingDomain: string, ownerAccountId: string): Promise<ContextCollectionMetadata> {
     if (this.getMetadata().id) {
       throw new Error("Collection already exists.");
@@ -225,7 +242,10 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       return undefined;
     }
     try {
-      return parseSkillManifest(record.path, record.body);
+      return parseSkillManifest(
+        record.path,
+        decodeStoredContextBody(record.contentType ?? DEFAULT_DOCUMENT_CONTENT_TYPE, record.body),
+      );
     } catch {
       return undefined;
     }
@@ -237,7 +257,7 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
   #parseOkf(record: ContextRecord): OkfInfo | undefined {
     let contentType = record.contentType ?? DEFAULT_DOCUMENT_CONTENT_TYPE;
     if (!isOkfConceptPath(record.path, contentType)) return undefined;
-    let okf = evaluateOkf(record.body);
+    let okf = evaluateOkf(decodeStoredContextBody(contentType, record.body));
     return { ...okf, tier: deriveOkfTier(okf.verified, record.lastUpdated) };
   }
 
@@ -369,7 +389,8 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       records: [...this.storage.documents.list()].map(record => ({
         path: record.path,
         contentType: record.contentType ?? DEFAULT_DOCUMENT_CONTENT_TYPE,
-        body: record.body,
+        body: decodeStoredContextBody(
+            record.contentType ?? DEFAULT_DOCUMENT_CONTENT_TYPE, record.body),
         lastUpdated: record.lastUpdated,
       })),
       canonical: true,
@@ -444,7 +465,8 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       path: OKF_INDEX_PATH, name: OKF_INDEX_PATH,
       description: "Folder contents grouped by type. System-maintained.",
       contentType: "text/markdown",
-      body: generateIndexMarkdown(meta, entries, existingIndex?.body),
+      body: encodeStoredContextBody("text/markdown", generateIndexMarkdown(meta, entries,
+          existingIndex && decodeStoredContextBody("text/markdown", existingIndex.body))),
       lastUpdated: event.at,
     });
 
@@ -454,7 +476,9 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       path: OKF_LOG_PATH, name: OKF_LOG_PATH,
       description: "Chronological record of changes. System-maintained.",
       contentType: "text/markdown",
-      body: appendLogEntry(existingLog?.body, meta.title, event),
+      body: encodeStoredContextBody("text/markdown", appendLogEntry(
+          existingLog && decodeStoredContextBody("text/markdown", existingLog.body),
+          meta.title, event)),
       lastUpdated: event.at,
     });
     return created;
@@ -481,7 +505,7 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     return result;
   }
 
-  // Lenient read: bad/missing paths return null, not RPC errors. Mutations validate paths.
+  /** Lenient read: bad/missing paths return null, not RPC errors. Mutations validate paths. */
   async getContextDocument(path: string): Promise<ContextDocument | null> {
     // Trigger git mirror revalidation in the background on reads.
     if (this.#isGitBased()) this.#startBackgroundArtifactRefresh();
@@ -496,7 +520,7 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       name: record.name,
       description: manifest?.description ?? record.description,
       contentType,
-      body: record.body,
+      body: decodeStoredContextBody(contentType, record.body),
       ...(record.extractedText ? {extractedText: record.extractedText} : {}),
       ...(manifest ? {skillName: manifest.name} : {}),
       ...(okf ? {okf} : {}),
@@ -514,16 +538,15 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     // ContextApi never passes `system`, so users can't. Regeneration preserves an installed
     // index's unknown frontmatter keys (pack versions) while taking over its body.
     if (!opts?.system) this.#assertNotSystemFile(path);
-    // Enforce real UTF-8 bytes, not UTF-16 code units.
-    let byteLength = new TextEncoder().encode(doc.body).length;
+    let contentType = doc.contentType || contentTypeFromPath(path);
+    let record = contextRecord({
+      path, name: baseName(path), description: doc.description, contentType, body: doc.body,
+      lastUpdated: new Date(),
+    });
+    let byteLength = record.body.byteLength;
     if (byteLength > MAX_DOCUMENT_BODY_BYTES) {
       throw new Error(`Document is too large (${byteLength} bytes; max ${MAX_DOCUMENT_BODY_BYTES}).`);
     }
-
-    let contentType = doc.contentType || contentTypeFromPath(path);
-    let record: ContextRecord = {
-      path, name: baseName(path), description: doc.description, contentType, body: doc.body, lastUpdated: new Date(),
-    };
 
     // Convertible binary documents get a derived text extraction so search and agents can see
     // inside them while the stored body stays the byte-perfect original. Best-effort: extraction
@@ -579,7 +602,8 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       throw new Error("Only markdown concept files can be verified.");
     }
 
-    let evaluation = evaluateOkf(record.body);
+    let body = decodeStoredContextBody(contentType, record.body);
+    let evaluation = evaluateOkf(body);
     let blocking = [...evaluation.issues,
                     ...(this.getMetadata().canonical ? evaluation.strictIssues : [])];
     if (blocking.length > 0) {
@@ -590,7 +614,7 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     let actor = opts?.actor ?? "human:unknown";
     let updated: ContextRecord = {
       ...record,
-      body: appendVerification(record.body, actor, now),
+      body: encodeStoredContextBody(contentType, appendVerification(body, actor, now)),
       lastUpdated: now,
     };
     this.storage.transaction(() => {
@@ -629,7 +653,8 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     let now = new Date();
     let updated: ContextRecord = {
       ...record,
-      body: removeVerification(record.body),
+      body: encodeStoredContextBody(
+          contentType, removeVerification(decodeStoredContextBody(contentType, record.body))),
       lastUpdated: now,
     };
     this.storage.transaction(() => {
@@ -819,7 +844,7 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     return promise;
   }
 
-  #replaceArtifactDocuments(commit: string, documents: ContextDocument[]): void {
+  #replaceArtifactDocuments(commit: string, documents: ArtifactContextDocument[]): void {
     this.storage.transaction(() => {
       for (let record of this.storage.documents.list()) {
         this.storage.documents.delete(record.path);
@@ -884,7 +909,7 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
 
   // --- Search ---
 
-  // Linear scan over one collection. Replace with an index if collection size makes it matter.
+  /** Linear scan over one collection. Replace with an index if collection size makes it matter. */
   async search(query: string, limit: number = 20): Promise<{ path: string; name: string; description: string; snippet?: string; score: number }[]> {
     if (this.#isGitBased()) this.#startBackgroundArtifactRefresh();
 
@@ -900,7 +925,9 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
       let isText = isTextContentType(record.contentType ?? DEFAULT_DOCUMENT_CONTENT_TYPE);
       // Binary documents search through their derived extraction (when one exists), so a .docx
       // is findable by its contents, not just its name.
-      let searchableBody = isText ? record.body : record.extractedText ?? "";
+      let searchableBody = isText
+        ? decodeStoredContextBody(record.contentType ?? DEFAULT_DOCUMENT_CONTENT_TYPE, record.body)
+        : record.extractedText ?? "";
       let nameLower = record.name.toLowerCase();
       let descLower = record.description.toLowerCase();
       let bodyLower = searchableBody.toLowerCase();
@@ -955,7 +982,7 @@ export class ContextCollectionDurableObject extends DurableObject<Cloudflare.Env
     await this.ctx.storage.deleteAll();
   }
 
-  // Account revocation clears the whole user-library index separately; don't update it per item.
+  /** Account revocation clears the whole user-library index separately; don't update it per item. */
   async deleteForRevokedOwner(): Promise<void> {
     let meta = this.getMetadata();
     if (meta.content.source === "git" && meta.id && this.env.ARTIFACTS) {
