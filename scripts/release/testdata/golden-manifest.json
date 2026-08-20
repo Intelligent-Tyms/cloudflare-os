@@ -156,6 +156,10 @@
           "name": "CONTEXT_COLLECTIONS",
           "namespace_id": "$KV_CONTEXT_COLLECTIONS_ID",
           "type": "kv_namespace"
+        },
+        {
+          "name": "WORKERS_AI",
+          "type": "ai"
         }
       ],
       "compatibilityDate": "2026-02-02",
@@ -291,6 +295,12 @@
             "GitHubGatekeeperImpl"
           ],
           "tag": "v0"
+        },
+        {
+          "new_sqlite_classes": [
+            "VendorSetupStore"
+          ],
+          "tag": "v1"
         }
       ],
       "modules": [
@@ -381,6 +391,12 @@
             "GoogleSheetsGatekeeperImpl"
           ],
           "tag": "v3"
+        },
+        {
+          "new_sqlite_classes": [
+            "VendorSetupStore"
+          ],
+          "tag": "v4"
         }
       ],
       "modules": [
@@ -574,6 +590,12 @@
             "McpGatekeeperImpl"
           ],
           "tag": "v0"
+        },
+        {
+          "new_sqlite_classes": [
+            "VendorSetupStore"
+          ],
+          "tag": "v1"
         }
       ],
       "modules": [
@@ -1105,6 +1127,12 @@
             "PendingLogin"
           ],
           "tag": "v2"
+        },
+        {
+          "new_sqlite_classes": [
+            "UsageCollectorDurableObject"
+          ],
+          "tag": "v3"
         }
       ],
       "modules": [
