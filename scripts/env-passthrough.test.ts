@@ -44,6 +44,9 @@ const EXPECTED: Record<string, ExpectedArea> = {
   "packages/gatekeeper-context": {
     forwarded: ["VITE_FRONTEND_ERROR_REPORTING"],
     injected: ["GATEKEEPER_APP_UNMINIFIED"],
+    // The fork's knowledge-pack bundler (scripts/build-knowledge-packs.mjs) runs as a plain
+    // node step in the package.json build/deploy chain, never as a vp task.
+    external: ["KNOWLEDGE_PACKS_DIR"],
   },
   "packages/gatekeeper-scheduler": {
     forwarded: ["VITE_FRONTEND_ERROR_REPORTING"],
