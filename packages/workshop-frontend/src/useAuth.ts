@@ -128,11 +128,19 @@ export function useAuth(publicApi: RpcStub<PublicApi>) {
     setReportedUserId(undefined)
 
     // Server-side revocation first: invalidate every issued token for this account on this
-    // deployment, not just our local copy. Best-effort with a timeout — a dead connection
-    // must not trap the user in a signed-in state.
-    const revoked = authenticatedApiRef.current?.logout()
-    revoked?.catch(() => {})
-    await Promise.race([revoked, new Promise((resolve) => setTimeout(resolve, 3000))])
+    // deployment, not just our local copy. Best-effort with a timeout — a dead connection or a
+    // stub that throws outright must not trap the user in a signed-in state.
+    let revoked: Promise<unknown> | undefined
+    try {
+      revoked = authenticatedApiRef.current?.logout()
+      revoked?.catch(() => {})
+    } catch { /* best-effort */ }
+    // Only suspend when there is actually a revocation in flight: with no stub the rest of this
+    // function runs synchronously, so a caller that cannot await (React act, unload handlers)
+    // still observes the local sign-out completing.
+    if (revoked !== undefined) {
+      await Promise.race([revoked, new Promise((resolve) => setTimeout(resolve, 3000))])
+    }
 
     if (CF_ACCESS_MODE) {
       window.location.assign('/cdn-cgi/access/logout')

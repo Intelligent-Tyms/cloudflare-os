@@ -143,7 +143,10 @@ describe('useAuth error reporting identity', () => {
     localStorage.setItem('authToken', 'stored-token')
     const { controls } = await mount(stubPublicApi(person))
 
-    act(() => controls.logout())
+    // Awaited because this fork's logout is async (best-effort server-side token revocation
+    // runs before the local sign-out); an un-awaited act would leave its scope open and
+    // interleave with the next test's.
+    await act(async () => { controls.logout() })
 
     expect(setReportedUserId).toHaveBeenLastCalledWith(undefined)
   })
@@ -153,7 +156,10 @@ describe('useAuth error reporting identity', () => {
     const { api, release } = deferredPublicApi()
     const { controls } = await mount(api)
 
-    act(() => controls.logout())
+    // Awaited so act flushes the state clear (and with it the lookup's effect cleanup) before
+    // the deferred whoami is released below — this fork's logout is async, and a sync act would
+    // defer that flush past the release. The identity itself is cleared synchronously inside.
+    await act(async () => { controls.logout() })
     expect(setReportedUserId).toHaveBeenLastCalledWith(undefined)
 
     // Disposing the stub is not a defence: capnweb does not guarantee that disposal rejects a call

@@ -16,7 +16,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { RpcStub } from "capnweb";
 import type { AuthenticatedApi, Overseer, PublicApi } from "@gadgets/workshop-shared/api";
 import {
-  startTestGatekeeperHarness, TEST_GATEKEEPER_WORKER, TEST_VENDOR_ID, type Harness,
+  ADMIN_USERNAME, startTestGatekeeperHarness, TEST_GATEKEEPER_WORKER, TEST_VENDOR_ID,
+  type Harness,
 } from "../src/harness.js";
 import {
   accountLabel, connect, listConnectedAccounts, MAX_OBSERVER_PROMPTS, nextUsernames,
@@ -38,6 +39,20 @@ beforeAll(async () => {
   interceptor = new NetworkInterceptor();
   interceptor.install();
   harness = await startTestGatekeeperHarness();
+
+  // This fork defaults auto-provisioning vendors to "enabled" (forced accounts, hidden from the
+  // connected-accounts listing these tests poll). Mark the fixture vendor "optional" so users
+  // provision and manage its account themselves, which is the mode the tests are written against.
+  const publicApi = connect(harness.url);
+  try {
+    using adminUserApi = await signUp(publicApi, ADMIN_USERNAME);
+    const adminApi = await adminUserApi.getAdminApi();
+    if (!adminApi) throw new Error("admin signup did not grant deployment admin");
+    await adminApi.setGatekeeperMode(TEST_VENDOR_ID, "optional");
+    adminApi[Symbol.dispose]();
+  } finally {
+    publicApi[Symbol.dispose]();
+  }
 });
 
 afterAll(async () => {
