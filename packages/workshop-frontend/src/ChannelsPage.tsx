@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useKumoToastManager } from '@cloudflare/kumo'
 import { Check, Copy, ExternalLink, Mail, MessageSquare, Send, Slack } from 'lucide-react'
 import type { UserChannelsView } from '@gadgets/workshop-shared/api'
@@ -73,8 +73,50 @@ export default function ChannelsPage() {
           <TelegramSection telegram={channels.telegram} onChanged={refresh} />
         )}
         {channels?.slack.configured && <SlackSection />}
+
+        {anyConfigured && <WorkspaceCommandsSection />}
       </div>
     </div>
+  )
+}
+
+// Every channel starts a conversation with the home assistant; these commands (answered by
+// the backend, identically on every channel) move a conversation to another workspace.
+function WorkspaceCommandsSection() {
+  const commands: Array<[string, string]> = [
+    ['/workspaces', 'list your workspaces'],
+    ['/use <number or name>', 'talk to that workspace from this conversation'],
+    ['/home', 'back to your home assistant'],
+    ['/where', 'which workspace this conversation is in'],
+  ]
+  return (
+    <section className="flex flex-col gap-3">
+      <SectionLabel>Switching workspaces</SectionLabel>
+      <div className="rounded-xl border border-kumo-line bg-kumo-base px-5 py-4 text-[13px] leading-[18px] tracking-[-0.25px] text-kumo-subtle">
+        <p>
+          Messages from any channel reach your home assistant. To work in another workspace
+          from a chat, ask the assistant to switch, or send a command:
+        </p>
+        <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
+          {commands.map(([command, what]) => (
+            <Fragment key={command}>
+              <dt>
+                <code className="rounded bg-kumo-tint px-1.5 py-0.5 text-[12px] text-kumo-default">
+                  {command}
+                </code>
+              </dt>
+              <dd>{what}</dd>
+            </Fragment>
+          ))}
+        </dl>
+        <p className="mt-3">
+          Put your question on the line after <code>/use</code> to send it straight there. On
+          Slack, type <code>!use</code> instead of <code>/use</code>. By email, address
+          your assistant as <code>assistant+workspace-name@…</code> or start the subject
+          with <code>[Workspace name]</code>.
+        </p>
+      </div>
+    </section>
   )
 }
 

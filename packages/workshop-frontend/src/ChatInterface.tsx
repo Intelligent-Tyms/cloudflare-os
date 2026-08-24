@@ -52,6 +52,7 @@ import {
   CircleHelp,
   ArrowUpRight,
   LayoutTemplate as Blueprint,
+  ArrowRightLeft,
   type LucideIcon,
 } from "lucide-react";
 import { RpcStub, RpcTarget } from "capnweb";
@@ -772,6 +773,10 @@ function getToolCallSummary(
       return { verb: "Listed connectable resources", target: tc.input.vendorId };
     case "requestConnection":
       return { verb: "Requested connection", target: tc.input.vendorId };
+    case "listWorkspaces":
+      return { verb: "Listed workspaces" };
+    case "switchWorkspace":
+      return { verb: "Switched workspace", target: tc.input.workspace };
   }
   // Compile-time exhaustiveness check.
   const _exhaustive: never = tc;
@@ -852,6 +857,10 @@ function describeToolCallCount(toolName: AiToolCall["toolName"], count: number):
       return `Listed connectable resources`;
     case "requestConnection":
       return count === 1 ? "Requested a connection" : `Requested ${count} connections`;
+    case "listWorkspaces":
+      return "Listed workspaces";
+    case "switchWorkspace":
+      return count === 1 ? "Switched workspace" : `Switched workspace ${count} times`;
   }
   const _exhaustive: never = toolName;
   return _exhaustive;
@@ -885,6 +894,9 @@ function getToolIcon(
       return Plus;
     case "listBlueprints":
       return Blueprint;
+    case "listWorkspaces":
+    case "switchWorkspace":
+      return ArrowRightLeft;
     case "observeUserChanges":
       return Search;
     case "giveUp":
@@ -950,6 +962,8 @@ function getProvisionalToolVerb(toolName: AiToolCall["toolName"]): string {
     case "listBlueprints": return "Listing templates";
     case "listConnectableResources": return "Listing connectable resources";
     case "requestConnection": return "Requesting a connection";
+    case "listWorkspaces": return "Listing workspaces";
+    case "switchWorkspace": return "Switching workspace";
   }
   const _exhaustive: never = toolName;
   return _exhaustive;
@@ -975,6 +989,8 @@ function describeProvisionalToolCount(toolName: AiToolCall["toolName"], count: n
     case "listBlueprints": return "Listing templates";
     case "listConnectableResources": return "Listing connectable resources";
     case "requestConnection": return `Requesting ${pluralize(count, "connection")}`;
+    case "listWorkspaces": return "Listing workspaces";
+    case "switchWorkspace": return "Switching workspace";
   }
   const _exhaustive: never = toolName;
   return _exhaustive;

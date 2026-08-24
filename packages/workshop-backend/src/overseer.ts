@@ -40,7 +40,8 @@ import { AutoApprovalDrainer } from "./auto-approval";
 import { collectSlashCommands, invokeSlashCommand } from "./slash-commands";
 import { createWorkshopLogger, obsContext, traced } from "./observability";
 import { retryOnDoReset, wrapDoStubForTelemetry } from "./do-retry";
-import type { ExternalMessageDelivery, SubmitExternalMessageResult } from "@gadgets/workshop-shared/external-message-gateway";
+import type { ChannelRoutableWorkspace, ExternalMessageDelivery, SubmitExternalMessageResult } from "@gadgets/workshop-shared/external-message-gateway";
+import { matchWorkspace } from "./external-message-commands.js";
 import type { GadgetExportFormat } from "@gadgets/workshop-shared/api";
 import {
   MAX_CHAT_ATTACHMENT_BYTES,
@@ -5243,6 +5244,86 @@ class OverseerImpl implements AgentHooks {
   // chat's frozen skill snapshots (what <available_skills> was rendered from); curation is
   // re-checked live, so a skill disabled mid-chat can no longer be loaded even while it stays
   // listed until the next turn. Errors are agent-readable: the model sees them as tool failures.
+  get workspaceId(): string {
+    return this.ctx.id.toString();
+  }
+
+  // The account whose external messaging conversation a chat belongs to: the user who
+  // started the running agent turn (external chats are always user-initiated).
+  #externalConversationUser(chatId: number): DurableObjectStub<UserDurableObject> {
+    let record = this.storage.activeAgents.get(chatId);
+    if (!record) throw new Error("No agent turn is running for this chat.");
+    return this.users.get(this.users.idFromString(record.initiatorUserId));
+  }
+
+  #externalChatKeyFor(chatId: number): string | undefined {
+    for (let record of this.storage.externalChats.list()) {
+      if (record.chatId === chatId) return record.externalChatKey;
+    }
+    return undefined;
+  }
+
+  async listExternalWorkspaces(chatId: number): Promise<ChannelRoutableWorkspace[]> {
+    if (!this.#externalChatKeyFor(chatId)) return [];
+    return this.#externalConversationUser(chatId).listChannelRoutableWorkspaces();
+  }
+
+  async switchExternalWorkspace(chatId: number, workspace: string, message?: string): Promise<string> {
+    let externalChatKey = this.#externalChatKeyFor(chatId);
+    if (!externalChatKey) {
+      throw new Error("This chat did not arrive through a messaging channel, so it has no conversation to route.");
+    }
+    let user = this.#externalConversationUser(chatId);
+    let workspaces = await user.listChannelRoutableWorkspaces();
+    let match = matchWorkspace(workspaces, workspace);
+    if (match.kind === "ambiguous") {
+      throw new Error(`"${workspace}" matches more than one workspace: ` +
+          match.candidates.map(w => `"${w.title}"`).join(", ") + ". Use the exact title.");
+    }
+    if (match.kind === "none") {
+      throw new Error(`No workspace called "${workspace}". The user's workspaces: ` +
+          workspaces.map(w => `"${w.title}"`).join(", ") + ".");
+    }
+    let target = match.workspace;
+    if (target.id === this.workspaceId) {
+      return `This conversation is already in "${target.title}"; nothing to switch.`;
+    }
+    await user.setChannelRoute(externalChatKey, target.isHome ? null : target.id);
+
+    let forwarded = false;
+    let text = message?.trim();
+    if (text) {
+      // Re-submit under the conversation's live reply route so the target workspace answers
+      // on the same channel. The waiting delivery record of this turn carries that route.
+      let pending = this.storage.gadgetResponseDeliveries.undeliveredByChatId.get(chatId);
+      let profile = await user.whoamiIfExists();
+      if (pending && pending.status !== "delivered" && profile) {
+        let overseers = this.ctx.exports.OverseerDurableObject;
+        let overseer = overseers.get(overseers.idFromString(target.id));
+        let result = await overseer.receiveExternalMessage({
+          callerEmail: profile.id,
+          externalChatKey,
+          idempotencyKey: `${pending.idempotencyKey}:switch:${target.id}`,
+          prompt: text,
+          replyBinding: pending.replyBinding,
+          deliveryKey: pending.deliveryKey,
+          title: target.title,
+        });
+        if (!result.accepted) {
+          throw new Error(`Switched the conversation to "${target.title}", but it did not accept ` +
+              `the forwarded message: ${result.message}`);
+        }
+        forwarded = true;
+      }
+    }
+    return `Switched this conversation to "${target.title}". The user's next messages on this ` +
+        `channel go there` +
+        (forwarded
+            ? `, and their request was forwarded, so "${target.title}" will answer it on this ` +
+              `channel itself: do not answer it here, just confirm the switch in one line.`
+            : `.`);
+  }
+
   async loadAgentSkill(chatId: number, name: string): Promise<string> {
     let context = this.getChatAgentContext(chatId);
     if ((await readAdminConfig(this.env)).disabledSkills.includes(name)) {

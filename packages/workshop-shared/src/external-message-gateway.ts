@@ -25,17 +25,38 @@ export interface ExternalMessageDelivery {
   ): Promise<ExternalMessageDeliveryReport | void>;
 }
 
+/**
+ * A workspace an external messaging conversation can be routed to, as listed by the
+ * user's channel commands (/workspaces) and the assistant's listWorkspaces tool.
+ */
+export type ChannelRoutableWorkspace = {
+  id: string;
+  title: string;
+  /** The user's home assistant workspace: the default route for every conversation. */
+  isHome: boolean;
+  /** Shared with the user (owned by someone else) rather than their own. */
+  shared: boolean;
+};
+
 /** External message submission accepted by the backend gateway. */
 export type SubmitExternalMessageInput = {
   /**
    * Selects the Gadgets account used to submit the message.
    * The backend trusts the gateway: supplying this email grants access as that account.
-   * Messages land in that account's home assistant workspace (created on first use);
-   * the gateway does not pick a workspace.
+   * Messages land in the workspace the conversation is routed to (the account's home
+   * assistant workspace by default, created on first use); the gateway does not pick a
+   * workspace, but may pass a `workspaceHint` it read off the address.
    */
   callerEmail: string;
-  /** Selects the chat thread to create or reuse inside the home workspace. */
+  /** Selects the chat thread to create or reuse inside the routed workspace. */
   chatKey: string;
+  /**
+   * A workspace the address itself named -- an email plus-tag (assistant+crm@...) or a
+   * "[CRM]" subject tag. Resolved against the caller's workspaces by title; a match
+   * re-routes this conversation before the message is delivered, a miss is reported back
+   * to the sender instead of silently landing in home.
+   */
+  workspaceHint?: string;
   /** Deduplicates the originating message and correlates the response target. */
   messageKey: string;
   /** User text sent to Gadgets. */
@@ -67,7 +88,11 @@ export type SubmitExternalMessageResult =
     }
   | {
       accepted: false;
-      /** User-facing explanation of an actionable submission rejection. */
+      /**
+       * User-facing text to deliver in place of an agent reply: an actionable rejection, or
+       * the response to a channel command (/workspaces, /use, /home, /where, /help) that the
+       * backend answered itself without running an agent turn.
+       */
       message: string;
     };
 

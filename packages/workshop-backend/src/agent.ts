@@ -26,6 +26,7 @@ import {
   protectRetainedReverts, shouldCompactChat,
   type CompactionProjectionMessage,
 } from "./agent-compaction";
+import type { ChannelRoutableWorkspace } from "@gadgets/workshop-shared/external-message-gateway";
 
 const logger = createWorkshopLogger("workshop.agent");
 
@@ -295,6 +296,8 @@ export function makeStoredAssistantMessage(message: AssistantMessage): StoredAss
  *   overseer.ts?
  */
 export interface AgentHooks {
+  /** Hex Durable Object id of the workspace hosting the chat. */
+  readonly workspaceId: string;
   getChatAgentContext(chatId: number): AiChatAgentContext;
   buildYDoc(version: number | "current"): {ydoc: Y.Doc, version: number};
 
@@ -337,6 +340,21 @@ export interface AgentHooks {
   // the deployment's skill curation re-checked live. Throws an agent-readable error for an
   // unknown or disabled skill.
   loadAgentSkill(chatId: number, name: string): Promise<string>;
+
+  /**
+   * The workspaces the chat's external messaging conversation could be routed to, for the
+   * listWorkspaces tool and the system prompt. Only meaningful for chats with an
+   * externalSource; the entry whose id is `workspaceId` is the one this Overseer hosts.
+   */
+  listExternalWorkspaces(chatId: number): Promise<ChannelRoutableWorkspace[]>;
+
+  /**
+   * Route the chat's external messaging conversation to another workspace (the user's next
+   * messages from that channel land there), optionally forwarding `message` to it as the
+   * user's first message so it replies on the same channel. Returns agent-readable text
+   * describing what happened; throws an agent-readable error for an unknown workspace.
+   */
+  switchExternalWorkspace(chatId: number, workspace: string, message?: string): Promise<string>;
 
   /**
    * Add a binding to the given gadget, pointing at the given workpiece. The binding is provisional
@@ -1897,6 +1915,8 @@ export async function runAgent(
                 case "listConnectableResources":
                 case "requestConnection":
                 case "loadSkill":
+                case "listWorkspaces":
+                case "switchWorkspace":
                   toolOutput = {text: toolCall.output ?? ""};
                   break;
                 default:
@@ -2473,6 +2493,30 @@ export async function runAgent(
           `up -- just answer them.\n` +
           `* When you do create or change an app, say so in one sentence and mention it is in ` +
           `their workspace on the web.`;
+    }
+    if (agentContext.externalSource) {
+      // The conversation is pinned to one workspace at a time (this one). Listing the others
+      // lets the agent hand a question to the right workspace in one step instead of
+      // answering from the wrong context.
+      let workspaces = await hooks.listExternalWorkspaces(chatId);
+      let current = workspaces.find(w => w.id === hooks.workspaceId);
+      let others = workspaces.filter(w => w.id !== hooks.workspaceId);
+      messagingPrompt +=
+          `\n\n# Workspaces\n` +
+          `This conversation is currently routed to the workspace "${current?.title ?? "this workspace"}"` +
+          (current?.isHome ? ` (the user's home assistant, their default)` : ``) +
+          `. Each of the user's workspaces has its own apps, connections and knowledge; you ` +
+          `only see this one's.\n` +
+          (others.length
+              ? `The user's other workspaces: ${others.map(w => `"${w.title}"`).join(", ")}.\n` +
+                `When a request clearly belongs to another workspace (the user names it, or ` +
+                `asks about something only that workspace has), call switchWorkspace with the ` +
+                `user's message as \`message\` so that workspace answers directly; from then on ` +
+                `the user's messages here go to it. Don't switch for requests you can handle ` +
+                `here, and never guess between workspaces -- ask.\n`
+              : `The user has no other workspaces.\n`) +
+          `The user can also send /workspaces, /use <name> and /home themselves; mention that ` +
+          `only if they ask how to switch.`;
     }
 
     // Split the system prompt into static and dynamic parts for better caching.
@@ -3125,6 +3169,50 @@ export async function runAgent(
       }
     }),
   };
+
+  // Chats reached through a messaging channel can hand the conversation to another workspace.
+  if (agentContext.externalSource) {
+    tools.listWorkspaces = defineTool({
+      name: "listWorkspaces",
+      label: "List workspaces",
+      description:
+          "List the user's workspaces this messaging conversation could be routed to, with " +
+          "which one it is in now. Use before switchWorkspace when unsure of a workspace's name.",
+      parameters: Type.Object({}),
+      execute: async () => {
+        let workspaces = await hooks.listExternalWorkspaces(chatId);
+        let text = workspaces.map(w =>
+            `* ${w.title}` + (w.id === hooks.workspaceId ? " (current)" : "") +
+            (w.isHome ? " (home)" : "") + (w.shared ? " (shared with the user)" : "")).join("\n");
+        return toolResult(text, { output: text } as Partial<AiToolCall>);
+      }
+    });
+    tools.switchWorkspace = defineTool({
+      name: "switchWorkspace",
+      label: "Switch workspace",
+      description:
+          "Route this messaging conversation to another of the user's workspaces: their next " +
+          "messages on this channel go there until they switch again. Pass the user's request " +
+          "as `message` to forward it so the other workspace answers it directly on the same " +
+          "channel. Only switch when the request clearly belongs to that workspace; tell the " +
+          "user in one short line what you did.",
+      parameters: Type.Object({
+        workspace: Type.String({ description: "The workspace's title, as listed." }),
+        message: Type.Optional(Type.String({
+          description: "The user's request to forward to that workspace, verbatim.",
+        })),
+      }),
+      execute: async (toolCallId, { workspace, message }) => {
+        try {
+          let text = await hooks.switchExternalWorkspace(chatId, workspace, message);
+          return toolResult(text, { output: text } as Partial<AiToolCall>);
+        } catch (error) {
+          toolCallNotes.set(toolCallId, { error: toolErrorText(error) });
+          throw error;
+        }
+      }
+    });
+  }
 
   // When the agent was started to handle callbacks, add the giveUp tool so it can bail out.
   if (callbackInitiated) {

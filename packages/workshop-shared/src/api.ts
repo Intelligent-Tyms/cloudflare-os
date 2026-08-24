@@ -3192,6 +3192,26 @@ export type AiToolCall = {
     bindingName?: string;
   };
   output?: string;
+} | {
+  /**
+   * List the workspaces the user could route this external messaging conversation to (see
+   * switchWorkspace). Only offered in chats that arrived through a messaging channel.
+   */
+  toolName: "listWorkspaces";
+  input: {};
+  output?: string;
+} | {
+  /**
+   * Route this external messaging conversation to another of the user's workspaces, so their
+   * next messages from that channel go there. `message`, when given, is forwarded to the new
+   * workspace as the user's first message so it can answer right away.
+   */
+  toolName: "switchWorkspace";
+  input: {
+    workspace: string;
+    message?: string;
+  };
+  output?: string;
 });
 
 // TODO: Extend AiToolCall for code-mode tool calls.

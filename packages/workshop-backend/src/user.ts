@@ -1,6 +1,7 @@
 import { RpcStub } from "capnweb";
 import { GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiModelConfig, CollaboratorRole, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, GadgetMetadata, BlueprintMetadata, BlueprintLibrarySummary, BlueprintSource, BlueprintUserSummary, BLUEPRINT_SCREENSHOT_R2_PREFIX, GatekeeperVendorInfo, BlueprintOutput, OutputSummary, WorkpieceId, ListOutputsResult, AUTH_ERROR_CODES, createAuthError, AssistantProfile, isFreePlanModel } from '@gadgets/workshop-shared/api';
 import { usageCollector } from "./usage-collector";
+import type { ChannelRoutableWorkspace } from "@gadgets/workshop-shared/external-message-gateway";
 import { Gatekeeper, GatekeeperUser, GatekeeperUserVerifier, GatekeeperVendor, AccountDescription, VendorDescription, GatekeeperConnectCallback, SupportedResource, ResourceConfiguratorFrame, AppUiContext, GatekeeperUiFrame } from "@gadgets/workshop-shared/gatekeeper";
 import { shouldAutoProvisionAccount, ambientGatekeeperMode } from "./provisioning-policy.js";
 import { CloudflareGatekeeperUser } from "@gadgets/workshop-shared/cloudflare-gatekeeper";
@@ -116,6 +117,12 @@ type GadgetRecord = GadgetMetadata & {
   // GadgetMetadata).
 };
 
+type ChannelRouteRecord = {
+  conversationKey: string;
+  workspaceId: string;
+  updatedAt: Date;
+};
+
 function isFullyCreated(g: GadgetRecord): g is GadgetMetadataWithTimestamps {
   return g.lastActive !== undefined;
 }
@@ -192,6 +199,16 @@ function makeUserStorage(storage: DurableObjectStorage) {
         nonUniqueIndexes: {
           byWorkspace(record: OutputRecord) { return record.workspaceId; },
         },
+      }),
+      // Which workspace each external messaging conversation (a Telegram chat, a Slack thread,
+      // an email thread) currently talks to. Absent = the home workspace. Set by the channel
+      // commands (/use, /home), the assistant's switchWorkspace tool, and address hints
+      // (email plus-tags); see ExternalMessageGateway. Keyed by the gateway-prefixed
+      // conversation key ("telegram:<chat>:<topic>"), the same key the Overseer files the
+      // conversation's chat thread under, so switching workspaces resumes the thread that
+      // conversation already has there.
+      channelRoutes: collection<ChannelRouteRecord>()({
+        primaryKey: "conversationKey",
       }),
     },
     singletons: {
@@ -863,6 +880,65 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     await this.newGadget(id, HOME_WORKSPACE_TITLE);
     this.storage.homeWorkspaceId.put(id);
     return id;
+  }
+
+  /**
+   * The workspaces an external messaging conversation may be routed to: every workspace in
+   * the user's listing they can talk to through its agent (their own, plus shares with the
+   * build role -- the Overseer re-checks this on every message). Home first, then by title,
+   * so the numbering the channel commands show is stable between a listing and a `/use N`.
+   */
+  async listChannelRoutableWorkspaces(): Promise<ChannelRoutableWorkspace[]> {
+    let homeId = this.storage.homeWorkspaceId.get();
+    let result: ChannelRoutableWorkspace[] = [];
+    for (let gadget of this.storage.gadgets.list()) {
+      if (!isFullyCreated(gadget)) continue;
+      if (gadget.owner && gadget.role !== undefined && gadget.role !== "build") continue;
+      result.push({
+        id: gadget.id,
+        title: gadget.title,
+        isHome: gadget.id === homeId,
+        shared: gadget.owner !== undefined,
+      });
+    }
+    result.sort((a, b) => Number(b.isHome) - Number(a.isHome)
+        || a.title.localeCompare(b.title, undefined, { sensitivity: "base" })
+        || a.id.localeCompare(b.id));
+    return result;
+  }
+
+  /**
+   * The workspace an external conversation is routed to, or null for home. A route to a
+   * workspace the user no longer has (deleted, share revoked) is dropped and reads as home,
+   * so a stale pointer can never strand a conversation.
+   */
+  async getChannelRoute(conversationKey: string): Promise<ChannelRoutableWorkspace | null> {
+    let route = this.storage.channelRoutes.get(conversationKey);
+    if (!route) return null;
+    let gadget = this.storage.gadgets.get(route.workspaceId);
+    if (!gadget || !isFullyCreated(gadget)
+        || (gadget.owner && gadget.role !== undefined && gadget.role !== "build")) {
+      this.storage.channelRoutes.delete(conversationKey);
+      return null;
+    }
+    if (gadget.id === this.storage.homeWorkspaceId.get()) {
+      this.storage.channelRoutes.delete(conversationKey);
+      return null;
+    }
+    return { id: gadget.id, title: gadget.title, isHome: false, shared: gadget.owner !== undefined };
+  }
+
+  /** Point an external conversation at a workspace; the home workspace (or null) clears the route. */
+  async setChannelRoute(conversationKey: string, workspaceId: string | null): Promise<void> {
+    if (workspaceId === null || workspaceId === this.storage.homeWorkspaceId.get()) {
+      this.storage.channelRoutes.delete(conversationKey);
+      return;
+    }
+    let gadget = this.storage.gadgets.get(workspaceId);
+    if (!gadget || !isFullyCreated(gadget)) {
+      throw new Error("No such workspace belonging to user.");
+    }
+    this.storage.channelRoutes.put({ conversationKey, workspaceId, updatedAt: new Date() });
   }
 
   async ensureGadgetRegistered(id: string, title: string): Promise<void> {
