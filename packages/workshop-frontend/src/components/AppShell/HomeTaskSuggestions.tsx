@@ -3,7 +3,8 @@ import {
   AppWindow,
   ChartLine,
   FileText,
-  Presentation,
+  ListChecks,
+  Users,
   Zap,
   type LucideIcon,
 } from 'lucide-react'
@@ -23,36 +24,44 @@ type TaskSuggestion = {
 // first move isn't "pick a file type". The formats themselves are in the composer's `+` menu.
 const SUGGESTIONS: TaskSuggestion[] = [
   {
-    id: 'one-on-one',
-    label: 'Write a 1:1 pre-read',
-    description: 'A doc with a snapshot, things to inspect, and one ask',
-    icon: FileText,
+    id: 'crm',
+    label: 'Set up a CRM',
+    description: 'Track customers, deals, and follow-ups in one place',
+    icon: Users,
     prompt:
-      'Create a document to prepare for my next 1:1 with a direct report: a current snapshot, a coaching frame, things to inspect, carryover items from last time, and one clear ask.',
+      'Set up a CRM to track my customers, deals, and follow-ups. Ask me about my business and how I sell first, then create it.',
   },
   {
-    id: 'team-meeting',
-    label: 'Build a team meeting deck',
-    description: 'Slides with progress, risks, and what needs a decision',
-    icon: Presentation,
+    id: 'tasks',
+    label: "Track your team's tasks",
+    description: 'A simple board with owners, due dates, and status',
+    icon: ListChecks,
     prompt:
-      'Create a slide deck for my next team meeting: where things stand, what shipped, risks and blockers, and the decisions I need from the room. Ask me what the team is working on first.',
+      'Create a task tracker for my team: tasks, owners, due dates, and status. Ask me how my team works first, then set it up.',
   },
   {
-    id: 'insights',
-    label: 'Find insights in my data',
-    description: 'Turn a spreadsheet or CSV into trends and recommendations',
+    id: 'numbers',
+    label: 'Understand your numbers',
+    description: 'Turn sales or expense data into trends and next steps',
     icon: ChartLine,
     prompt:
-      'Turn a dataset I will share (a spreadsheet, CSV, or pasted table) into a narrative analysis: key trends, anomalies, the "so what", and concrete recommendations.',
+      'Turn a spreadsheet I will share (sales, expenses, or a CSV) into a clear picture of my business: key trends, problems to watch, and what to do next.',
   },
   {
-    id: 'workflow',
-    label: 'Automate a workflow',
-    description: 'Trigger an agent when a new email arrives',
+    id: 'follow-up',
+    label: 'Create a follow-up assistant',
+    description: 'Draft replies when a customer emails you',
     icon: Zap,
     prompt:
-      'Create an agent workflow that runs automatically when a new email arrives: read the message, decide what to do, and take action or draft a reply. Ask me which inbox to watch and what it should handle.',
+      'Create an assistant that runs when a new customer email arrives: read the message, decide what to do, and draft a reply for me to review. Ask me which inbox to watch and what it should handle.',
+  },
+  {
+    id: 'document',
+    label: 'Write a business document',
+    description: 'A proposal, invoice, or client report',
+    icon: FileText,
+    prompt:
+      'Write a business document for me: a proposal, invoice, or client report. Ask me what it is for and who will read it, then draft it.',
   },
   {
     id: 'app',
@@ -60,7 +69,7 @@ const SUGGESTIONS: TaskSuggestion[] = [
     description: 'A small interactive app, calculator, or dashboard',
     icon: AppWindow,
     prompt:
-      'Build a small interactive tool I can use right here — a calculator, dashboard, or explorer. Ask me what it should do, then create it.',
+      'Build a small interactive tool I can use right here: a calculator, dashboard, or explorer. Ask me what it should do, then create it.',
   },
 ]
 
