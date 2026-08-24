@@ -7,6 +7,7 @@ import {
   Check,
   X,
   Hexagon,
+  Star,
   LayoutTemplate as Blueprint,
   Trash2,
   Maximize2,
@@ -486,6 +487,36 @@ export default function GadgetEditor() {
   // restricted overseer denies the ones that matter and returns inert results for the two
   // telemetry subscriptions this component opens, so no client-side gating is needed here.
   const isUseOnly = metadata?.role === 'use'
+
+  // ── favorite ───────────────────────────────────────────────────────────────────
+  // Pinned state is per-user (it lives in the user DO, not the workspace), so the overseer's
+  // metadata never carries it — read it from the user's own gadget list instead. Stays null
+  // (button hidden) when the workspace isn't in that list, e.g. for anonymous share-link visits.
+  const [pinned, setPinned] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    authenticatedApi.listGadgets()
+      .then((list) => {
+        if (cancelled) return
+        const record = list.find((g) => g.id === id)
+        setPinned(record ? (record.pinned ?? false) : null)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [authenticatedApi, id])
+
+  const handleTogglePinned = useCallback(async () => {
+    if (pinned === null || !overseer) return
+    const next = !pinned
+    setPinned(next)
+    try {
+      await overseer.stub.setPinned(next)
+    } catch {
+      setPinned(!next)
+      toasts.add({ title: 'Failed to update favorite', variant: 'error' })
+    }
+  }, [pinned, overseer, toasts])
 
   // ── layout ───────────────────────────────────────────────────────────────────
   const [chatWidth, setChatWidth] = useState(getInitialChatWidth)
@@ -1441,6 +1472,16 @@ export default function GadgetEditor() {
           />
 
           {showReconnecting && <ReconnectingChip />}
+
+          {pinned !== null && (
+            <WorkshopIconButton
+              onClick={handleTogglePinned}
+              title={pinned ? 'Remove from favorites' : 'Add to favorites'}
+              aria-label={pinned ? 'Remove from favorites' : 'Add to favorites'}
+            >
+              <Star size={15} {...(pinned ? { fill: 'currentColor', strokeWidth: 0 } : {})} />
+            </WorkshopIconButton>
+          )}
 
           <WorkshopIconButton
             onClick={() => setShareModalOpen(true)}
