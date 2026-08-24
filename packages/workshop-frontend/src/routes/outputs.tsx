@@ -388,7 +388,7 @@ function RenameOutputDialog({
 type TypeFilter = 'all' | string
 
 function OutputsPage() {
-  useDocumentTitle('Files')
+  useDocumentTitle('Outputs')
   const { authenticatedApi } = useAuthenticatedApi()
   const navigate = useNavigate()
   const toasts = useKumoToastManager()
@@ -576,7 +576,7 @@ function OutputsPage() {
     <div className="mx-auto flex h-full w-full max-w-5xl flex-col px-3 sm:px-10">
       <header className="flex items-end justify-between gap-4 px-3 pb-4 pt-6 sm:pt-10">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">Files</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">Outputs</h1>
           <p className="mt-1 text-[13px] leading-[18px] tracking-[-0.25px] text-kumo-subtle">
             Everything your workspaces have produced, in one place.
           </p>

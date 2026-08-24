@@ -6,7 +6,6 @@ import {
   House,
   HardDrive,
   Layers,
-  LayoutGrid,
   PanelLeft,
   Search,
 } from 'lucide-react'
@@ -124,14 +123,8 @@ export default function Sidebar({
               collapsed={collapsed}
             />
             <SidebarItem
-              to="/workspaces"
-              label="Workspaces"
-              icon={<LayoutGrid size={14} />}
-              collapsed={collapsed}
-            />
-            <SidebarItem
               to="/outputs"
-              label="Files"
+              label="Outputs"
               icon={<Layers size={14} />}
               collapsed={collapsed}
             />
