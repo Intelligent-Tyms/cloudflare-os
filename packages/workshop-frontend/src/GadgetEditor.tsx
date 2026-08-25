@@ -691,10 +691,13 @@ export default function GadgetEditor() {
     [outputSignature],
   )
 
+  // Hidden workpieces stay out of the app list, except the one explicitly requested via ?w=
+  // (opened from the Outputs page's hidden view), which must still be reachable.
   const visibleGadgets = useMemo(() => {
     return allGadgets.filter(w =>
-      w.chatId === undefined || w.chatId === effectiveSelectedChatId)
-  }, [allGadgets, effectiveSelectedChatId])
+      (w.chatId === undefined || w.chatId === effectiveSelectedChatId)
+        && (!w.hidden || w.id === urlWorkpieceId))
+  }, [allGadgets, effectiveSelectedChatId, urlWorkpieceId])
 
   // The selected gadget: explicit URL state wins, followed by the app open in this session (only
   // accepted apps are persisted), then the workspace default and the first visible gadget.

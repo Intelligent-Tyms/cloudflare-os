@@ -140,6 +140,9 @@ export type WorkspaceOutputEntry = {
 
   /** The format the gadget was built as, if it was instantiated from a blueprint declaring one. */
   output?: BlueprintOutput;
+
+  /** Hidden from lists without being deleted; see WorkpieceSummary.hidden. */
+  hidden?: boolean;
 };
 
 type OutputRecord = WorkspaceOutputEntry & {
@@ -1054,6 +1057,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
         title: output.title,
         workspaceTitle: workspace.title,
         created: output.created,
+        ...(output.hidden ? {hidden: true} : {}),
         lastActive: workspace.lastActive,
         ...(workspace.owner ? {owner: workspace.owner} : {}),
         ...(workspace.role ? {role: workspace.role} : {}),

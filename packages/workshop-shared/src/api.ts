@@ -1944,6 +1944,9 @@ export type OutputSummary = {
   workspaceTitle: string;
   created: Date;
 
+  /** Set when the output has been hidden (WorkpieceClient.setHidden()); see WorkpieceSummary.hidden. */
+  hidden?: boolean;
+
   /**
    * When the containing workspace was last active. Outputs have no activity timestamp of their
    * own yet, so all outputs of a workspace share this value.
@@ -3571,6 +3574,14 @@ export type WorkpieceSummary = {
    * reverted (or the chat is deleted).
    */
   chatId?: number;
+
+  /**
+   * Set when the workpiece has been hidden (WorkpieceClient.setHidden()). Hidden workpieces stay
+   * fully intact but are left out of the Outputs page and the workspace's app list by default;
+   * the UI offers a way to show and unhide them. Like a rename, this is shared by everyone with
+   * access to the workspace.
+   */
+  hidden?: boolean;
 };
 
 /** Callback interface used to receive workpiece-list updates. See Overseer.subscribeToWorkpieces(). */
@@ -3904,6 +3915,13 @@ export interface WorkpieceClient extends RpcTarget {
    * workspace.)
    */
   setTitle(title: string): Promise<void>;
+
+  /**
+   * Hide or unhide this workpiece. Hiding removes it from lists (the Outputs page, the workspace's
+   * app list) without deleting anything; see WorkpieceSummary.hidden. Shared by everyone with
+   * access to the workspace, like a rename.
+   */
+  setHidden(hidden: boolean): Promise<void>;
 
   /**
    * Permanently remove this workpiece from the workspace.

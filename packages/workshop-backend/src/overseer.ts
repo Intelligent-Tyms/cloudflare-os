@@ -363,6 +363,10 @@ type GadgetRecord = {
   // this record materializes it so the gadget is fully functional (bindings, facet, env) before
   // acceptance.
   pending?: {chatId: number, sequence?: number};
+
+  // Hidden from lists (Outputs page, workspace app list) without being deleted. See
+  // WorkpieceSummary.hidden. Absent means visible.
+  hidden?: boolean;
 };
 
 // Produce a valid, unused binding name from a suggested base name: sanitized to identifier
@@ -2001,6 +2005,9 @@ class OverseerImpl implements AgentHooks {
       if (record.pending) {
         summary.chatId = record.pending.chatId;
       }
+      if (record.hidden) {
+        summary.hidden = true;
+      }
       return summary;
     };
 
@@ -3313,6 +3320,7 @@ class OverseerImpl implements AgentHooks {
         title: gadget.title,
         created: gadget.created,
         ...(gadget.output ? {output: gadget.output} : {}),
+        ...(gadget.hidden ? {hidden: true} : {}),
       });
     }
     return entries;
@@ -9764,6 +9772,17 @@ class GadgetClientImpl extends RpcTarget implements GadgetClient {
     this.impl.storage.gadgets.put(record);
   }
 
+  async setHidden(hidden: boolean): Promise<void> {
+    let record = this.impl.getGadgetRecord(this.id);
+    if (hidden) {
+      record.hidden = true;
+    } else {
+      delete record.hidden;
+    }
+    // put() notifies workpiece subscribers and marks the outputs index dirty, same as a rename.
+    this.impl.storage.gadgets.put(record);
+  }
+
   async remove(): Promise<void> {
     return this.impl.removeGadget(this.id);
   }
@@ -10044,6 +10063,7 @@ class UseGadgetClientInterface extends RpcTarget implements GadgetClient {
   // --- Denied methods (build-only) ---
 
   async setTitle(_title: string): Promise<void> { this.#deny(); }
+  async setHidden(_hidden: boolean): Promise<void> { this.#deny(); }
   async remove(): Promise<void> { this.#deny(); }
   async listBindings(): Promise<GadgetBindingInfo[]> { this.#deny(); }
   async getBinding(_name: string): Promise<GatekeeperClient<any> | null> { this.#deny(); }
@@ -10102,6 +10122,11 @@ class GatekeeperClientImpl<Session extends RpcCompatible<Session>>
     let record = this.#getRecord();
     record.resourceTitle = title;
     this.impl.storage.gatekeepers.put(record);
+  }
+
+  async setHidden(_hidden: boolean): Promise<void> {
+    // Gatekeepers aren't listed as outputs, so there is nothing to hide them from.
+    throw new Error("Connections can't be hidden.");
   }
 
   async describe(): Promise<ResourceDescription> {

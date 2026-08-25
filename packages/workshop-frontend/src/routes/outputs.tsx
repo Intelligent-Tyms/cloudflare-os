@@ -15,6 +15,8 @@ import {
   Pencil,
   Trash2,
   X,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { OutputSummary } from '@gadgets/workshop-shared/api'
 import { useAuthenticatedApi } from '../AuthContext'
@@ -62,16 +64,20 @@ function canModify(output: OutputSummary): boolean {
 // ─── rows / cards ────────────────────────────────────────────────────────────
 
 function OutputMenu({
+  hidden,
   onOpen,
   onOpenWorkspace,
   onRename,
+  onToggleHidden,
   onRemove,
 }: {
+  hidden: boolean
   onOpen: () => void
   onOpenWorkspace: () => void
   // Undefined for a workspace shared with "use" access, which may open an output but not change
   // it. See canModify().
   onRename?: () => void
+  onToggleHidden?: () => void
   onRemove?: () => void
 }) {
   return (
@@ -106,9 +112,16 @@ function OutputMenu({
               <Pencil size={13} className="mr-2" /> Rename
             </DropdownMenu.Item>
           )}
+          {onToggleHidden && (
+            <DropdownMenu.Item onClick={onToggleHidden} className={MENU_ITEM}>
+              {hidden
+                ? <><Eye size={13} className="mr-2" /> Unhide</>
+                : <><EyeOff size={13} className="mr-2" /> Hide from list</>}
+            </DropdownMenu.Item>
+          )}
           {onRemove && (
             <DropdownMenu.Item onClick={onRemove} className={`${MENU_ITEM} text-kumo-danger`}>
-              <Trash2 size={13} className="mr-2" /> Remove
+              <Trash2 size={13} className="mr-2" /> Delete
             </DropdownMenu.Item>
           )}
         </DropdownMenu.Content>
@@ -142,11 +155,12 @@ type OutputActions = {
   onOpen: () => void
   onOpenWorkspace: () => void
   onRename?: () => void
+  onToggleHidden?: () => void
   onRemove?: () => void
 }
 
 function OutputCard({
-  output, onOpen, onOpenWorkspace, onRename, onRemove,
+  output, onOpen, onOpenWorkspace, onRename, onToggleHidden, onRemove,
 }: { output: OutputSummary } & OutputActions) {
   return (
     <div
@@ -169,15 +183,15 @@ function OutputCard({
             {subtitle(output)}
           </p>
         </div>
-        <OutputMenu onOpen={onOpen} onOpenWorkspace={onOpenWorkspace}
-                    onRename={onRename} onRemove={onRemove} />
+        <OutputMenu hidden={!!output.hidden} onOpen={onOpen} onOpenWorkspace={onOpenWorkspace}
+                    onRename={onRename} onToggleHidden={onToggleHidden} onRemove={onRemove} />
       </div>
     </div>
   )
 }
 
 function OutputRow({
-  output, onOpen, onOpenWorkspace, onRename, onRemove,
+  output, onOpen, onOpenWorkspace, onRename, onToggleHidden, onRemove,
 }: { output: OutputSummary } & OutputActions) {
   return (
     <div
@@ -204,8 +218,8 @@ function OutputRow({
           Workspace active {formatRelativeTime(output.lastActive)}
         </span>
       </div>
-      <OutputMenu onOpen={onOpen} onOpenWorkspace={onOpenWorkspace}
-                  onRename={onRename} onRemove={onRemove} />
+      <OutputMenu hidden={!!output.hidden} onOpen={onOpen} onOpenWorkspace={onOpenWorkspace}
+                  onRename={onRename} onToggleHidden={onToggleHidden} onRemove={onRemove} />
     </div>
   )
 }
@@ -404,6 +418,7 @@ function OutputsPage() {
   })
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>('all')
+  const [showHidden, setShowHidden] = useState(false)
   const [search, setSearch] = useState('')
   const [outputs, setOutputs] = useState<OutputSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -502,6 +517,31 @@ function OutputsPage() {
     }
   }
 
+  const toggleHidden = async (current: OutputSummary) => {
+    if (!canModify(current) || mutationBusy) return
+    setMutationBusy(true)
+    const hidden = !current.hidden
+    let overseer
+    let gadget
+    try {
+      overseer = await authenticatedApi.openGadget(current.workspaceId)
+      gadget = overseer.getGadget(current.workpieceId)
+      await gadget.setHidden(hidden)
+      setOutputs((list) => list.map((output) =>
+        outputKey(output) === outputKey(current)
+          ? (hidden ? { ...output, hidden: true } : (({ hidden: _h, ...rest }) => rest)(output))
+          : output))
+      toasts.add({ title: hidden ? 'File hidden from the list' : 'File unhidden' })
+    } catch (err) {
+      console.error('Failed to update output visibility:', err)
+      toasts.add({ title: hidden ? "Couldn't hide this file" : "Couldn't unhide this file", variant: 'error' })
+    } finally {
+      gadget?.[Symbol.dispose]()
+      overseer?.[Symbol.dispose]()
+      setMutationBusy(false)
+    }
+  }
+
   const confirmRemove = async () => {
     if (!removeOutput || !canModify(removeOutput)) return
     setMutationBusy(true)
@@ -566,11 +606,16 @@ function OutputsPage() {
   // A control's own counts ignore that control but honour the others, so the numbers describe what
   // clicking would actually give you. Without this the format chips still total every output while
   // a scope is selected, and they don't add up to the list underneath.
-  const inTypeScope = outputs.filter((o) => matchesOwner(o) && matchesSearch(o))
-  const inOwnerScope = outputs.filter((o) => matchesType(o) && matchesSearch(o))
+  // Hidden outputs live behind their own toggle: the list shows either the visible ones or, when
+  // the toggle is on, only the hidden ones, so the counts elsewhere describe what's on screen.
+  const hiddenCount = outputs.filter((o) => o.hidden).length
+  const matchesHidden = (o: OutputSummary) => !!o.hidden === showHidden
+  const inTypeScope = outputs.filter((o) => matchesHidden(o) && matchesOwner(o) && matchesSearch(o))
+  const inOwnerScope = outputs.filter((o) => matchesHidden(o) && matchesType(o) && matchesSearch(o))
   const filtered = inTypeScope.filter(matchesType)
   const isFiltered = q !== '' || (showTypeFilters && typeFilter !== 'all')
-      || (showOwnerFilters && ownerFilter !== 'all')
+      || (showOwnerFilters && ownerFilter !== 'all') || showHidden
+  const showHiddenToggle = hiddenCount > 0 || showHidden
 
   return (
     <div className="mx-auto flex h-full w-full max-w-5xl flex-col px-3 sm:px-10">
@@ -606,6 +651,21 @@ function OutputsPage() {
           )}
         </div>
         <div className="flex min-w-0 items-center gap-2 sm:shrink-0">
+          {showHiddenToggle && (
+            <button
+              type="button"
+              aria-pressed={showHidden}
+              title={showHidden ? 'Back to visible files' : 'Show hidden files'}
+              onClick={() => setShowHidden((v) => !v)}
+              className={`flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-[13px] tracking-[-0.25px] transition-colors ${
+                showHidden
+                  ? 'border-kumo-contrast bg-kumo-contrast text-kumo-inverse'
+                  : 'border-kumo-line bg-kumo-base text-kumo-subtle hover:text-kumo-default'
+              }`}
+            >
+              <EyeOff size={14} /> Hidden{hiddenCount > 0 ? ` (${hiddenCount})` : ''}
+            </button>
+          )}
           {showOwnerFilters && (
             <ScopeSelect
               value={ownerFilter}
@@ -651,12 +711,14 @@ function OutputsPage() {
             </div>
             <div>
               <p className="text-sm font-medium text-kumo-default">
-                {isFiltered ? 'No files match' : 'No files yet'}
+                {showHidden && q === '' ? 'No hidden files' : isFiltered ? 'No files match' : 'No files yet'}
               </p>
               <p className="mt-1 text-[13px] leading-[18px] text-kumo-subtle">
-                {isFiltered
-                  ? 'Try a different filter or search term.'
-                  : 'Anything your workspaces build will show up here.'}
+                {showHidden && q === ''
+                  ? 'Files you hide from the list will show up here.'
+                  : isFiltered
+                    ? 'Try a different filter or search term.'
+                    : 'Anything your workspaces build will show up here.'}
               </p>
             </div>
             {/* Offer the deployment's formats here rather than sending them to the home page. */}
@@ -669,6 +731,7 @@ function OutputsPage() {
                           onOpen={() => openOutput(output)}
                           onOpenWorkspace={() => openWorkspace(output)}
                           onRename={canModify(output) ? () => beginRename(output) : undefined}
+                          onToggleHidden={canModify(output) ? () => { void toggleHidden(output) } : undefined}
                           onRemove={canModify(output) ? () => setRemoveOutput(output) : undefined} />
             ))}
           </div>
@@ -679,6 +742,7 @@ function OutputsPage() {
                          onOpen={() => openOutput(output)}
                          onOpenWorkspace={() => openWorkspace(output)}
                          onRename={canModify(output) ? () => beginRename(output) : undefined}
+                         onToggleHidden={canModify(output) ? () => { void toggleHidden(output) } : undefined}
                          onRemove={canModify(output) ? () => setRemoveOutput(output) : undefined} />
             ))}
           </div>
@@ -695,16 +759,17 @@ function OutputsPage() {
       />
       <DeleteConfirmationDialog
         open={removeOutput !== null}
-        title={`Remove “${removeOutput?.title || 'Untitled'}”?`}
+        title={`Delete “${removeOutput?.title || 'Untitled'}”?`}
         description={
           <>
-            This permanently removes the file from “{removeOutput?.workspaceTitle}”
+            This permanently deletes the file from “{removeOutput?.workspaceTitle}”
             {removeOutput?.owner ? ', for everyone with access to that workspace' : ''}. Other
-            files in that workspace stay available. This can’t be undone.
+            files in that workspace stay available. This can’t be undone. To just take it off the
+            list, use “Hide from list” instead.
           </>
         }
-        confirmLabel="Remove"
-        confirmingLabel="Removing…"
+        confirmLabel="Delete"
+        confirmingLabel="Deleting…"
         isDeleting={mutationBusy}
         onOpenChange={(open) => { if (!open) setRemoveOutput(null) }}
         onConfirm={() => { void confirmRemove() }}
