@@ -53,7 +53,9 @@
   --str-chat__typography-font-size-sm: 0.8125rem;
   --str-chat__typography-font-size-xs: 0.75rem;
   --str-chat__typography-font-size-xxs: 0.6875rem;
-  --str-chat__message-max-width: 85%;
+  /* Bubbles size with fit-content(this), which collapses on percentages — use lengths. */
+  --str-chat__message-max-width: 270px;
+  --str-chat__message-with-attachment-max-width: 270px;
 
   /* Match the app's corner radius scale. */
   --str-chat__message-bubble-radius-group-top: 0.75rem;
@@ -91,4 +93,10 @@
   inset: 0;
   z-index: 1;
   background: var(--color-kumo-base);
+}
+
+/* Full page: wider bubbles. */
+.team-chat-page .team-chat-panel .str-chat {
+  --str-chat__message-max-width: 560px;
+  --str-chat__message-with-attachment-max-width: 420px;
 }
