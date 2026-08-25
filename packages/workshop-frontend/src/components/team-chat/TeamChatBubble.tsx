@@ -3,10 +3,10 @@ import type { TeamChatSession } from '@gadgets/workshop-shared/api'
 import { useAuthenticatedApi } from '../../AuthContext'
 import { logRpcFailure } from '../../rpcErrors'
 
-// Team chat: human-to-human messaging between the members of this deployment, as a floating
-// bubble in the bottom-right corner. The Stream Chat SDK is heavy, so the real widget is
-// lazy-loaded only once the server confirms team chat is configured here; deployments without
-// Stream credentials never load a byte of it.
+// Discuss: human-to-human messaging between the members of this deployment, as a bar docked to
+// the bottom-right corner. The Stream Chat SDK is heavy, so the real widget is lazy-loaded only
+// once the server confirms team chat is configured here; deployments without Stream credentials
+// never load a byte of it.
 const TeamChatWidget = lazy(() => import('./TeamChatWidget'))
 
 export default function TeamChatBubble() {
@@ -26,7 +26,7 @@ export default function TeamChatBubble() {
   if (!session || !currentUser) return null
   return (
     <Suspense fallback={null}>
-      <TeamChatWidget api={authenticatedApi} initialSession={session} />
+      <TeamChatWidget api={authenticatedApi} initialSession={session} selfUserId={currentUser.id} />
     </Suspense>
   )
 }

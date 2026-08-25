@@ -1,13 +1,65 @@
-/* Team chat: fit Stream's components into the floating panel and let them inherit the app's
-   surfaces. Stream's own stylesheet handles the light/dark palette via the theme class. */
+/* Discuss: fit Stream's components into the docked panel and re-skin them with the app's kumo
+   tokens so messages, composer and threads read as part of Tyms, not as a third-party widget.
+   Stream's own stylesheet still handles layout and behaviour; we only override its semantic
+   colour/typography variables (v14 token names) plus a few spacing details. */
+
 .team-chat-panel .str-chat {
   height: 100%;
   min-height: 0;
   --str-chat__font-family: inherit;
+
+  /* Surfaces */
+  --str-chat__background-core-app: var(--color-kumo-base);
+  --str-chat__background-core-surface-default: var(--color-kumo-tint);
+  --str-chat__background-core-surface-subtle: var(--color-kumo-tint);
+  --str-chat__background-core-surface-card: var(--color-kumo-elevated);
+  --str-chat__background-core-surface-strong: var(--color-kumo-fill);
+  --str-chat__background-core-elevation-0: var(--color-kumo-base);
+  --str-chat__background-core-elevation-1: var(--color-kumo-elevated);
+  --str-chat__background-core-elevation-2: var(--color-kumo-elevated);
+  --str-chat__background-core-elevation-3: var(--color-kumo-elevated);
+  --str-chat__background-utility-hover: var(--color-kumo-tint);
+  --str-chat__background-utility-pressed: var(--color-kumo-fill);
+  --str-chat__background-utility-selected: var(--color-kumo-tint);
+
+  /* Text */
+  --str-chat__text-primary: var(--text-color-kumo-default);
+  --str-chat__text-secondary: var(--text-color-kumo-subtle);
+  --str-chat__text-tertiary: var(--text-color-kumo-inactive);
+  --str-chat__text-disabled: var(--text-color-kumo-inactive);
+  --str-chat__text-link: var(--text-color-kumo-link);
+
+  /* Lines */
+  --str-chat__border-core-default: var(--color-kumo-line);
+  --str-chat__border-core-subtle: var(--color-kumo-line);
+  --str-chat__border-core-strong: var(--color-kumo-line);
+  --str-chat__border-utility-focused: var(--color-kumo-ring);
+
+  /* Accent + status */
+  --str-chat__accent-primary: var(--color-kumo-brand);
+  --str-chat__accent-success: var(--color-kumo-success);
+  --str-chat__accent-error: var(--color-kumo-danger);
+  --str-chat__accent-warning: var(--color-kumo-warning);
+  --str-chat__focus-outline-color: var(--color-kumo-ring);
+
+  /* Bubbles: mine on the brand colour, theirs on the app's neutral bubble surface. */
+  --str-chat__chat-bg-outgoing: var(--color-kumo-brand);
+  --str-chat__chat-text-outgoing: var(--text-color-kumo-inverse);
+  --str-chat__chat-bg-incoming: var(--color-kumo-bubble-user);
+  --str-chat__chat-text-incoming: var(--text-color-kumo-default);
+
+  /* Match the app's corner radius scale. */
+  --str-chat__message-bubble-radius-group-top: 0.75rem;
+  --str-chat__message-bubble-radius-group-middle: 0.75rem;
+  --str-chat__message-bubble-radius-group-bottom: 0.75rem;
+  --str-chat__composer-radius-fixed: 0.75rem;
+  --str-chat__composer-radius-floating: 0.75rem;
 }
+
 .team-chat-panel .str-chat__channel-list {
   height: 100%;
   border: 0;
+  background: transparent;
 }
 .team-chat-panel .str-chat__channel {
   height: 100%;
@@ -24,12 +76,12 @@
   min-height: 0;
   padding: 0;
 }
-.team-chat-panel .str-chat__channel-header {
-  border: 0;
-  padding-left: 0.25rem;
+.team-chat-panel .str-chat__message-composer {
+  padding: 0.5rem 0.75rem 0.75rem;
 }
 .team-chat-panel .str-chat__thread {
   position: absolute;
   inset: 0;
   z-index: 1;
+  background: var(--color-kumo-base);
 }
