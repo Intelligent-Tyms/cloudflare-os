@@ -11,6 +11,7 @@ import {
   LayoutTemplate as Blueprint,
   Trash2,
   Maximize2,
+  ArrowLeft,
   Ellipsis as DotsThree,
   Activity as ActivityIcon,
   type LucideIcon,
@@ -914,7 +915,21 @@ export default function GadgetEditor() {
     setWorkspaceView({ mode: 'activity' })
   }, [workspaceView])
 
+  // Closing also drops ?w= from the URL, so a reload (or re-opening the same output from the
+  // Outputs page) doesn't bring the pane straight back.
+  const clearWorkpieceParam = useCallback(() => {
+    if (urlWorkpieceId === null || !id) return
+    openedWorkpieceParamRef.current = null
+    navigate({
+      to: '/workspace/$id',
+      params: { id },
+      search: urlChatId !== null ? { chat: urlChatId } : {},
+      replace: true,
+    })
+  }, [urlWorkpieceId, urlChatId, id, navigate])
+
   const closeWorkspacePane = useCallback(() => {
+    clearWorkpieceParam()
     if (workspaceView?.mode !== 'activity') {
       setWorkspaceVisibility('closed')
       return
@@ -926,7 +941,7 @@ export default function GadgetEditor() {
     setActivityClosing(!returnShowsPane)
     setWorkspaceView(returnView)
     activityReturnViewRef.current = null
-  }, [workspaceView, setWorkspaceVisibility, hasAnyApps, simpleMode])
+  }, [workspaceView, setWorkspaceVisibility, hasAnyApps, simpleMode, clearWorkpieceParam])
 
   // Ignore the initial listing, then open apps created by the active chat.
   useEffect(() => {
@@ -1362,6 +1377,7 @@ export default function GadgetEditor() {
         metadata={metadata}
         authenticatedApi={authenticatedApi}
         currentUserId={userInfo?.id ?? null}
+        backTo={urlWorkpieceId !== null ? '/outputs' : '/'}
       />
     )
   }
@@ -1529,7 +1545,7 @@ export default function GadgetEditor() {
       <div className="flex h-12 shrink-0 items-center gap-1 border-b border-kumo-line bg-kumo-base px-2 md:hidden">
         <button
           type="button"
-          onClick={() => setWorkspaceVisibility('closed')}
+          onClick={closeWorkspacePane}
           aria-current={!showFullEditor ? 'page' : undefined}
           className={`flex h-9 min-w-0 flex-1 items-center justify-center rounded-lg px-3 text-[14px] font-medium ${
             !showFullEditor ? 'bg-kumo-tint text-kumo-default' : 'text-kumo-subtle'
@@ -1636,6 +1652,16 @@ export default function GadgetEditor() {
             )}
           </DropdownMenu.Content>
         </DropdownMenu>
+        {showFullEditor && (
+          <WorkshopIconButton
+            aria-label={paneShowsActivity ? 'Close activity' : 'Close app pane'}
+            title="Close"
+            onClick={closeWorkspacePane}
+            className="ml-1 shrink-0"
+          >
+            <X size={16} />
+          </WorkshopIconButton>
+        )}
       </div>
 
       {/* ═══ BODY ═════════════════════════════════════════════════════════════ */}
@@ -1800,6 +1826,16 @@ export default function GadgetEditor() {
                 </WorkshopIconButton>
               )}
 
+              {urlWorkpieceId !== null && !paneShowsActivity && (
+                <Link
+                  to="/outputs"
+                  aria-label="Back to Outputs"
+                  title="Back to Outputs"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-kumo-subtle transition-colors hover:bg-kumo-tint hover:text-kumo-default"
+                >
+                  <ArrowLeft size={16} />
+                </Link>
+              )}
               <WorkshopIconButton
                 aria-label={paneShowsActivity ? 'Close activity' : 'Close app pane'}
                 title="Close"
@@ -1863,6 +1899,17 @@ export default function GadgetEditor() {
                 />
               ) : !previewMode && (
                 <NoGadgetPlaceholder height="100%" />
+              )}
+              {isGadgetFullscreen && (
+                <button
+                  type="button"
+                  aria-label="Exit full screen"
+                  title="Exit full screen (Esc)"
+                  onClick={exitGadgetFullscreen}
+                  className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-kumo-line bg-kumo-base/90 text-kumo-default shadow-md backdrop-blur-sm hover:bg-kumo-elevated"
+                >
+                  <X size={18} />
+                </button>
               )}
               {isGadgetFullscreen && showFullscreenHint && (
                 <div

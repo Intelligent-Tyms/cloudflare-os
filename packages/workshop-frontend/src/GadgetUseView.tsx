@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Hexagon } from 'lucide-react'
+import { Hexagon, ArrowLeft } from 'lucide-react'
 import { FormatGlyph } from './components/format/FormatVisuals'
 import { RpcStub } from 'capnweb'
 import {
@@ -39,6 +39,9 @@ type Props = {
   metadata: GadgetMetadata
   authenticatedApi: RpcStub<AuthenticatedApi>
   currentUserId: string | null
+  // Where the top-bar back control leads: the Outputs page when the workspace was opened from
+  // there, the home page otherwise. Without it there is no way out but the logo.
+  backTo: '/outputs' | '/'
 }
 
 // Matches the top bar height used by the full editor (and the home page header).
@@ -53,6 +56,7 @@ export default function GadgetUseView({
   metadata,
   authenticatedApi,
   currentUserId,
+  backTo,
 }: Props) {
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-kumo-base">
@@ -64,6 +68,14 @@ export default function GadgetUseView({
         <TopBarNotice />
         {/* Left: logo / title */}
         <div className="flex items-center gap-2 min-w-0">
+          <Link
+            to={backTo}
+            aria-label={backTo === '/outputs' ? 'Back to Outputs' : 'Back to Home'}
+            title={backTo === '/outputs' ? 'Back to Outputs' : 'Back to Home'}
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-kumo-subtle transition-colors hover:bg-kumo-tint hover:text-kumo-default"
+          >
+            <ArrowLeft size={18} />
+          </Link>
           <Link to="/" aria-label="Home" className="flex-shrink-0 hover:opacity-80 transition-opacity">
             <SiteLogo size={22}>
               <Hexagon size={22} className="text-kumo-brand" strokeWidth={2.5} />
