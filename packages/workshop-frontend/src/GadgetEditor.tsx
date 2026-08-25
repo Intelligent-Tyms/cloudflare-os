@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef, type PointerEvent as ReactPointerEvent } from 'react'
+import { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef, type PointerEvent as ReactPointerEvent } from 'react'
 import { useParams, useNavigate, useSearch, Link } from '@tanstack/react-router'
 import { DropdownMenu, useKumoToastManager } from '@cloudflare/kumo'
 import {
@@ -12,9 +12,12 @@ import {
   Trash2,
   Maximize2,
   ArrowLeft,
+  Eye,
+  EyeOff,
   Ellipsis as DotsThree,
   Activity as ActivityIcon,
   type LucideIcon,
+  MessageSquareShare,
 } from 'lucide-react'
 import { RpcStub, RpcTarget } from 'capnweb'
 import { useAuthenticatedApi } from './AuthContext'
@@ -53,6 +56,10 @@ import { GadgetPresence } from './components/GadgetPresence'
 import BlueprintModal from './BlueprintModal'
 import TopBarNotice from './TopBarNotice'
 import { WorkshopButton, WorkshopIconButton, WorkshopInput } from './components/WorkshopControls'
+import { useDiscuss } from './components/team-chat/discuss-context'
+
+// "Send to Discuss" lives in the Stream chunk; only loaded when someone opens it.
+const DiscussSharePicker = lazy(() => import('./components/team-chat/DiscussSharePicker'))
 import { useActions } from './useActions'
 import DeleteConfirmationDialog from './components/DeleteConfirmationDialog'
 import ReconnectingChip from './components/ReconnectingChip'
@@ -532,6 +539,8 @@ export default function GadgetEditor() {
   const [activityView, setActivityView] = useState<ActivityView>('history')
   const [activityClosing, setActivityClosing] = useState(false)
   const [shareModalOpen, setShareModalOpen] = useState(false)
+  const [discussShareOpen, setDiscussShareOpen] = useState(false)
+  const discuss = useDiscuss()
   const [blueprintModalOpen, setBlueprintModalOpen] = useState(false)
   const [previewMode, _setPreviewMode] = useState(false)
   const [workpieceRailExpanded, setWorkpieceRailExpanded] = useState(getInitialAppRailExpanded)
@@ -1249,6 +1258,22 @@ export default function GadgetEditor() {
     }
   }, [overseer, toasts])
 
+  // Hide/unhide a workpiece (see WorkpieceClient.setHidden). The subscription delivers the updated
+  // summary; a hidden app drops out of visibleGadgets, so the pane moves on to another app by
+  // itself.
+  const handleSetWorkpieceHidden = useCallback(async (workpieceId: WorkpieceId, hidden: boolean) => {
+    if (!overseer) return
+    const target = overseer.stub.getGadget(workpieceId)
+    try {
+      await target.setHidden(hidden)
+      toasts.add({ title: hidden ? 'App hidden from the list' : 'App unhidden' })
+    } catch {
+      toasts.add({ title: hidden ? 'Failed to hide app' : 'Failed to unhide app', variant: 'error' })
+    } finally {
+      target[Symbol.dispose]()
+    }
+  }, [overseer, toasts])
+
   // ── console log subscription ──────────────────────────────────────────────────
   useEffect(() => {
     if (!overseer) return
@@ -1509,6 +1534,16 @@ export default function GadgetEditor() {
           >
             <Share2 size={15} />
           </WorkshopIconButton>
+
+          {discuss && (
+            <WorkshopIconButton
+              onClick={() => setDiscussShareOpen(true)}
+              title="Send to Discuss"
+              aria-label="Send to Discuss"
+            >
+              <MessageSquareShare size={15} />
+            </WorkshopIconButton>
+          )}
 
           <WorkshopIconButton
             onClick={() => setBlueprintModalOpen(true)}
@@ -1816,6 +1851,21 @@ export default function GadgetEditor() {
                 />
               )}
 
+              {!paneShowsActivity && selectedGadgetSummary && !isUseOnly
+                && selectedGadgetSummary.chatId === undefined && (
+                <WorkshopIconButton
+                  aria-label={selectedGadgetSummary.hidden ? 'Unhide app' : 'Hide app from list'}
+                  title={selectedGadgetSummary.hidden
+                    ? 'Unhide (show in Outputs and the app list again)'
+                    : 'Hide from list (keeps the app, just removes it from Outputs and the app list)'}
+                  onClick={() => {
+                    void handleSetWorkpieceHidden(selectedGadgetSummary.id, !selectedGadgetSummary.hidden)
+                  }}
+                >
+                  {selectedGadgetSummary.hidden ? <Eye size={17} /> : <EyeOff size={17} />}
+                </WorkshopIconButton>
+              )}
+
               {!paneShowsActivity && (
                 <WorkshopIconButton
                   aria-label="Enter full screen"
@@ -1973,7 +2023,7 @@ export default function GadgetEditor() {
         {showOutputRail && (
           <div className="max-md:hidden">
             <WorkpiecePicker
-              gadgets={allGadgets}
+              gadgets={allGadgets.filter(g => !g.hidden)}
               selectedId={null}
               agentEditingId={streamingActiveFile?.workpieceId ?? null}
               hookedGadgetIds={hookedGadgetIds}
@@ -1981,6 +2031,7 @@ export default function GadgetEditor() {
               onExpandedChange={handleWorkpieceRailExpandedChange}
               onSelect={handleSelectWorkpiece}
               onRename={handleRenameWorkpiece}
+              onHide={isUseOnly ? undefined : id => { void handleSetWorkpieceHidden(id, true) }}
               pendingActivityCount={pendingActionsCount}
               onOpenActivity={() => openActivity(pendingActionsCount > 0 ? 'review' : 'history')}
             />
@@ -2003,6 +2054,18 @@ export default function GadgetEditor() {
             />
           )}
         </div>
+      )}
+
+      {discuss && metadata && discussShareOpen && (
+        <Suspense fallback={null}>
+          <DiscussSharePicker
+            open={discussShareOpen}
+            onClose={() => setDiscussShareOpen(false)}
+            discuss={discuss}
+            workspaceId={metadata.id}
+            title={metadata.title}
+          />
+        </Suspense>
       )}
 
       {/* Share modal */}

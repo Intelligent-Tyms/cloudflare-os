@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight, Check, Zap, Pencil, Activity, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Check, Zap, Pencil, Activity, X, EyeOff } from 'lucide-react'
 import { FormatGlyph } from './components/format/FormatVisuals'
 import { Tooltip } from '@cloudflare/kumo'
 import type { WorkpieceId, WorkpieceSummary } from '@gadgets/workshop-shared/api'
@@ -22,6 +22,9 @@ interface WorkpiecePickerProps {
   onExpandedChange: (expanded: boolean) => void
   onSelect: (id: WorkpieceId) => void
   onRename: (id: WorkpieceId, title: string) => void
+  // Hide an app from lists without deleting it (WorkpieceClient.setHidden). Undefined when the
+  // viewer can't modify the workspace.
+  onHide?: (id: WorkpieceId) => void
   pendingActivityCount: number
   onOpenActivity: () => void
 }
@@ -35,6 +38,7 @@ export default function WorkpiecePicker({
   onExpandedChange,
   onSelect,
   onRename,
+  onHide,
   pendingActivityCount,
   onOpenActivity,
 }: WorkpiecePickerProps) {
@@ -177,6 +181,16 @@ export default function WorkpiecePicker({
                   aria-label={`Rename ${gadget.title}`}
                 >
                   <Pencil size={13} />
+                </WorkshopIconButton>
+              )}
+              {expanded && onHide && !isPending && (
+                <WorkshopIconButton
+                  onClick={() => onHide(gadget.id)}
+                  className="!h-6 !w-6 flex-shrink-0 opacity-0 transition-opacity duration-150 ease-out group-hover/workpiece:opacity-100 focus-visible:opacity-100"
+                  title="Hide from list"
+                  aria-label={`Hide ${gadget.title} from list`}
+                >
+                  <EyeOff size={13} />
                 </WorkshopIconButton>
               )}
             </div>
