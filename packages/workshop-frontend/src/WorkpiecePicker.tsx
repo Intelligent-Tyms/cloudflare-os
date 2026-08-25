@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight, Check, Zap, Pencil, Activity, X, EyeOff } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Check, Zap, Pencil, Activity, X } from 'lucide-react'
 import { FormatGlyph } from './components/format/FormatVisuals'
 import { Tooltip } from '@cloudflare/kumo'
 import type { WorkpieceId, WorkpieceSummary } from '@gadgets/workshop-shared/api'
@@ -187,10 +187,10 @@ export default function WorkpiecePicker({
                 <WorkshopIconButton
                   onClick={() => onHide(gadget.id)}
                   className="!h-6 !w-6 flex-shrink-0 opacity-0 transition-opacity duration-150 ease-out group-hover/workpiece:opacity-100 focus-visible:opacity-100"
-                  title="Hide from list"
-                  aria-label={`Hide ${gadget.title} from list`}
+                  title="Remove from view"
+                  aria-label={`Remove ${gadget.title} from view`}
                 >
-                  <EyeOff size={13} />
+                  <X size={13} />
                 </WorkshopIconButton>
               )}
             </div>

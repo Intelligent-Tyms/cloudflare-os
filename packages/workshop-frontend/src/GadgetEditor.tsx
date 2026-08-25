@@ -13,7 +13,6 @@ import {
   Maximize2,
   ArrowLeft,
   Eye,
-  EyeOff,
   Ellipsis as DotsThree,
   Activity as ActivityIcon,
   type LucideIcon,
@@ -230,10 +229,13 @@ function PaneWorkpieceTabs({
   gadgets,
   activeId,
   onSelect,
+  onRemove,
 }: {
   gadgets: WorkpieceSummary[]
   activeId: WorkpieceId | null
   onSelect: (id: WorkpieceId) => void
+  // Take an app out of view (hide it, never delete). Undefined when the viewer can't modify.
+  onRemove?: (gadget: WorkpieceSummary) => void
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null)
   const activeRef = useRef<HTMLButtonElement>(null)
@@ -279,29 +281,49 @@ function PaneWorkpieceTabs({
     >
       {gadgets.map(gadget => {
         const active = gadget.id === activeId
+        const removable = onRemove !== undefined && gadget.chatId === undefined
         return (
-          <button
+          <div
             key={gadget.id}
-            ref={active ? activeRef : undefined}
-            type="button"
-            onClick={() => onSelect(gadget.id)}
-            title={gadget.title}
-            aria-current={active ? 'page' : undefined}
             // The open one gets room for its whole name; the others yield first.
-            className={`inline-flex flex-shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium tracking-[-0.15px] transition-colors duration-150 ${
+            className={`group/tab inline-flex flex-shrink-0 items-center rounded-lg transition-colors duration-150 ${
               active
                 ? 'max-w-[240px] bg-kumo-tint text-kumo-default'
                 : 'max-w-[150px] text-kumo-subtle hover:bg-kumo-tint/50 hover:text-kumo-default'
             }`}
           >
-            <FormatGlyph output={gadget.output} size="sm" className="flex-shrink-0" />
-            <span className="truncate">{gadget.title}</span>
-            {gadget.chatId !== undefined && (
-              <span className="flex-shrink-0 rounded-full bg-kumo-fill px-1.5 py-0.5 text-[10px] font-medium leading-none text-kumo-subtle">
-                Draft
-              </span>
+            <button
+              ref={active ? activeRef : undefined}
+              type="button"
+              onClick={() => onSelect(gadget.id)}
+              title={gadget.title}
+              aria-current={active ? 'page' : undefined}
+              className={`inline-flex min-w-0 cursor-pointer items-center gap-1.5 py-1.5 pl-2.5 text-[13px] font-medium tracking-[-0.15px] ${
+                removable ? 'pr-1' : 'pr-2.5'
+              }`}
+            >
+              <FormatGlyph output={gadget.output} size="sm" className="flex-shrink-0" />
+              <span className="truncate">{gadget.title}</span>
+              {gadget.chatId !== undefined && (
+                <span className="flex-shrink-0 rounded-full bg-kumo-fill px-1.5 py-0.5 text-[10px] font-medium leading-none text-kumo-subtle">
+                  Draft
+                </span>
+              )}
+            </button>
+            {removable && (
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); onRemove(gadget) }}
+                title={`Remove ${gadget.title} from view`}
+                aria-label={`Remove ${gadget.title} from view`}
+                className={`mr-1 flex h-5 w-5 flex-shrink-0 cursor-pointer items-center justify-center rounded-md text-kumo-inactive transition-[opacity,background-color,color] duration-150 hover:bg-kumo-fill hover:text-kumo-default focus-visible:opacity-100 ${
+                  active ? 'opacity-70' : 'opacity-0 group-hover/tab:opacity-100'
+                }`}
+              >
+                <X size={12} />
+              </button>
             )}
-          </button>
+          </div>
         )
       })}
     </div>
@@ -1258,6 +1280,10 @@ export default function GadgetEditor() {
     }
   }, [overseer, toasts])
 
+  // The app pending "remove from view" confirmation (hides it; see handleSetWorkpieceHidden).
+  const [removeFromViewTarget, setRemoveFromViewTarget] = useState<WorkpieceSummary | null>(null)
+  const [removingFromView, setRemovingFromView] = useState(false)
+
   // Hide/unhide a workpiece (see WorkpieceClient.setHidden). The subscription delivers the updated
   // summary; a hidden app drops out of visibleGadgets, so the pane moves on to another app by
   // itself.
@@ -1266,13 +1292,24 @@ export default function GadgetEditor() {
     const target = overseer.stub.getGadget(workpieceId)
     try {
       await target.setHidden(hidden)
-      toasts.add({ title: hidden ? 'App hidden from the list' : 'App unhidden' })
+      toasts.add({ title: hidden ? 'Removed from view (hidden)' : 'App restored to view' })
     } catch {
-      toasts.add({ title: hidden ? 'Failed to hide app' : 'Failed to unhide app', variant: 'error' })
+      toasts.add({ title: hidden ? 'Failed to remove app from view' : 'Failed to restore app', variant: 'error' })
     } finally {
       target[Symbol.dispose]()
     }
   }, [overseer, toasts])
+
+  const confirmRemoveFromView = useCallback(async () => {
+    if (!removeFromViewTarget) return
+    setRemovingFromView(true)
+    try {
+      await handleSetWorkpieceHidden(removeFromViewTarget.id, true)
+      setRemoveFromViewTarget(null)
+    } finally {
+      setRemovingFromView(false)
+    }
+  }, [removeFromViewTarget, handleSetWorkpieceHidden])
 
   // ── console log subscription ──────────────────────────────────────────────────
   useEffect(() => {
@@ -1811,6 +1848,7 @@ export default function GadgetEditor() {
                   gadgets={visibleGadgets}
                   activeId={selectedGadgetId}
                   onSelect={handleSelectWorkpiece}
+                  onRemove={isUseOnly ? undefined : setRemoveFromViewTarget}
                 />
               ) : selectedGadgetSummary && (
                 <PaneLabel
@@ -1851,18 +1889,13 @@ export default function GadgetEditor() {
                 />
               )}
 
-              {!paneShowsActivity && selectedGadgetSummary && !isUseOnly
-                && selectedGadgetSummary.chatId === undefined && (
+              {!paneShowsActivity && selectedGadgetSummary?.hidden && !isUseOnly && (
                 <WorkshopIconButton
-                  aria-label={selectedGadgetSummary.hidden ? 'Unhide app' : 'Hide app from list'}
-                  title={selectedGadgetSummary.hidden
-                    ? 'Unhide (show in Outputs and the app list again)'
-                    : 'Hide from list (keeps the app, just removes it from Outputs and the app list)'}
-                  onClick={() => {
-                    void handleSetWorkpieceHidden(selectedGadgetSummary.id, !selectedGadgetSummary.hidden)
-                  }}
+                  aria-label="Restore app to view"
+                  title="Restore to view (show in Outputs and the app list again)"
+                  onClick={() => { void handleSetWorkpieceHidden(selectedGadgetSummary.id, false) }}
                 >
-                  {selectedGadgetSummary.hidden ? <Eye size={17} /> : <EyeOff size={17} />}
+                  <Eye size={17} />
                 </WorkshopIconButton>
               )}
 
@@ -2031,7 +2064,10 @@ export default function GadgetEditor() {
               onExpandedChange={handleWorkpieceRailExpandedChange}
               onSelect={handleSelectWorkpiece}
               onRename={handleRenameWorkpiece}
-              onHide={isUseOnly ? undefined : id => { void handleSetWorkpieceHidden(id, true) }}
+              onHide={isUseOnly ? undefined : id => {
+                const target = allGadgets.find(g => g.id === id)
+                if (target) setRemoveFromViewTarget(target)
+              }}
               pendingActivityCount={pendingActionsCount}
               onOpenActivity={() => openActivity(pendingActionsCount > 0 ? 'review' : 'history')}
             />
@@ -2090,6 +2126,23 @@ export default function GadgetEditor() {
           )}
         </>
       )}
+
+      <DeleteConfirmationDialog
+        open={removeFromViewTarget !== null}
+        title={`Remove “${removeFromViewTarget?.title || 'Untitled'}” from view?`}
+        description={
+          <>
+            This takes <span className="font-medium text-kumo-default">{removeFromViewTarget?.title}</span> out
+            of this workspace&apos;s app list and off the Outputs page for everyone with access.
+            Nothing is deleted: you can bring it back any time from Outputs → Hidden.
+          </>
+        }
+        isDeleting={removingFromView}
+        confirmLabel="Remove from view"
+        confirmingLabel="Removing…"
+        onOpenChange={open => { if (!open) setRemoveFromViewTarget(null) }}
+        onConfirm={() => { void confirmRemoveFromView() }}
+      />
 
       <DeleteConfirmationDialog
         open={deleteDialogOpen}
