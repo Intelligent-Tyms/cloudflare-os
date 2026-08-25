@@ -17,6 +17,14 @@ const MAX_STREAM_ID_LENGTH = 64;
 
 type StreamEnv = Cloudflare.Env;
 
+/** Unread messages to email someone who is away. */
+export type UnreadDigest = {
+  cid: string;
+  title: string;
+  isGroup: boolean;
+  messages: { from: string; text: string; at: number }[];
+};
+
 /** Whether this deployment can offer team chat. */
 export function hasTeamChat(env: StreamEnv): boolean {
   return Boolean(env.STREAM_API_KEY && env.STREAM_API_SECRET && teamOf(env) &&
@@ -205,6 +213,121 @@ export class TeamChat {
     if (add.length) body.add_members = add;
     if (remove.length) body.remove_members = remove;
     await this.client.call("POST", `/channels/messaging/${id}`, body);
+  }
+
+  /**
+   * Who should be nudged by email if they do not read `messageId` soon: the other person of
+   * a DM, or the @mentioned members of a group (groups are chatty; unmentioned members are
+   * not emailed). Returns their emails. The message must be the caller's own.
+   */
+  async recipientsToNudge(callerEmail: string, cid: string, messageId: string): Promise<string[]> {
+    let [type, id] = cid.split(":");
+    if (type !== "messaging" || !id || !/^[a-z0-9_-]+$/i.test(id)) return [];
+    if (!/^[a-z0-9_-]+$/i.test(messageId)) return [];
+    let callerId = await streamUserId(this.team, callerEmail);
+    let { message } = await this.client.call<{
+      message: { cid: string; user?: { id: string }; mentioned_users?: { id: string }[]; type?: string };
+    }>("GET", `/messages/${messageId}`);
+    if (message.cid !== cid || message.user?.id !== callerId) return [];
+    if (message.type === "system" || message.type === "deleted") return [];
+    let channel = await this.client.call<{
+      channel: { team?: string; name?: string };
+      members: { user_id?: string }[];
+    }>("POST", `/channels/messaging/${id}/query`, { state: true, watch: false, presence: false });
+    if (channel.channel.team !== this.team) return [];
+    let memberIds = new Set(channel.members.map(m => m.user_id).filter((m): m is string => Boolean(m)));
+    memberIds.delete(callerId);
+    let targets: string[];
+    if (channel.channel.name) {
+      targets = (message.mentioned_users ?? []).map(u => u.id).filter(u => memberIds.has(u));
+    } else {
+      targets = [...memberIds];
+    }
+    if (targets.length === 0) return [];
+    let team = await fetchTeam(this.env);
+    let emails: string[] = [];
+    for (let member of team.members) {
+      let sid = await streamUserId(this.team, member.email);
+      if (targets.includes(sid)) emails.push(member.email);
+    }
+    return emails;
+  }
+
+  /**
+   * What `recipientEmail` has not read in `cid`, if they are away: null when there is
+   * nothing to email (all read, they are online, the conversation is muted, or the channel is
+   * gone); otherwise the unread messages from others, newest last, capped.
+   */
+  async unreadDigest(recipientEmail: string, cid: string): Promise<UnreadDigest | null> {
+    let [type, id] = cid.split(":");
+    if (type !== "messaging" || !id || !/^[a-z0-9_-]+$/i.test(id)) return null;
+    let recipientId = await streamUserId(this.team, recipientEmail);
+    let response = await this.client.call<{
+      channel: { team?: string; name?: string };
+      members: { user_id?: string; user?: { id: string; name?: string; online?: boolean } }[];
+      messages: { id: string; type?: string; text?: string; created_at: string; user?: { id: string; name?: string };
+        attachments?: unknown[] }[];
+      read?: { user: { id: string }; last_read: string; unread_messages?: number }[];
+    }>("POST", `/channels/messaging/${id}/query`, {
+      state: true, watch: false, presence: false, messages: { limit: 30 },
+    });
+    if (response.channel.team !== this.team) return null;
+    let me = response.members.find(m => m.user_id === recipientId);
+    if (!me) return null;
+    if (me.user?.online) return null;
+    let read = response.read?.find(r => r.user.id === recipientId);
+    if (read && (read.unread_messages ?? 0) === 0) return null;
+    let lastRead = read ? Date.parse(read.last_read) : 0;
+    let unread = response.messages
+      .filter(m => m.user?.id !== recipientId && m.type !== "deleted" && m.type !== "system"
+          && Date.parse(m.created_at) > lastRead)
+      .map(m => ({
+        from: m.user?.name || "A teammate",
+        text: (m.text?.trim() || (m.attachments?.length ? "Sent an attachment" : "")).slice(0, 500),
+        at: Date.parse(m.created_at),
+      }))
+      .filter(m => m.text);
+    if (unread.length === 0) return null;
+    if (await this.#isMuted(recipientId, cid)) return null;
+    let others = response.members.filter(m => m.user_id !== recipientId);
+    let title = response.channel.name
+        || others.map(m => m.user?.name || "Teammate").join(", ")
+        || "Discuss";
+    return { cid, title, isGroup: Boolean(response.channel.name), messages: unread.slice(-10) };
+  }
+
+  /** Email the digest through the central directory (which builds the tenant link). */
+  async emailUnread(recipientEmail: string, digest: UnreadDigest): Promise<boolean> {
+    if (!this.env.CENTRAL_TEAM_API_URL || !this.env.CENTRAL_TEAM_API_TOKEN) return false;
+    let response = await fetch(`${this.env.CENTRAL_TEAM_API_URL}/notifications/discuss-unread`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${this.env.CENTRAL_TEAM_API_TOKEN}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ recipientEmail, ...digest }),
+    });
+    let data = (await response.json().catch(() => ({}))) as { notified?: boolean };
+    if (!response.ok) {
+      console.warn(`discuss unread email failed (${response.status})`);
+      return false;
+    }
+    return data.notified === true;
+  }
+
+  // Whether the recipient has muted the conversation (best-effort: an error counts as "no").
+  async #isMuted(recipientId: string, cid: string): Promise<boolean> {
+    try {
+      let result = await this.client.call<{ channels: unknown[] }>("POST", "/channels", {
+        filter_conditions: { cid: { $eq: cid }, muted: true },
+        user_id: recipientId,
+        state: false, watch: false, presence: false,
+      });
+      return result.channels.length > 0;
+    } catch (err) {
+      console.warn("mute check failed:", err);
+      return false;
+    }
   }
 
   /** Remove the caller from a group they belong to. */

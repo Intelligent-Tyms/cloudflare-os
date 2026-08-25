@@ -661,6 +661,29 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     return this.#teamChat().leaveChannel(this.#userId.name!, cid);
   }
 
+  async noteTeamChatMessageSent(cid: string, messageId: string): Promise<void> {
+    let chat = TeamChat.from(this.env);
+    if (!chat) return;
+    try {
+      let recipients = await chat.recipientsToNudge(this.#userId.name!, cid, messageId);
+      for (let email of recipients) {
+        let stub = this.users.get(this.users.idFromName(email));
+        await stub.scheduleDiscussNudge(cid);
+      }
+    } catch (err) {
+      // Nudges are best-effort: the message itself is already delivered by Stream.
+      console.warn("team chat nudge scheduling failed:", err);
+    }
+  }
+
+  getTeamChatEmailWhenAway(): Promise<boolean> {
+    return this.#user.getDiscussEmailWhenAway();
+  }
+
+  setTeamChatEmailWhenAway(enabled: boolean): Promise<void> {
+    return this.#user.setDiscussEmailWhenAway(enabled);
+  }
+
   #teamChat(): TeamChat {
     let chat = TeamChat.from(this.env);
     if (!chat) throw new Error("Team chat is not available on this deployment.");

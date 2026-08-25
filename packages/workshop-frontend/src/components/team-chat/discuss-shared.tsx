@@ -866,6 +866,11 @@ export function PrefsMenu({ discuss }: { discuss: DiscussContextValue }) {
         <DropdownMenu.Item className={MENU_ITEM} onClick={() => setPrefs({ sound: !prefs.sound })}>
           {prefs.sound ? 'Turn sound off' : 'Turn sound on'}
         </DropdownMenu.Item>
+        {discuss.emailWhenAway !== null && (
+          <DropdownMenu.Item className={MENU_ITEM} onClick={() => discuss.setEmailWhenAway(!discuss.emailWhenAway)}>
+            {discuss.emailWhenAway ? 'Stop emailing me when away' : 'Email me when away'}
+          </DropdownMenu.Item>
+        )}
       </DropdownMenu.Content>
     </DropdownMenu>
   )

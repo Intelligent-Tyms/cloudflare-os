@@ -144,4 +144,113 @@ describe("team chat", () => {
       globalThis.fetch = realFetch;
     }
   });
+
+  function fakeStreamForNudges(opts: {
+    message: { cid: string; user: string; mentioned?: string[]; type?: string };
+    channel: { name?: string; members: { id: string; name?: string; online?: boolean }[] };
+    messages?: { id: string; user: string; name?: string; text: string; created_at: string }[];
+    read?: { user: string; last_read: string; unread: number }[];
+    muted?: boolean;
+  }) {
+    const calls: { method: string; url: string; body: any }[] = [];
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ method: init?.method ?? "GET", url, body: init?.body ? JSON.parse(String(init.body)) : null });
+      if (url.includes("/team")) {
+        return Response.json({ team: { members: [
+          { email: "jane@example.com", displayName: "Jane Doe", role: "member", createdAt: 0 },
+          { email: "bob@example.com", displayName: "Bob", role: "member", createdAt: 0 },
+          { email: "eve@example.com", displayName: "Eve", role: "member", createdAt: 0 },
+        ], invitations: [] } });
+      }
+      if (url.includes("/messages/")) {
+        return Response.json({ message: {
+          cid: opts.message.cid, user: { id: opts.message.user }, type: opts.message.type ?? "regular",
+          mentioned_users: (opts.message.mentioned ?? []).map(id => ({ id })),
+        } });
+      }
+      if (url.includes("/query?")) {
+        return Response.json({
+          channel: { team: "acme-co", name: opts.channel.name },
+          members: opts.channel.members.map(m => ({ user_id: m.id, user: { id: m.id, name: m.name, online: m.online } })),
+          messages: (opts.messages ?? []).map(m => ({ id: m.id, type: "regular", text: m.text, created_at: m.created_at,
+            user: { id: m.user, name: m.name } })),
+          read: (opts.read ?? []).map(r => ({ user: { id: r.user }, last_read: r.last_read, unread_messages: r.unread })),
+        });
+      }
+      if (url.includes("/channels?")) return Response.json({ channels: opts.muted ? [{}] : [] });
+      if (url.includes("/notifications/discuss-unread")) return Response.json({ ok: true, notified: true });
+      return Response.json({});
+    }) as typeof fetch;
+    return calls;
+  }
+
+  const JANE = "acme-co--jane@example_com", BOB = "acme-co--bob@example_com", EVE = "acme-co--eve@example_com";
+
+  it("nudges the other person of a DM, and only @mentioned members of a group", async () => {
+    const realFetch = globalThis.fetch;
+    try {
+      fakeStreamForNudges({ message: { cid: "messaging:dm", user: JANE }, channel: { members: [{ id: JANE }, { id: BOB }] } });
+      expect(await TeamChat.from(configured)!.recipientsToNudge("jane@example.com", "messaging:dm", "m1"))
+        .toEqual(["bob@example.com"]);
+      fakeStreamForNudges({ message: { cid: "messaging:grp", user: JANE, mentioned: [EVE] },
+        channel: { name: "Launch", members: [{ id: JANE }, { id: BOB }, { id: EVE }] } });
+      expect(await TeamChat.from(configured)!.recipientsToNudge("jane@example.com", "messaging:grp", "m2"))
+        .toEqual(["eve@example.com"]);
+      fakeStreamForNudges({ message: { cid: "messaging:grp", user: JANE },
+        channel: { name: "Launch", members: [{ id: JANE }, { id: BOB }] } });
+      expect(await TeamChat.from(configured)!.recipientsToNudge("jane@example.com", "messaging:grp", "m3")).toEqual([]);
+      // Someone else's message never schedules nudges on the caller's behalf.
+      fakeStreamForNudges({ message: { cid: "messaging:dm", user: BOB }, channel: { members: [{ id: JANE }, { id: BOB }] } });
+      expect(await TeamChat.from(configured)!.recipientsToNudge("jane@example.com", "messaging:dm", "m4")).toEqual([]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("builds an unread digest only for offline, unmuted recipients with unread messages", async () => {
+    const realFetch = globalThis.fetch;
+    const base = {
+      message: { cid: "messaging:dm", user: JANE },
+      channel: { members: [{ id: JANE, name: "Jane Doe" }, { id: BOB, name: "Bob", online: false }] },
+      messages: [
+        { id: "a", user: BOB, name: "Bob", text: "old", created_at: "2026-08-25T10:00:00Z" },
+        { id: "b", user: JANE, name: "Jane Doe", text: "hey", created_at: "2026-08-25T11:00:00Z" },
+        { id: "c", user: JANE, name: "Jane Doe", text: "demo at 3?", created_at: "2026-08-25T11:01:00Z" },
+      ],
+      read: [{ user: BOB, last_read: "2026-08-25T10:30:00Z", unread: 2 }],
+    };
+    try {
+      fakeStreamForNudges(base);
+      const digest = await TeamChat.from(configured)!.unreadDigest("bob@example.com", "messaging:dm");
+      expect(digest).toMatchObject({ cid: "messaging:dm", title: "Jane Doe", isGroup: false });
+      expect(digest!.messages.map(m => m.text)).toEqual(["hey", "demo at 3?"]);
+      expect(digest!.messages[0].from).toBe("Jane Doe");
+
+      fakeStreamForNudges({ ...base, read: [{ user: BOB, last_read: "2026-08-25T12:00:00Z", unread: 0 }] });
+      expect(await TeamChat.from(configured)!.unreadDigest("bob@example.com", "messaging:dm")).toBeNull();
+
+      fakeStreamForNudges({ ...base, channel: { members: [{ id: JANE }, { id: BOB, online: true }] } });
+      expect(await TeamChat.from(configured)!.unreadDigest("bob@example.com", "messaging:dm")).toBeNull();
+
+      fakeStreamForNudges({ ...base, muted: true });
+      expect(await TeamChat.from(configured)!.unreadDigest("bob@example.com", "messaging:dm")).toBeNull();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("emails the digest through the central directory", async () => {
+    const realFetch = globalThis.fetch;
+    const calls = fakeStreamForNudges({ message: { cid: "x", user: JANE }, channel: { members: [] } });
+    try {
+      const digest = { cid: "messaging:dm", title: "Jane Doe", isGroup: false,
+        messages: [{ from: "Jane Doe", text: "hey", at: 1 }] };
+      expect(await TeamChat.from(configured)!.emailUnread("bob@example.com", digest)).toBe(true);
+      const call = calls.find(c => c.url.endsWith("/notifications/discuss-unread"));
+      expect(call?.body).toEqual({ recipientEmail: "bob@example.com", ...digest });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 });

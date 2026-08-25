@@ -516,6 +516,15 @@ export interface AuthenticatedApi extends RpcTarget {
   // Leave a group the caller belongs to (not possible for DMs).
   leaveTeamChatChannel(cid: string): Promise<void>;
 
+  // The caller just sent a message: schedule "you have unread messages" emails for the
+  // recipients who do not read it within a few minutes while away (DMs: the other person;
+  // groups: only people the message @mentions). Best-effort, never throws for the sender.
+  noteTeamChatMessageSent(cid: string, messageId: string): Promise<void>;
+
+  // Whether the caller wants an email when they miss messages while away (default true).
+  getTeamChatEmailWhenAway(): Promise<boolean>;
+  setTeamChatEmailWhenAway(enabled: boolean): Promise<void>;
+
   // Remove the caller's own Telegram link; returns false when none exists.
   unlinkMyTelegram(): Promise<boolean>;
 

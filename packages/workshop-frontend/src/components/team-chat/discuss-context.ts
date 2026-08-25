@@ -36,6 +36,9 @@ export type DiscussContextValue = {
   teammates: TeammateIndex
   prefs: DiscussPrefs
   setPrefs: (patch: Partial<DiscussPrefs>) => void
+  /** Server-side: email me what I missed while away (null until loaded). */
+  emailWhenAway: boolean | null
+  setEmailWhenAway: (enabled: boolean) => void
   /** Open a conversation: in the dock (expanding it) or, on /discuss, on the page. */
   open: (cid: string) => void
   /** Start a new message, in whichever surface is showing. */

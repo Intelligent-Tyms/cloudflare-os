@@ -98,7 +98,30 @@ function DiscussController({
   const [view, setView] = useState<View>('list')
   const [prefs, setPrefsState] = useState<DiscussPrefs>(readPrefs)
   const [request, setRequest] = useState<DiscussRequest | null>(null)
+  const [emailWhenAway, setEmailWhenAwayState] = useState<boolean | null>(null)
   const teammates = useTeammates(api)
+
+  useEffect(() => {
+    let cancelled = false
+    api.getTeamChatEmailWhenAway().then((v) => { if (!cancelled) setEmailWhenAwayState(v) })
+      .catch((err) => logRpcFailure('Failed to read Discuss email preference:', err))
+    return () => { cancelled = true }
+  }, [api])
+  const setEmailWhenAway = useCallback((enabled: boolean) => {
+    setEmailWhenAwayState(enabled)
+    api.setTeamChatEmailWhenAway(enabled).catch((err) => logRpcFailure('Failed to save Discuss email preference:', err))
+  }, [api])
+
+  // Every message the caller sends schedules "while you were away" emails for recipients who
+  // do not read it soon (server decides who; best-effort).
+  useEffect(() => {
+    const { unsubscribe } = client.on('message.new', (event: Event) => {
+      const message = event.message
+      if (!message || !event.cid || event.user?.id !== session.userId) return
+      api.noteTeamChatMessageSent(event.cid, message.id).catch((err) => logRpcFailure('Failed to schedule Discuss nudge:', err))
+    })
+    return unsubscribe
+  }, [client, api, session.userId])
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const onPage = pathname === '/discuss' || pathname.startsWith('/discuss/')
   const onPageRef = useRef(onPage)
@@ -153,8 +176,10 @@ function DiscussController({
   const clearRequest = useCallback(() => setRequest(null), [])
 
   const value = useMemo<DiscussContextValue>(() => ({
-    api, client, session, selfUserId, teammates, prefs, setPrefs, open, openNew, collapse, request, clearRequest,
-  }), [api, client, session, selfUserId, teammates, prefs, setPrefs, open, openNew, collapse, request, clearRequest])
+    api, client, session, selfUserId, teammates, prefs, setPrefs, emailWhenAway, setEmailWhenAway,
+    open, openNew, collapse, request, clearRequest,
+  }), [api, client, session, selfUserId, teammates, prefs, setPrefs, emailWhenAway, setEmailWhenAway,
+    open, openNew, collapse, request, clearRequest])
   useEffect(() => { onValue(value) }, [onValue, value])
 
   const unread = useUnreadCount()

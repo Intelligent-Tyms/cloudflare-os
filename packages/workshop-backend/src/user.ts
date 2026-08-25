@@ -1,6 +1,7 @@
 import { RpcStub } from "capnweb";
 import { GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiModelConfig, CollaboratorRole, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, GadgetMetadata, BlueprintMetadata, BlueprintLibrarySummary, BlueprintSource, BlueprintUserSummary, BLUEPRINT_SCREENSHOT_R2_PREFIX, GatekeeperVendorInfo, BlueprintOutput, OutputSummary, WorkpieceId, ListOutputsResult, AUTH_ERROR_CODES, createAuthError, AssistantProfile, isFreePlanModel } from '@gadgets/workshop-shared/api';
 import { usageCollector } from "./usage-collector";
+import { TeamChat } from "./team-chat.js";
 import type { ChannelRoutableWorkspace } from "@gadgets/workshop-shared/external-message-gateway";
 import { Gatekeeper, GatekeeperUser, GatekeeperUserVerifier, GatekeeperVendor, AccountDescription, VendorDescription, GatekeeperConnectCallback, SupportedResource, ResourceConfiguratorFrame, AppUiContext, GatekeeperUiFrame } from "@gadgets/workshop-shared/gatekeeper";
 import { shouldAutoProvisionAccount, ambientGatekeeperMode } from "./provisioning-policy.js";
@@ -117,6 +118,18 @@ type GadgetRecord = GadgetMetadata & {
   // GadgetMetadata).
 };
 
+type DiscussNudgeRecord = {
+  cid: string;
+  dueAt: number | null;
+  emailedAt: number;
+};
+
+// How long an unread Discuss message waits before we email about it, and the least time
+// between two emails about the same conversation.
+const DISCUSS_NUDGE_DELAY_MS = 10 * 60 * 1000;
+const DISCUSS_NUDGE_COOLDOWN_MS = 30 * 60 * 1000;
+const DISCUSS_NUDGE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
 type ChannelRouteRecord = {
   conversationKey: string;
   workspaceId: string;
@@ -210,6 +223,12 @@ function makeUserStorage(storage: DurableObjectStorage) {
       // conversation key ("telegram:<chat>:<topic>"), the same key the Overseer files the
       // conversation's chat thread under, so switching workspaces resumes the thread that
       // conversation already has there.
+      // Pending "you have unread messages in Discuss" emails, one record per conversation:
+      // `dueAt` is when to check whether the person has read it (null = nothing pending),
+      // `emailedAt` the last time we emailed about it (for the cooldown).
+      discussNudges: collection<DiscussNudgeRecord>()({
+        primaryKey: "cid",
+      }),
       channelRoutes: collection<ChannelRouteRecord>()({
         primaryKey: "conversationKey",
       }),
@@ -228,6 +247,8 @@ function makeUserStorage(storage: DurableObjectStorage) {
       // The user's default model pick (chosen during onboarding), referencing an entry of the
       // deployment-wide catalog (AdminSettings DO). AI models themselves are admin-managed.
       preferredModel: <string | null>null,
+      // Email me the messages I missed in Discuss while away (default on).
+      discussEmailWhenAway: true,
 
       // Per-user assistant personalization (name, persona, role, targets, goals, time zone),
       // rendered into the agent system prompt. null until the user first saves it.
@@ -654,6 +675,68 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
 
   async getPreferredModel(): Promise<string | null> {
     return this.storage.preferredModel.get();
+  }
+
+  // --- Discuss "while you were away" emails ---
+
+  async getDiscussEmailWhenAway(): Promise<boolean> {
+    return this.storage.discussEmailWhenAway.get();
+  }
+
+  async setDiscussEmailWhenAway(enabled: boolean): Promise<void> {
+    this.storage.discussEmailWhenAway.put(enabled);
+  }
+
+  /**
+   * A teammate just messaged this user in `cid`. Unless a check is already pending for that
+   * conversation, plan one for DISCUSS_NUDGE_DELAY_MS from now (later if we emailed about it
+   * recently); the alarm then emails whatever is still unread if the user is away.
+   */
+  async scheduleDiscussNudge(cid: string): Promise<void> {
+    if (!this.storage.discussEmailWhenAway.get()) return;
+    let now = Date.now();
+    let record = this.storage.discussNudges.get(cid) ?? { cid, dueAt: null, emailedAt: 0 };
+    if (record.dueAt === null) {
+      record.dueAt = Math.max(now + DISCUSS_NUDGE_DELAY_MS, record.emailedAt + DISCUSS_NUDGE_COOLDOWN_MS);
+      this.storage.discussNudges.put(record);
+    }
+    await this.#armDiscussAlarm();
+  }
+
+  async alarm(): Promise<void> {
+    let now = Date.now();
+    let chat = TeamChat.from(this.env);
+    let email = this.storage.profile.get().id;
+    for (let record of Array.from(this.storage.discussNudges.list())) {
+      if (record.dueAt === null) {
+        if (record.emailedAt < now - DISCUSS_NUDGE_RETENTION_MS) this.storage.discussNudges.delete(record.cid);
+        continue;
+      }
+      if (record.dueAt > now) continue;
+      record.dueAt = null;
+      this.storage.discussNudges.put(record);
+      if (!chat || !this.storage.discussEmailWhenAway.get()) continue;
+      try {
+        let digest = await chat.unreadDigest(email, record.cid);
+        if (digest && await chat.emailUnread(email, digest)) {
+          record.emailedAt = Date.now();
+          this.storage.discussNudges.put(record);
+        }
+      } catch (err) {
+        console.warn("discuss nudge failed:", err);
+      }
+    }
+    await this.#armDiscussAlarm();
+  }
+
+  async #armDiscussAlarm(): Promise<void> {
+    let next: number | null = null;
+    for (let record of Array.from(this.storage.discussNudges.list())) {
+      if (record.dueAt !== null && (next === null || record.dueAt < next)) next = record.dueAt;
+    }
+    if (next === null) return;
+    let current = await this.ctx.storage.getAlarm();
+    if (current === null || current > next) await this.ctx.storage.setAlarm(next);
   }
 
   async setPreferredModel(id: string | null): Promise<void> {
