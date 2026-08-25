@@ -131,20 +131,22 @@ function TeamChatShell({
           )}
           {view === 'channel' && channel && (
             <Channel channel={channel}>
-              <div className="flex items-center gap-1 pl-2 border-b border-kumo-line">
-                <button
-                  type="button"
-                  onClick={backToList}
-                  aria-label="Back to conversations"
-                  className="w-8 h-8 inline-flex items-center justify-center rounded-md hover:bg-kumo-tint text-kumo-default"
-                >
-                  <ArrowLeft size={16} />
-                </button>
-                <div className="flex-1 min-w-0">
-                  <ChannelHeader />
-                </div>
-              </div>
+              {/* Stream lays out .str-chat__channel as a row (main panel | thread), so the header
+                  must live inside <Window>, which is the column. */}
               <Window>
+                <div className="flex items-center gap-1 pl-2 border-b border-kumo-line shrink-0">
+                  <button
+                    type="button"
+                    onClick={backToList}
+                    aria-label="Back to conversations"
+                    className="w-8 h-8 inline-flex items-center justify-center rounded-md hover:bg-kumo-tint text-kumo-default"
+                  >
+                    <ArrowLeft size={16} />
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <ChannelHeader />
+                  </div>
+                </div>
                 <MessageList />
                 <MessageComposer />
               </Window>
