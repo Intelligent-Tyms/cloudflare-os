@@ -48,6 +48,13 @@
   --str-chat__chat-bg-incoming: var(--color-kumo-bubble-user);
   --str-chat__chat-text-incoming: var(--text-color-kumo-default);
 
+  /* Type at the app's size (Stream defaults to 16px body text; the app runs 14px). */
+  --str-chat__typography-font-size-md: 0.875rem;
+  --str-chat__typography-font-size-sm: 0.8125rem;
+  --str-chat__typography-font-size-xs: 0.75rem;
+  --str-chat__typography-font-size-xxs: 0.6875rem;
+  --str-chat__message-max-width: 85%;
+
   /* Match the app's corner radius scale. */
   --str-chat__message-bubble-radius-group-top: 0.75rem;
   --str-chat__message-bubble-radius-group-middle: 0.75rem;

@@ -6,7 +6,7 @@ import './team-chat.css'
 import { useDiscuss, useDiscussStatus } from './discuss-context'
 import type { DiscussContextValue } from './discuss-context'
 import {
-  ConversationDetails, ConversationHeader, ConversationList, DiscussAttachment, IconButton, NewConversation,
+  ConversationDetails, ConversationHeader, ConversationList, DISCUSS_ICONS, DiscussAttachment, IconButton, NewConversation,
   PrefsMenu, streamTheme, useDarkMode, useLiveTick,
 } from './discuss-shared'
 
@@ -99,7 +99,7 @@ function PageBody({ discuss }: { discuss: DiscussContextValue }) {
           </div>
         ) : channel ? (
           <Channel channel={channel}>
-                <WithComponents overrides={{ Attachment: DiscussAttachment }}>
+                <WithComponents overrides={{ Attachment: DiscussAttachment, icons: DISCUSS_ICONS }}>
             <Window>
               <ConversationHeader
                 channel={channel}

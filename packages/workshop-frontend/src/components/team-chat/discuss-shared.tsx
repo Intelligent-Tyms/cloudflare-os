@@ -4,7 +4,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { DropdownMenu } from '@cloudflare/kumo'
 import type { Channel as StreamChannel, Event, MessageResponse, OwnUserResponse } from 'stream-chat'
 import { Attachment, ChannelList, useChatContext } from 'stream-chat-react'
-import type { AttachmentProps } from 'stream-chat-react'
+import type { AttachmentProps, IconSlots } from 'stream-chat-react'
 import {
   ArrowLeft, BellOff, Check, Ellipsis, Info, LayoutGrid, LogOut, Search, Sparkles, UserPlus, Users, X,
 } from 'lucide-react'
@@ -736,6 +736,16 @@ export function DiscussAttachment(props: AttachmentProps) {
       {rest.length > 0 && <Attachment {...props} attachments={rest} />}
     </>
   )
+}
+
+/** Stream icon overrides: a plain right arrow on the send button. */
+export const DISCUSS_ICONS: IconSlots = {
+  IconSend: (props) => (
+    <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden {...props}>
+      <path d="M5 12h14" />
+      <path d="m12 5 7 7-7 7" />
+    </svg>
+  ),
 }
 
 // ---------------------------------------------------------------------------------------------

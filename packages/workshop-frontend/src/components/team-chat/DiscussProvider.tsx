@@ -22,7 +22,7 @@ import { PersonAvatar } from '../PersonAvatar'
 import { logRpcFailure } from '../../rpcErrors'
 import type { DiscussContextValue, DiscussPrefs, DiscussRequest, TeammateIndex } from './discuss-context'
 import {
-  ConversationDetails, ConversationHeader, ConversationList, DiscussAttachment, IconButton, NewConversation,
+  ConversationDetails, ConversationHeader, ConversationList, DISCUSS_ICONS, DiscussAttachment, IconButton, NewConversation,
   PrefsMenu, UnreadPill, describeConversation, previewText, streamTheme, useDarkMode, useLiveTick, useUnreadCount,
 } from './discuss-shared'
 
@@ -266,7 +266,7 @@ function DiscussDock({
             {view === 'list' && <ConversationList discuss={discuss} tick={tick} onNew={() => setView('new')} />}
             {view === 'channel' && channel && (
               <Channel channel={channel}>
-                <WithComponents overrides={{ Attachment: DiscussAttachment }}>
+                <WithComponents overrides={{ Attachment: DiscussAttachment, icons: DISCUSS_ICONS }}>
                 {/* Stream lays out .str-chat__channel as a row (main panel | thread), so the
                     header must live inside <Window>, which is the column. */}
                 <Window>
