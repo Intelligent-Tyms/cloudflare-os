@@ -48,4 +48,7 @@ allowBuilds:
   esbuild: true
   protobufjs: true
   sharp: true
+  # stream-chat postinstalls only install husky hooks for their own repos.
+  stream-chat: false
+  stream-chat-react: false
   workerd: true

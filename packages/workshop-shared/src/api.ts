@@ -488,6 +488,26 @@ export interface AuthenticatedApi extends RpcTarget {
   // channels worker or Telegram isn't configured.
   linkMyTelegram(): Promise<TelegramLinkCode>;
 
+  // --- Team chat (human-to-human messaging between members of this deployment) ---
+
+  // Credentials for the caller's Stream Chat connection: the caller is upserted on Stream
+  // with this deployment as their team, then a short-lived user token is minted. Null when
+  // the deployment has no Stream credentials or no team directory — the chat bubble then
+  // stays hidden. Call again when the token expires (the client passes it as a provider).
+  getTeamChatSession(): Promise<TeamChatSession | null>;
+
+  // Teammates the caller can message (every member of the deployment's team directory except
+  // the caller), with their Stream user ids. Also upserts them on Stream so a channel can be
+  // created with them before they have ever opened the chat themselves.
+  listTeamChatTeammates(): Promise<TeamChatTeammate[]>;
+
+  // Create (or find) a channel the caller can chat in. With one member id and no name this is
+  // the direct-message channel between the caller and that member (idempotent); otherwise a
+  // named group. Members must be teammates from listTeamChatTeammates(). Returns the Stream
+  // channel cid ("messaging:<id>"). Channels are created server-side so their team and
+  // membership are always set by the deployment, never by the browser.
+  createTeamChatChannel(memberIds: string[], name?: string): Promise<{ cid: string }>;
+
   // Remove the caller's own Telegram link; returns false when none exists.
   unlinkMyTelegram(): Promise<boolean>;
 
@@ -1483,6 +1503,27 @@ export type TeamMember = {
   role: string;
   // When they joined (ms since epoch).
   createdAt: number;
+};
+
+// Team chat: what the browser needs to connect the caller to Stream Chat.
+export type TeamChatSession = {
+  apiKey: string;
+  // Stream user id of the caller (derived from their email and this deployment's team).
+  userId: string;
+  // Display name to connect with.
+  name: string;
+  // Stream team (= this deployment's tenant slug). Channels are scoped to it.
+  team: string;
+  // HS256 user token; expires at `expiresAt` (ms since epoch).
+  token: string;
+  expiresAt: number;
+};
+
+// A teammate the caller can message.
+export type TeamChatTeammate = {
+  streamId: string;
+  email: string;
+  name: string;
 };
 
 // A pending invitation in the central team directory.

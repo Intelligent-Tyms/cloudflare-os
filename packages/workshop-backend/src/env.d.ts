@@ -105,6 +105,13 @@ declare global {
       CENTRAL_TEAM_API_URL?: string;
       CENTRAL_TEAM_API_TOKEN?: string;
 
+      // Team chat (Stream Chat, getstream.io). The platform's shared Stream app: the key is a
+      // public var (the browser connects with it), the secret a worker secret pushed by the
+      // deploy tooling. Both set + CF_AI_GATEWAY_TENANT (the Stream team) + a team directory
+      // = the chat bubble shows; anything missing = no team chat.
+      STREAM_API_KEY?: string;
+      STREAM_API_SECRET?: string;
+
       // Enables the Cloudflare free-tier limits + top-up flow when set to "true".
       ENABLE_CLOUDFLARE_LIMITS?: string;
 

@@ -23,6 +23,8 @@
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "stream-chat": "^9.51.0",
+    "stream-chat-react": "^14.11.1",
     "tailwindcss": "^4.3.3",
     "vite-tsconfig-paths": "^6.1.1",
     "y-monaco": "^0.1.6",

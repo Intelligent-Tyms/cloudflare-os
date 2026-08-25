@@ -1,7 +1,7 @@
 import { RpcStub, RpcTarget, newHttpBatchRpcResponse, newWebSocketRpcSession, RpcSessionOptions } from "capnweb";
 import { validateRpc } from "capnweb-validate";
 import type { JWTPayload } from "jose";
-import { PublicApi, AuthenticatedApi, Overseer, GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiGatewayInfo, AiModelProvider, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, ObserverConfigCallback, BlueprintLibrarySummary, BlueprintPublicInfo, BlueprintUserSummary, BlueprintBindingAssignment, AgentSpawnerConfig, WorkpieceId, BLUEPRINT_SCREENSHOT_PATH_PREFIX, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ServerConfig, CloudflareUsageInfo, CloudflareAccountOption, LoginAttempt, GatekeeperAppInfo, AdminApi, GatekeeperVendorInfo, OutputFormatOffer, ListOutputsResult, createOpenGadgetError, getOpenGadgetErrorCode, OPEN_GADGET_ERROR_CODES, AUTH_ERROR_CODES, createAuthError, AssistantProfile, BillingGateInfo, UserChannelsView, TelegramLinkCode } from '@gadgets/workshop-shared/api';
+import { PublicApi, AuthenticatedApi, Overseer, GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiGatewayInfo, AiModelProvider, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, ObserverConfigCallback, BlueprintLibrarySummary, BlueprintPublicInfo, BlueprintUserSummary, BlueprintBindingAssignment, AgentSpawnerConfig, WorkpieceId, BLUEPRINT_SCREENSHOT_PATH_PREFIX, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ServerConfig, CloudflareUsageInfo, CloudflareAccountOption, LoginAttempt, GatekeeperAppInfo, AdminApi, GatekeeperVendorInfo, OutputFormatOffer, ListOutputsResult, createOpenGadgetError, getOpenGadgetErrorCode, OPEN_GADGET_ERROR_CODES, AUTH_ERROR_CODES, createAuthError, AssistantProfile, BillingGateInfo, UserChannelsView, TelegramLinkCode, TeamChatSession, TeamChatTeammate } from '@gadgets/workshop-shared/api';
 import type { UiFeatureFlags } from "@gadgets/workshop-shared/feature-flags";
 import { getServerConfig } from "./deployment-config.js";
 import { isPasswordAuthEnabled, getAuthGatekeeperAllowlist, hasCentralLogin } from "./auth/config.js";
@@ -33,6 +33,7 @@ import { resolveUiFeatureFlags } from "./feature-flags";
 import { serveSiteLogo, SITE_LOGO_PATH } from "./site-logo.js";
 import { createWorkshopLogger } from "./observability";
 import { retryOnDoReset, wrapDoStubForTelemetry } from "./do-retry";
+import { TeamChat } from "./team-chat.js";
 
 const logger = createWorkshopLogger("workshop.server");
 
@@ -632,6 +633,30 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     if (!app) return null;
     // isAdmin is supplied fresh per open so admin-gated features reflect the user's current status.
     return user.startAccountAppUi(app.accountId, { isAdmin: await this.#isAdminUser() });
+  }
+
+  // --- Team chat ---
+
+  // Null (bubble hidden) unless the deployment has Stream credentials, a tenant slug and a
+  // team directory; a Stream outage surfaces as a thrown error the bubble reports.
+  getTeamChatSession(): Promise<TeamChatSession | null> {
+    let chat = TeamChat.from(this.env);
+    if (!chat) return Promise.resolve(null);
+    return chat.session(this.#userId.name!);
+  }
+
+  listTeamChatTeammates(): Promise<TeamChatTeammate[]> {
+    return this.#teamChat().teammates(this.#userId.name!);
+  }
+
+  createTeamChatChannel(memberIds: string[], name?: string): Promise<{ cid: string }> {
+    return this.#teamChat().createChannel(this.#userId.name!, memberIds, name);
+  }
+
+  #teamChat(): TeamChat {
+    let chat = TeamChat.from(this.env);
+    if (!chat) throw new Error("Team chat is not available on this deployment.");
+    return chat;
   }
 
   // --- Deployment admin ---

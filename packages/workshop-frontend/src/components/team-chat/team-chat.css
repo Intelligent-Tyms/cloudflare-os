@@ -1,0 +1,30 @@
+/* Team chat: fit Stream's components into the floating panel and let them inherit the app's
+   surfaces. Stream's own stylesheet handles the light/dark palette via the theme class. */
+.team-chat-panel .str-chat {
+  height: 100%;
+  min-height: 0;
+  --str-chat__font-family: inherit;
+}
+.team-chat-panel .str-chat__channel-list {
+  height: 100%;
+  border: 0;
+}
+.team-chat-panel .str-chat__channel {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.team-chat-panel .str-chat__container {
+  height: 100%;
+  min-height: 0;
+}
+.team-chat-panel .str-chat__channel-header {
+  border: 0;
+  padding-left: 0.25rem;
+}
+.team-chat-panel .str-chat__thread {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
