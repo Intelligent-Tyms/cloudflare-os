@@ -13,7 +13,7 @@ import AppShell from '../components/AppShell/AppShell'
 import LoginPage from '../LoginPage'
 import OnboardingWizard from '../OnboardingWizard'
 import AccountSelectionModal from '../components/billing/AccountSelectionModal'
-import TeamChatBubble from '../components/team-chat/TeamChatBubble'
+import DiscussRoot from '../components/team-chat/DiscussRoot'
 import { AssistantProfileProvider } from '../AssistantProfileContext'
 
 export const Route = createRootRoute({
@@ -172,16 +172,17 @@ function AuthenticatedShell({
   return (
     <AssistantProfileProvider authenticatedApi={authenticatedApi}>
       <AccountSelectionModal />
-      <TeamChatBubble />
-      {fullscreen ? (
-        <main className="h-full min-h-0">
-          <Outlet />
-        </main>
-      ) : (
-        <AppShell>
-          <Outlet />
-        </AppShell>
-      )}
+      <DiscussRoot>
+        {fullscreen ? (
+          <main className="h-full min-h-0">
+            <Outlet />
+          </main>
+        ) : (
+          <AppShell>
+            <Outlet />
+          </AppShell>
+        )}
+      </DiscussRoot>
     </AssistantProfileProvider>
   )
 }

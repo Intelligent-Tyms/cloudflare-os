@@ -66,4 +66,82 @@ describe("team chat", () => {
       globalThis.fetch = realFetch;
     }
   });
+
+  function fakeStream(channel: { team?: string; name?: string; members: string[] }) {
+    const calls: { method: string; url: string; body: any }[] = [];
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ method: init?.method ?? "GET", url, body: init?.body ? JSON.parse(String(init.body)) : null });
+      if (url.includes("/team")) {
+        return Response.json({ team: { members: [
+          { email: "jane@example.com", displayName: "Jane Doe", role: "member", createdAt: 0 },
+          { email: "bob@example.com", displayName: "Bob", role: "member", createdAt: 0 },
+          { email: "eve@example.com", displayName: "Eve", role: "member", createdAt: 0 },
+        ], invitations: [] } });
+      }
+      if (url.includes("/query?")) {
+        return Response.json({
+          channel: { team: channel.team ?? "acme-co", name: channel.name },
+          members: channel.members.map(user_id => ({ user_id })),
+        });
+      }
+      return Response.json({});
+    }) as typeof fetch;
+    return calls;
+  }
+
+  it("renames a group and adds/removes members with a system message", async () => {
+    const realFetch = globalThis.fetch;
+    const calls = fakeStream({ name: "Launch", members: ["acme-co--jane@example_com", "acme-co--bob@example_com"] });
+    try {
+      await TeamChat.from(configured)!.updateChannel("jane@example.com", "messaging:abc", {
+        name: "Launch v2",
+        addMembers: ["acme-co--eve@example_com"],
+        removeMembers: ["acme-co--bob@example_com"],
+      });
+      const rename = calls.find(c => c.method === "PATCH");
+      expect(rename?.url).toContain("/channels/messaging/abc?");
+      expect(rename?.body).toEqual({ set: { name: "Launch v2" } });
+      const members = calls.find(c => c.method === "POST" && c.url.includes("/channels/messaging/abc?"));
+      expect(members?.body.add_members).toEqual(["acme-co--eve@example_com"]);
+      expect(members?.body.remove_members).toEqual(["acme-co--bob@example_com"]);
+      expect(members?.body.message.type).toBe("system");
+      expect(members?.body.message.text).toBe("Jane Doe added Eve. Jane Doe removed Bob");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("refuses to change DMs, other teams' channels, or channels the caller is not in", async () => {
+    const realFetch = globalThis.fetch;
+    try {
+      fakeStream({ members: ["acme-co--jane@example_com", "acme-co--bob@example_com"] });
+      await expect(TeamChat.from(configured)!.updateChannel("jane@example.com", "messaging:dm", { name: "x" }))
+        .rejects.toThrow(/Direct messages/);
+      fakeStream({ name: "Other", team: "other-co", members: ["acme-co--jane@example_com"] });
+      await expect(TeamChat.from(configured)!.leaveChannel("jane@example.com", "messaging:x"))
+        .rejects.toThrow(/not a member/);
+      fakeStream({ name: "Private", members: ["acme-co--bob@example_com"] });
+      await expect(TeamChat.from(configured)!.leaveChannel("jane@example.com", "messaging:y"))
+        .rejects.toThrow(/not a member/);
+      fakeStream({ name: "Launch", members: ["acme-co--jane@example_com", "acme-co--bob@example_com"] });
+      await expect(TeamChat.from(configured)!.updateChannel("jane@example.com", "messaging:abc",
+          { addMembers: ["acme-co--stranger@example_com"] })).rejects.toThrow(/members of this team/);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("leaves a group by removing the caller", async () => {
+    const realFetch = globalThis.fetch;
+    const calls = fakeStream({ name: "Launch", members: ["acme-co--jane@example_com", "acme-co--bob@example_com"] });
+    try {
+      await TeamChat.from(configured)!.leaveChannel("jane@example.com", "messaging:abc");
+      const leave = calls.find(c => c.method === "POST" && c.url.includes("/channels/messaging/abc?"));
+      expect(leave?.body.remove_members).toEqual(["acme-co--jane@example_com"]);
+      expect(leave?.body.message.text).toBe("Jane Doe left");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 });

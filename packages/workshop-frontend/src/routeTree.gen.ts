@@ -15,6 +15,7 @@ import { Route as AssistantRouteImport } from './routes/assistant'
 import { Route as BlueprintsRouteImport } from './routes/blueprints'
 import { Route as ChannelsRouteImport } from './routes/channels'
 import { Route as ContextRouteImport } from './routes/context'
+import { Route as DiscussRouteImport } from './routes/discuss'
 import { Route as ExploreRouteImport } from './routes/explore'
 import { Route as GatekeepersRouteImport } from './routes/gatekeepers'
 import { Route as IntegrationsRouteImport } from './routes/integrations'
@@ -62,6 +63,11 @@ const ChannelsRoute = ChannelsRouteImport.update({
 const ContextRoute = ContextRouteImport.update({
   id: '/context',
   path: '/context',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DiscussRoute = DiscussRouteImport.update({
+  id: '/discuss',
+  path: '/discuss',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ExploreRoute = ExploreRouteImport.update({
@@ -163,6 +169,7 @@ export interface FileRoutesByFullPath {
   '/blueprints': typeof BlueprintsRoute
   '/channels': typeof ChannelsRoute
   '/context': typeof ContextRoute
+  '/discuss': typeof DiscussRoute
   '/explore': typeof ExploreRoute
   '/gatekeepers': typeof GatekeepersRoute
   '/integrations': typeof IntegrationsRoute
@@ -189,6 +196,7 @@ export interface FileRoutesByTo {
   '/blueprints': typeof BlueprintsRoute
   '/channels': typeof ChannelsRoute
   '/context': typeof ContextRoute
+  '/discuss': typeof DiscussRoute
   '/explore': typeof ExploreRoute
   '/gatekeepers': typeof GatekeepersRoute
   '/integrations': typeof IntegrationsRoute
@@ -216,6 +224,7 @@ export interface FileRoutesById {
   '/blueprints': typeof BlueprintsRoute
   '/channels': typeof ChannelsRoute
   '/context': typeof ContextRoute
+  '/discuss': typeof DiscussRoute
   '/explore': typeof ExploreRoute
   '/gatekeepers': typeof GatekeepersRoute
   '/integrations': typeof IntegrationsRoute
@@ -244,6 +253,7 @@ export interface FileRouteTypes {
     | '/blueprints'
     | '/channels'
     | '/context'
+    | '/discuss'
     | '/explore'
     | '/gatekeepers'
     | '/integrations'
@@ -270,6 +280,7 @@ export interface FileRouteTypes {
     | '/blueprints'
     | '/channels'
     | '/context'
+    | '/discuss'
     | '/explore'
     | '/gatekeepers'
     | '/integrations'
@@ -296,6 +307,7 @@ export interface FileRouteTypes {
     | '/blueprints'
     | '/channels'
     | '/context'
+    | '/discuss'
     | '/explore'
     | '/gatekeepers'
     | '/integrations'
@@ -323,6 +335,7 @@ export interface RootRouteChildren {
   BlueprintsRoute: typeof BlueprintsRoute
   ChannelsRoute: typeof ChannelsRoute
   ContextRoute: typeof ContextRoute
+  DiscussRoute: typeof DiscussRoute
   ExploreRoute: typeof ExploreRoute
   GatekeepersRoute: typeof GatekeepersRoute
   IntegrationsRoute: typeof IntegrationsRoute
@@ -385,6 +398,13 @@ declare module '@tanstack/react-router' {
       path: '/context'
       fullPath: '/context'
       preLoaderRoute: typeof ContextRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/discuss': {
+      id: '/discuss'
+      path: '/discuss'
+      fullPath: '/discuss'
+      preLoaderRoute: typeof DiscussRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/explore': {
@@ -523,6 +543,7 @@ const rootRouteChildren: RootRouteChildren = {
   BlueprintsRoute: BlueprintsRoute,
   ChannelsRoute: ChannelsRoute,
   ContextRoute: ContextRoute,
+  DiscussRoute: DiscussRoute,
   ExploreRoute: ExploreRoute,
   GatekeepersRoute: GatekeepersRoute,
   IntegrationsRoute: IntegrationsRoute,

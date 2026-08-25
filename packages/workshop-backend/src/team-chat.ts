@@ -7,7 +7,7 @@
 // and membership of everything are set by the deployment, never by the client.
 
 import { SignJWT } from "jose";
-import { TeamChatSession, TeamChatTeammate } from "@gadgets/workshop-shared/api";
+import { TeamChatSession, TeamChatTeammate, TeamChatChannelChanges } from "@gadgets/workshop-shared/api";
 import { fetchTeam, hasTeamDirectory } from "./team-directory.js";
 
 const STREAM_API_URL = "https://chat.stream-io-api.com";
@@ -167,6 +167,77 @@ export class TeamChat {
       data, state: false, presence: false, watch: false,
     });
     return { cid: response.channel.cid };
+  }
+
+  /**
+   * Rename a group and/or change its members. The caller must be a member of the channel and
+   * the channel must be a group (have a name) in this team; DMs are immutable. Added members
+   * are checked against the team directory like createChannel(). Member changes post a system
+   * message so the conversation shows who did what.
+   */
+  async updateChannel(callerEmail: string, cid: string, changes: TeamChatChannelChanges): Promise<void> {
+    let { callerId, id, channel } = await this.#groupForMember(callerEmail, cid);
+    let name = changes.name?.trim();
+    if (changes.name !== undefined) {
+      if (!name) throw new Error("Give the group a name.");
+      if (name.length > 80) throw new Error("Group names are limited to 80 characters.");
+      if (name !== channel.name) {
+        await this.client.call("PATCH", `/channels/messaging/${id}`, { set: { name } });
+      }
+    }
+    let add = [...new Set(changes.addMembers ?? [])].filter(m => !channel.memberIds.has(m));
+    let remove = [...new Set(changes.removeMembers ?? [])].filter(m => channel.memberIds.has(m));
+    if (add.length === 0 && remove.length === 0) return;
+    let teammates = await this.teammates(callerEmail);
+    let byId = new Map(teammates.map(t => [t.streamId, t]));
+    for (let m of add) {
+      if (!byId.has(m)) throw new Error("You can only add members of this team.");
+    }
+    if (remove.includes(callerId)) throw new Error("Use leave to remove yourself.");
+    let callerName = await this.#nameOf(callerEmail);
+    let nameOf = (m: string) => byId.get(m)?.name ?? "a teammate";
+    let parts: string[] = [];
+    if (add.length) parts.push(`${callerName} added ${add.map(nameOf).join(", ")}`);
+    if (remove.length) parts.push(`${callerName} removed ${remove.map(nameOf).join(", ")}`);
+    let body: Record<string, unknown> = {
+      message: { type: "system", text: parts.join(". "), user_id: callerId },
+    };
+    if (add.length) body.add_members = add;
+    if (remove.length) body.remove_members = remove;
+    await this.client.call("POST", `/channels/messaging/${id}`, body);
+  }
+
+  /** Remove the caller from a group they belong to. */
+  async leaveChannel(callerEmail: string, cid: string): Promise<void> {
+    let { callerId, id } = await this.#groupForMember(callerEmail, cid);
+    let callerName = await this.#nameOf(callerEmail);
+    await this.client.call("POST", `/channels/messaging/${id}`, {
+      remove_members: [callerId],
+      message: { type: "system", text: `${callerName} left`, user_id: callerId },
+    });
+  }
+
+  // Load a channel and check it is a group in this team that the caller belongs to.
+  async #groupForMember(callerEmail: string, cid: string): Promise<{
+    callerId: string;
+    id: string;
+    channel: { name: string | undefined; memberIds: Set<string> };
+  }> {
+    let [type, id] = cid.split(":");
+    if (type !== "messaging" || !id || !/^[a-z0-9_-]+$/i.test(id)) {
+      throw new Error("Unknown conversation.");
+    }
+    let callerId = await streamUserId(this.team, callerEmail);
+    let response = await this.client.call<{
+      channel: { team?: string; name?: string };
+      members: { user_id?: string }[];
+    }>("POST", `/channels/messaging/${id}/query`, { state: true, watch: false, presence: false });
+    let memberIds = new Set(response.members.map(m => m.user_id).filter((m): m is string => Boolean(m)));
+    if (response.channel.team !== this.team || !memberIds.has(callerId)) {
+      throw new Error("You are not a member of this conversation.");
+    }
+    if (!response.channel.name) throw new Error("Direct messages can't be changed.");
+    return { callerId, id, channel: { name: response.channel.name, memberIds } };
   }
 
   async #nameOf(email: string): Promise<string> {

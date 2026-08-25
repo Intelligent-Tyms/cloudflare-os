@@ -508,6 +508,14 @@ export interface AuthenticatedApi extends RpcTarget {
   // membership are always set by the deployment, never by the browser.
   createTeamChatChannel(memberIds: string[], name?: string): Promise<{ cid: string }>;
 
+  // Manage a group the caller belongs to: rename it, add teammates, remove members. Only groups
+  // (named channels) can be changed; DMs are fixed. Membership is checked server-side, added
+  // members must be teammates from listTeamChatTeammates().
+  updateTeamChatChannel(cid: string, changes: TeamChatChannelChanges): Promise<void>;
+
+  // Leave a group the caller belongs to (not possible for DMs).
+  leaveTeamChatChannel(cid: string): Promise<void>;
+
   // Remove the caller's own Telegram link; returns false when none exists.
   unlinkMyTelegram(): Promise<boolean>;
 
@@ -1524,6 +1532,12 @@ export type TeamChatTeammate = {
   streamId: string;
   email: string;
   name: string;
+};
+
+export type TeamChatChannelChanges = {
+  name?: string;
+  addMembers?: string[];
+  removeMembers?: string[];
 };
 
 // A pending invitation in the central team directory.
