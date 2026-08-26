@@ -232,20 +232,25 @@ export class TeamChat {
    * not emailed). Returns their emails. The message must be the caller's own.
    */
   async recipientsToNudge(callerEmail: string, cid: string, messageId: string): Promise<string[]> {
+    let skip = (reason: string, extra: Record<string, unknown> = {}) => {
+      console.log(JSON.stringify({ event: "discuss_nudge_skip", reason, cid, ...extra }));
+      return [] as string[];
+    };
     let id = conversationId(cid);
-    if (!id) return [];
-    if (!/^[a-z0-9_-]+$/i.test(messageId)) return [];
+    if (!id) return skip("bad_cid");
+    if (!/^[a-z0-9_-]+$/i.test(messageId)) return skip("bad_message_id", { messageId });
     let callerId = await streamUserId(this.team, callerEmail);
     let { message } = await this.client.call<{
       message: { cid: string; user?: { id: string }; mentioned_users?: { id: string }[]; type?: string };
-    }>("GET", `/messages/${messageId}`);
-    if (message.cid !== cid || message.user?.id !== callerId) return [];
-    if (message.type === "system" || message.type === "deleted") return [];
+    }>("GET", `/messages/${encodeURIComponent(messageId)}`);
+    if (message.cid !== cid) return skip("cid_mismatch", { messageCid: message.cid });
+    if (message.user?.id !== callerId) return skip("not_caller", { sender: message.user?.id, callerId });
+    if (message.type === "system" || message.type === "deleted") return skip("message_type", { type: message.type });
     let channel = await this.client.call<{
       channel: { team?: string; name?: string };
       members: { user_id?: string }[];
     }>("POST", `/channels/messaging/${encodeURIComponent(id)}/query`, { state: true, watch: false, presence: false });
-    if (channel.channel.team !== this.team) return [];
+    if (channel.channel.team !== this.team) return skip("wrong_team", { channelTeam: channel.channel.team });
     let memberIds = new Set(channel.members.map(m => m.user_id).filter((m): m is string => Boolean(m)));
     memberIds.delete(callerId);
     let targets: string[];
@@ -254,13 +259,15 @@ export class TeamChat {
     } else {
       targets = [...memberIds];
     }
-    if (targets.length === 0) return [];
+    if (targets.length === 0) return skip("no_targets", { group: Boolean(channel.channel.name), members: memberIds.size });
     let team = await fetchTeam(this.env);
     let emails: string[] = [];
     for (let member of team.members) {
       let sid = await streamUserId(this.team, member.email);
       if (targets.includes(sid)) emails.push(member.email);
     }
+    if (emails.length === 0) return skip("targets_not_in_directory", { targets });
+    console.log(JSON.stringify({ event: "discuss_nudge_recipients", cid, recipients: emails.length }));
     return emails;
   }
 
@@ -270,8 +277,12 @@ export class TeamChat {
    * gone); otherwise the unread messages from others, newest last, capped.
    */
   async unreadDigest(recipientEmail: string, cid: string): Promise<UnreadDigest | null> {
+    let skip = (reason: string, extra: Record<string, unknown> = {}) => {
+      console.log(JSON.stringify({ event: "discuss_digest_skip", reason, cid, ...extra }));
+      return null;
+    };
     let id = conversationId(cid);
-    if (!id) return null;
+    if (!id) return skip("bad_cid");
     let recipientId = await streamUserId(this.team, recipientEmail);
     let response = await this.client.call<{
       channel: { team?: string; name?: string };
@@ -282,12 +293,12 @@ export class TeamChat {
     }>("POST", `/channels/messaging/${encodeURIComponent(id)}/query`, {
       state: true, watch: false, presence: false, messages: { limit: 30 },
     });
-    if (response.channel.team !== this.team) return null;
+    if (response.channel.team !== this.team) return skip("wrong_team");
     let me = response.members.find(m => m.user_id === recipientId);
-    if (!me) return null;
-    if (me.user?.online) return null;
+    if (!me) return skip("not_member");
+    if (me.user?.online) return skip("online");
     let read = response.read?.find(r => r.user.id === recipientId);
-    if (read && (read.unread_messages ?? 0) === 0) return null;
+    if (read && (read.unread_messages ?? 0) === 0) return skip("all_read", { lastRead: read.last_read });
     let lastRead = read ? Date.parse(read.last_read) : 0;
     let unread = response.messages
       .filter(m => m.user?.id !== recipientId && m.type !== "deleted" && m.type !== "system"
@@ -298,12 +309,13 @@ export class TeamChat {
         at: Date.parse(m.created_at),
       }))
       .filter(m => m.text);
-    if (unread.length === 0) return null;
-    if (await this.#isMuted(recipientId, cid)) return null;
+    if (unread.length === 0) return skip("nothing_unread_from_others", { lastRead, fetched: response.messages.length });
+    if (await this.#isMuted(recipientId, cid)) return skip("muted");
     let others = response.members.filter(m => m.user_id !== recipientId);
     let title = response.channel.name
         || others.map(m => m.user?.name || "Teammate").join(", ")
         || "Discuss";
+    console.log(JSON.stringify({ event: "discuss_digest", cid, unread: unread.length }));
     return { cid, title, isGroup: Boolean(response.channel.name), messages: unread.slice(-10) };
   }
 

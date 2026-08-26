@@ -663,7 +663,10 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
 
   async noteTeamChatMessageSent(cid: string, messageId: string): Promise<void> {
     let chat = TeamChat.from(this.env);
-    if (!chat) return;
+    if (!chat) {
+      console.log(JSON.stringify({ event: "discuss_nudge_skip", reason: "no_team_chat", cid }));
+      return;
+    }
     try {
       let recipients = await chat.recipientsToNudge(this.#userId.name!, cid, messageId);
       for (let email of recipients) {
@@ -672,7 +675,7 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
       }
     } catch (err) {
       // Nudges are best-effort: the message itself is already delivered by Stream.
-      console.warn("team chat nudge scheduling failed:", err);
+      console.warn("team chat nudge scheduling failed:", err instanceof Error ? err.message : String(err));
     }
   }
 
