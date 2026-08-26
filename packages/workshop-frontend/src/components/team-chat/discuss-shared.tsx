@@ -288,22 +288,13 @@ export function ConversationHeader({
   const { session, teammates, api } = discuss
   const info = describeConversation(channel, session.userId, teammates)
   void tick
-  let subtitle: string
-  if (info.kind === 'dm') {
-    subtitle = info.online ? 'Online' : info.lastActive ? `Last active ${relativeTime(info.lastActive, true)}` : 'Offline'
-  } else {
-    subtitle = `${info.memberCount} members` + (info.onlineCount ? ` · ${info.onlineCount} online` : '')
-  }
   return (
-    <div className="flex items-center gap-2 pl-1 pr-2 h-12 border-b border-kumo-line shrink-0">
+    <div className="flex items-center gap-2.5 pl-1.5 pr-1.5 h-11 border-b border-kumo-line shrink-0">
       {showBack ? (
         <IconButton label="Back to conversations" onClick={onBack}><ArrowLeft size={16} /></IconButton>
-      ) : <span className="w-1" />}
-      <ConversationAvatar info={info} api={api} size={32} />
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-semibold text-kumo-default truncate leading-tight">{info.title}</div>
-        <div className={`text-[11px] leading-tight truncate ${info.kind === 'dm' && info.online ? 'text-kumo-success' : 'text-kumo-subtle'}`}>{subtitle}</div>
-      </div>
+      ) : <span className="w-1.5" />}
+      <ConversationAvatar info={info} api={api} size={28} />
+      <ConversationTitle info={info} />
       <AskTymsMenu channel={channel} discuss={discuss} title={info.title} />
       <IconButton label={infoOpen ? 'Hide details' : 'Details'} onClick={onToggleInfo} className={infoOpen ? 'bg-kumo-tint text-kumo-default' : ''}>
         <Info size={16} />
@@ -312,10 +303,27 @@ export function ConversationHeader({
   )
 }
 
+/** Name over a one-line status, at the app's 14/11 scale. Shared by the page header and the dock bar. */
+export function ConversationTitle({ info }: { info: ConversationInfo }) {
+  return (
+    <div className="flex-1 min-w-0">
+      <div className="text-sm font-semibold text-kumo-default truncate leading-tight">{info.title}</div>
+      <div className="text-[11px] leading-tight truncate text-kumo-subtle">{conversationSubtitle(info)}</div>
+    </div>
+  )
+}
+
+export function conversationSubtitle(info: ConversationInfo): string {
+  if (info.kind === 'dm') {
+    return info.online ? 'Online' : info.lastActive ? `Last active ${relativeTime(info.lastActive, true)}` : 'Offline'
+  }
+  return `${info.memberCount} members` + (info.onlineCount ? ` · ${info.onlineCount} online` : '')
+}
+
 // "Ask Tyms" hands the conversation to the assistant: it seeds a new workspace's first message
 // with the transcript and an instruction, so the person sees exactly what the assistant gets
 // and can edit before sending.
-function AskTymsMenu({ channel, discuss, title }: { channel: StreamChannel; discuss: DiscussContextValue; title: string }) {
+export function AskTymsMenu({ channel, discuss, title }: { channel: StreamChannel; discuss: DiscussContextValue; title: string }) {
   const navigate = useNavigate()
   const ask = (instruction: string) => {
     const prompt = buildAskTymsPrompt(channel, discuss.session.userId, title, instruction)
@@ -329,9 +337,10 @@ function AskTymsMenu({ channel, discuss, title }: { channel: StreamChannel; disc
           <button
             type="button"
             title="Ask Tyms about this conversation"
-            className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-md text-xs font-medium text-kumo-default hover:bg-kumo-tint"
+            aria-label="Ask Tyms about this conversation"
+            className="w-8 h-8 shrink-0 inline-flex items-center justify-center rounded-md text-kumo-subtle hover:text-kumo-default hover:bg-kumo-tint"
           >
-            <Sparkles size={14} /> Ask Tyms
+            <Sparkles size={16} />
           </button>
         )}
       />

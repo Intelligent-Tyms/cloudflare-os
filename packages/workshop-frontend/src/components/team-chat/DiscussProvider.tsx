@@ -15,15 +15,16 @@ import {
   useChatContext,
   useCreateChatClient,
 } from 'stream-chat-react'
-import { ChevronDown, ChevronUp, Maximize2, SquarePen } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronUp, Info, Maximize2, SquarePen } from 'lucide-react'
 import 'stream-chat-react/dist/css/index.css'
 import './team-chat.css'
 import { PersonAvatar } from '../PersonAvatar'
 import { logRpcFailure } from '../../rpcErrors'
 import type { DiscussContextValue, DiscussPrefs, DiscussRequest, TeammateIndex } from './discuss-context'
 import {
-  ConversationDetails, ConversationHeader, ConversationList, DISCUSS_ICONS, DiscussAttachment, IconButton, NewConversation,
-  PrefsMenu, UnreadPill, describeConversation, previewText, streamTheme, useDarkMode, useLiveTick, useUnreadCount,
+  AskTymsMenu, ConversationAvatar, ConversationDetails, ConversationList, ConversationTitle, DISCUSS_ICONS, DiscussAttachment,
+  IconButton, NewConversation, PrefsMenu, UnreadPill, describeConversation, previewText, streamTheme, useDarkMode, useLiveTick,
+  useUnreadCount,
 } from './discuss-shared'
 
 // Discuss: human-to-human messaging between the members of this deployment. This component
@@ -239,9 +240,12 @@ function DiscussDock({
     else backToList()
   }
 
-  const title = view === 'new' ? 'New message' : view === 'channel' && channel
-    ? describeConversation(channel, session.userId, teammates).title
-    : 'Discuss'
+  // In a conversation the dock bar *is* the conversation header (avatar, name, status, Ask Tyms,
+  // details) so the panel has one header rather than two stacked ones.
+  const conversation = expanded && view === 'channel' && channel
+    ? describeConversation(channel, session.userId, teammates)
+    : null
+  const title = view === 'new' ? 'New message' : 'Discuss'
 
   return (
     <div
@@ -250,25 +254,44 @@ function DiscussDock({
       onKeyDown={onKeyDown}
     >
       <div className="team-chat-dock flex flex-col rounded-t-xl border border-b-0 border-kumo-line bg-kumo-base shadow-[0_-4px_24px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_24px_rgba(0,0,0,0.5)] overflow-hidden">
-        <div className="flex items-center h-12 pl-3 pr-1.5 gap-1 shrink-0 select-none">
-          <button
-            type="button"
-            onClick={() => setExpanded(!expanded)}
-            aria-expanded={expanded}
-            aria-label={expanded ? 'Collapse Discuss' : 'Expand Discuss'}
-            className="flex-1 min-w-0 flex items-center gap-2.5 h-full text-left"
-          >
-            <span className="relative shrink-0">
-              <PersonAvatar api={api} userId={selfUserId} name={session.name} size={28} />
-              <span
-                title={discuss.prefs.dnd ? 'Notifications paused' : 'Online'}
-                className={`absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-kumo-base ${discuss.prefs.dnd ? 'bg-kumo-danger' : 'bg-kumo-success'}`}
-              />
-            </span>
-            <span className="text-sm font-semibold text-kumo-default truncate">{title}</span>
-            {!expanded && unread > 0 && <UnreadPill count={unread} />}
-          </button>
-          {expanded && (
+        <div className={`flex items-center h-11 pr-1.5 gap-1 shrink-0 select-none ${conversation ? 'pl-1.5' : 'pl-3'}`}>
+          {conversation && channel ? (
+            <>
+              <IconButton label="Back to conversations" onClick={backToList}><ArrowLeft size={16} /></IconButton>
+              <button
+                type="button"
+                onClick={() => setExpanded(false)}
+                aria-label="Collapse Discuss"
+                className="flex-1 min-w-0 flex items-center gap-2.5 h-full text-left"
+              >
+                <ConversationAvatar info={conversation} api={api} size={28} />
+                <ConversationTitle info={conversation} />
+              </button>
+              <AskTymsMenu channel={channel} discuss={discuss} title={conversation.title} />
+              <IconButton label={details ? 'Hide details' : 'Details'} onClick={() => setDetails((d) => !d)} className={details ? 'bg-kumo-tint text-kumo-default' : ''}>
+                <Info size={16} />
+              </IconButton>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setExpanded(!expanded)}
+              aria-expanded={expanded}
+              aria-label={expanded ? 'Collapse Discuss' : 'Expand Discuss'}
+              className="flex-1 min-w-0 flex items-center gap-2.5 h-full text-left"
+            >
+              <span className="relative shrink-0">
+                <PersonAvatar api={api} userId={selfUserId} name={session.name} size={28} />
+                <span
+                  title={discuss.prefs.dnd ? 'Notifications paused' : 'Online'}
+                  className={`absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-kumo-base ${discuss.prefs.dnd ? 'bg-kumo-danger' : 'bg-kumo-success'}`}
+                />
+              </span>
+              <span className="text-sm font-semibold text-kumo-default truncate">{title}</span>
+              {!expanded && unread > 0 && <UnreadPill count={unread} />}
+            </button>
+          )}
+          {expanded && !conversation && (
             <>
               <PrefsMenu discuss={discuss} />
               {view !== 'new' && (
@@ -276,10 +299,12 @@ function DiscussDock({
                   <SquarePen size={16} />
                 </IconButton>
               )}
-              <IconButton label="Open Discuss in full" onClick={() => { setExpanded(false); void navigate({ to: '/discuss' }) }}>
-                <Maximize2 size={15} />
-              </IconButton>
             </>
+          )}
+          {expanded && (
+            <IconButton label="Open Discuss in full" onClick={() => { setExpanded(false); void navigate({ to: '/discuss' }) }}>
+              <Maximize2 size={15} />
+            </IconButton>
           )}
           <IconButton label={expanded ? 'Collapse' : 'Expand'} onClick={() => setExpanded(!expanded)}>
             {expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
@@ -295,15 +320,6 @@ function DiscussDock({
                 {/* Stream lays out .str-chat__channel as a row (main panel | thread), so the
                     header must live inside <Window>, which is the column. */}
                 <Window>
-                  <ConversationHeader
-                    channel={channel}
-                    discuss={discuss}
-                    tick={tick}
-                    onBack={backToList}
-                    showBack
-                    infoOpen={details}
-                    onToggleInfo={() => setDetails((d) => !d)}
-                  />
                   {details ? (
                     <ConversationDetails channel={channel} discuss={discuss} tick={tick} onClose={() => setDetails(false)} onLeft={backToList} />
                   ) : (
