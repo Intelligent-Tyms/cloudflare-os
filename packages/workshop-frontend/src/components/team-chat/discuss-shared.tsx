@@ -3,8 +3,8 @@ import type { ReactNode } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { DropdownMenu } from '@cloudflare/kumo'
 import type { Channel as StreamChannel, Event, MessageResponse, OwnUserResponse } from 'stream-chat'
-import { Attachment, ChannelList, useChatContext } from 'stream-chat-react'
-import type { AttachmentProps, IconSlots } from 'stream-chat-react'
+import { Attachment, ChannelList, MessageActions, Streami18n, defaultMessageActionSet, useChatContext } from 'stream-chat-react'
+import type { AttachmentProps, IconSlots, MessageActionSetItem } from 'stream-chat-react'
 import {
   ArrowLeft, BellOff, Check, Ellipsis, Info, LayoutGrid, LogOut, Search, Sparkles, UserPlus, Users, X,
 } from 'lucide-react'
@@ -748,6 +748,31 @@ export function DiscussAttachment(props: AttachmentProps) {
 }
 
 /** Stream icon overrides: a plain right arrow on the send button. */
+// Message actions trimmed to what colleagues in one deployment need. Stream's default set also
+// carries community-moderation items (flag, mute, block user) and thread replies; quoting is the
+// one reply mechanism here. Edit/delete still only show on messages the person may change.
+const DISCUSS_ACTION_TYPES = new Set(['react', 'quote', 'edit', 'delete', 'pin', 'copyMessageText', 'download'])
+const DISCUSS_ACTION_SET: MessageActionSetItem[] = defaultMessageActionSet.filter((action) =>
+  action.placement === 'quick-dropdown-toggle'
+  || (action.placement === 'dropdown' && DISCUSS_ACTION_TYPES.has(action.type))
+  || (action.placement === 'quick' && action.type === 'react'),
+)
+export function DiscussMessageActions() {
+  return <MessageActions messageActionSet={DISCUSS_ACTION_SET} />
+}
+
+// Stream's labels use its own vocabulary; these match the app's. Shared by the dock and the page.
+export const DISCUSS_I18N = new Streami18n({
+  language: 'en',
+  translationsForLanguage: {
+    'Quote Reply': 'Reply',
+    'Copy Message': 'Copy',
+    'Edit Message': 'Edit',
+    'Add reaction': 'React',
+    'Download Attachment': 'Download',
+  },
+})
+
 export const DISCUSS_ICONS: IconSlots = {
   IconSend: (props) => (
     <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden {...props}>

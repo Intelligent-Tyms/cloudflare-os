@@ -234,6 +234,76 @@
   background: var(--color-kumo-base);
 }
 
+/* Message toolbar + context menu ------------------------------------------------------------ */
+
+/* Hover toolbar: flat 28px squares (no circles), with a hairline card so it reads on any bubble;
+   the thread button is gone (quoting is the reply mechanism in Discuss). */
+.team-chat-panel .str-chat__message-options {
+  gap: 0.125rem;
+  padding: 0.125rem;
+  border-radius: 0.5rem;
+  background: var(--color-kumo-base);
+  box-shadow: inset 0 0 0 1px var(--color-kumo-line);
+  --str-chat__message-options-button-size: 1.75rem;
+  --str-chat__message-options-border-radius: 0.375rem;
+  --str-chat__message-options-color: var(--text-color-kumo-subtle);
+  --str-chat__message-options-active-color: var(--text-color-kumo-default);
+}
+.team-chat-panel .str-chat__message-options .str-chat__message-actions-box-button:hover,
+.team-chat-panel .str-chat__message-options .str-chat__message-reactions-button:hover {
+  background: var(--color-kumo-tint);
+  color: var(--text-color-kumo-default);
+}
+.team-chat-panel .str-chat__message-options svg {
+  width: 1rem;
+  height: 1rem;
+}
+.team-chat-panel .str-chat__message-reply-in-thread-button {
+  display: none !important;
+}
+
+/* Context menu: the app's kebab-menu language (menuStyles.ts) — hairline card, 4px padding,
+   13px rows, tint on hover, danger tint for Delete. */
+.team-chat-panel .str-chat .str-chat__context-menu {
+  min-width: 10rem;
+  padding: 0.25rem;
+  gap: 0;
+  border-radius: 0.5rem;
+  background: var(--color-kumo-base);
+  border: 1px solid var(--color-kumo-line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+.team-chat-panel .str-chat .str-chat__message-actions-box {
+  min-width: 10rem;
+}
+.team-chat-panel .str-chat .str-chat__context-menu .str-chat__context-menu__button {
+  gap: 0.5rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.125rem;
+  letter-spacing: -0.25px;
+  color: var(--text-color-kumo-default);
+}
+.team-chat-panel .str-chat .str-chat__context-menu .str-chat__context-menu__button:hover:not(:disabled),
+.team-chat-panel .str-chat .str-chat__context-menu .str-chat__context-menu__button:focus-visible {
+  background: var(--color-kumo-tint);
+}
+.team-chat-panel .str-chat .str-chat__context-menu .str-chat__context-menu__button .str-chat__context-menu__button__icon,
+.team-chat-panel .str-chat .str-chat__context-menu .str-chat__context-menu__button svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  color: var(--text-color-kumo-subtle);
+}
+.team-chat-panel .str-chat .str-chat__context-menu .str-chat__context-menu__button--destructive:hover:not(:disabled) {
+  background: var(--color-kumo-danger-tint);
+}
+.team-chat-panel .str-chat .str-chat__context-menu .str-chat__context-menu__button--destructive .str-chat__context-menu__button__label,
+.team-chat-panel .str-chat .str-chat__context-menu .str-chat__context-menu__button--destructive svg {
+  color: var(--color-kumo-danger);
+}
+
 /* Full page: wider bubbles. */
 .team-chat-page .team-chat-panel .str-chat {
   --str-chat__message-max-width: 560px;

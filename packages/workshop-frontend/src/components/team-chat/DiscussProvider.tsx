@@ -22,7 +22,7 @@ import { PersonAvatar } from '../PersonAvatar'
 import { logRpcFailure } from '../../rpcErrors'
 import type { DiscussContextValue, DiscussPrefs, DiscussRequest, TeammateIndex } from './discuss-context'
 import {
-  AskTymsMenu, ConversationAvatar, ConversationDetails, ConversationList, ConversationTitle, DISCUSS_ICONS, DiscussAttachment,
+  AskTymsMenu, ConversationAvatar, ConversationDetails, ConversationList, ConversationTitle, DISCUSS_I18N, DISCUSS_ICONS, DiscussAttachment, DiscussMessageActions,
   IconButton, NewConversation, PrefsMenu, UnreadPill, describeConversation, previewText, streamTheme, useDarkMode, useLiveTick,
   useUnreadCount,
 } from './discuss-shared'
@@ -77,7 +77,7 @@ export default function DiscussProvider({
   if (!client) return null
 
   return (
-    <Chat client={client} theme={streamTheme(dark)}>
+    <Chat client={client} theme={streamTheme(dark)} i18nInstance={DISCUSS_I18N}>
       <DiscussController api={api} session={initialSession} selfUserId={selfUserId} onValue={onValue} />
     </Chat>
   )
@@ -316,7 +316,7 @@ function DiscussDock({
             {view === 'list' && <ConversationList discuss={discuss} tick={tick} onNew={() => setView('new')} />}
             {view === 'channel' && channel && (
               <Channel channel={channel}>
-                <WithComponents overrides={{ Attachment: DiscussAttachment, icons: DISCUSS_ICONS }}>
+                <WithComponents overrides={{ Attachment: DiscussAttachment, MessageActions: DiscussMessageActions, icons: DISCUSS_ICONS }}>
                 {/* Stream lays out .str-chat__channel as a row (main panel | thread), so the
                     header must live inside <Window>, which is the column. */}
                 <Window>
