@@ -236,22 +236,22 @@
 
 /* Message toolbar + context menu ------------------------------------------------------------ */
 
-/* Hover toolbar: flat 28px squares (no circles), with a hairline card so it reads on any bubble;
-   the thread button is gone (quoting is the reply mechanism in Discuss). */
+/* Hover toolbar: flat 28px rounded squares, no card and no circles. (The options grid area spans
+   the bubble's full height, so the container itself must stay unpainted.) The thread button is
+   gone: quoting is the reply mechanism in Discuss. */
 .team-chat-panel .str-chat__message-options {
   gap: 0.125rem;
-  padding: 0.125rem;
-  border-radius: 0.5rem;
-  background: var(--color-kumo-base);
-  box-shadow: inset 0 0 0 1px var(--color-kumo-line);
+  align-items: flex-start;
   --str-chat__message-options-button-size: 1.75rem;
   --str-chat__message-options-border-radius: 0.375rem;
   --str-chat__message-options-color: var(--text-color-kumo-subtle);
   --str-chat__message-options-active-color: var(--text-color-kumo-default);
 }
+.team-chat-panel .str-chat .str-chat__message-options .str-chat__button.str-chat__button--circular {
+  border-radius: 0.375rem;
+}
 .team-chat-panel .str-chat__message-options .str-chat__message-actions-box-button:hover,
 .team-chat-panel .str-chat__message-options .str-chat__message-reactions-button:hover {
-  background: var(--color-kumo-tint);
   color: var(--text-color-kumo-default);
 }
 .team-chat-panel .str-chat__message-options svg {
