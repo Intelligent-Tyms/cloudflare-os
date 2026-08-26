@@ -38,6 +38,17 @@ function teamOf(env: StreamEnv): string | undefined {
 }
 
 /** Deterministic Stream user id for a member email within a team. */
+/**
+ * The Stream channel id inside a Discuss cid, or null when it is not one of ours. Groups get
+ * a hex id from createChannel; DMs are Stream "distinct" channels, whose ids Stream generates
+ * as "!members-<hash>" — the leading "!" is part of the id.
+ */
+function conversationId(cid: string): string | null {
+  let [type, id] = cid.split(":");
+  if (type !== "messaging" || !id || !/^!?[a-z0-9_-]+$/i.test(id)) return null;
+  return id;
+}
+
 export async function streamUserId(team: string, email: string): Promise<string> {
   let local = email.trim().toLowerCase().replace(/[^a-z0-9@_-]/g, "_");
   let id = `${team}--${local}`;
@@ -221,8 +232,8 @@ export class TeamChat {
    * not emailed). Returns their emails. The message must be the caller's own.
    */
   async recipientsToNudge(callerEmail: string, cid: string, messageId: string): Promise<string[]> {
-    let [type, id] = cid.split(":");
-    if (type !== "messaging" || !id || !/^[a-z0-9_-]+$/i.test(id)) return [];
+    let id = conversationId(cid);
+    if (!id) return [];
     if (!/^[a-z0-9_-]+$/i.test(messageId)) return [];
     let callerId = await streamUserId(this.team, callerEmail);
     let { message } = await this.client.call<{
@@ -233,7 +244,7 @@ export class TeamChat {
     let channel = await this.client.call<{
       channel: { team?: string; name?: string };
       members: { user_id?: string }[];
-    }>("POST", `/channels/messaging/${id}/query`, { state: true, watch: false, presence: false });
+    }>("POST", `/channels/messaging/${encodeURIComponent(id)}/query`, { state: true, watch: false, presence: false });
     if (channel.channel.team !== this.team) return [];
     let memberIds = new Set(channel.members.map(m => m.user_id).filter((m): m is string => Boolean(m)));
     memberIds.delete(callerId);
@@ -259,8 +270,8 @@ export class TeamChat {
    * gone); otherwise the unread messages from others, newest last, capped.
    */
   async unreadDigest(recipientEmail: string, cid: string): Promise<UnreadDigest | null> {
-    let [type, id] = cid.split(":");
-    if (type !== "messaging" || !id || !/^[a-z0-9_-]+$/i.test(id)) return null;
+    let id = conversationId(cid);
+    if (!id) return null;
     let recipientId = await streamUserId(this.team, recipientEmail);
     let response = await this.client.call<{
       channel: { team?: string; name?: string };
@@ -268,7 +279,7 @@ export class TeamChat {
       messages: { id: string; type?: string; text?: string; created_at: string; user?: { id: string; name?: string };
         attachments?: unknown[] }[];
       read?: { user: { id: string }; last_read: string; unread_messages?: number }[];
-    }>("POST", `/channels/messaging/${id}/query`, {
+    }>("POST", `/channels/messaging/${encodeURIComponent(id)}/query`, {
       state: true, watch: false, presence: false, messages: { limit: 30 },
     });
     if (response.channel.team !== this.team) return null;

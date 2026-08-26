@@ -200,6 +200,10 @@ describe("team chat", () => {
       fakeStreamForNudges({ message: { cid: "messaging:grp", user: JANE },
         channel: { name: "Launch", members: [{ id: JANE }, { id: BOB }] } });
       expect(await TeamChat.from(configured)!.recipientsToNudge("jane@example.com", "messaging:grp", "m3")).toEqual([]);
+      // DMs are Stream "distinct" channels whose ids start with "!members-"; they must nudge too.
+      fakeStreamForNudges({ message: { cid: "messaging:!members-abc123", user: JANE }, channel: { members: [{ id: JANE }, { id: BOB }] } });
+      expect(await TeamChat.from(configured)!.recipientsToNudge("jane@example.com", "messaging:!members-abc123", "m5"))
+        .toEqual(["bob@example.com"]);
       // Someone else's message never schedules nudges on the caller's behalf.
       fakeStreamForNudges({ message: { cid: "messaging:dm", user: BOB }, channel: { members: [{ id: JANE }, { id: BOB }] } });
       expect(await TeamChat.from(configured)!.recipientsToNudge("jane@example.com", "messaging:dm", "m4")).toEqual([]);
