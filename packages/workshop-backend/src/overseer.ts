@@ -1,4 +1,5 @@
 import { RpcCompatible, RpcStub, RpcTarget } from "capnweb";
+import { createExportDeadline } from "./export-limits";
 import { validateRpc } from "capnweb-validate";
 import { Overseer, GadgetMetadata, UiBundle, WorkpieceId, WorkpieceSummary, WorkpiecesSubscriber, GadgetClient, GadgetBindingInfo, GatekeeperClient, ActionState, ActionLogEntry, ActionsSubscriber, CodeUpdate, CodeSubscriber, AiChatMetadata, AiChatMessage, AiChatHistoryPage, AiChatSubscriber, AiChatAuthorInfo, AiModelConfig, AiChatMessageBody, AgentSpawnerConfig, ConsoleLogSubscriber, ConsoleLogEvent, CapsuleSpecifier, CollaboratorInfo, CollaboratorRole, AffectedCollaborator, ShareLinkInfo, GatekeeperCreationSpec, ObserverConfigCallback, ObserverBindingNeed, ObserverBindingFailure, BlueprintBindingAnnotation, BlueprintBinding, BlueprintMetadata, BlueprintOutput, MessageFormatRef, isOutputIcon, SpawnerEnvTarget, BlueprintGadgetSummary, AiChatStreamEvent, BlueprintScreenshotUpload, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ChatAttachmentUpload, ChatAttachmentHandle, ChatAttachmentRef, BoundHookInfo, PreApprovableAction, PresenceParticipant, PresenceSubscriber, SlashCommandChoice, SlashCommandRequest, validateBindingName, createOpenGadgetError, OPEN_GADGET_ERROR_CODES, resolveSiteName, AssistantProfile, isFreePlanModel } from '@gadgets/workshop-shared/api';
 import { Gatekeeper, HookInitiator, ResourceDescription, ApprovalQueue, ActionDescription, ObservationAuthorizer, ObservationDescription, VendorDescription, SupportedResource, resolveRequestedResource, HookController, HookDescription, AGENT_CATALOG_MAX_ENTRIES, ActionKind } from "@gadgets/workshop-shared/gatekeeper";
@@ -1139,6 +1140,9 @@ export function sanitizeMessageFormatRefs(
   if (accepted.length === 0) return undefined;
   return accepted.toSorted((a, b) => a.position - b.position);
 }
+
+// Upper bound on a single gatekeeper applyAction call (see OverseerImpl.applyPendingAction).
+const MAX_APPLY_ACTION_MS = 60_000;
 
 class OverseerImpl implements AgentHooks {
   public storage: OverseerStorage;
@@ -2719,7 +2723,27 @@ class OverseerImpl implements AgentHooks {
   async applyPendingAction(record: ActionRecord & {type: "action"},
                            resolvedBy: AiChatAuthorInfo, autoApproved: boolean): Promise<void> {
     let gatekeeper = this.getGatekeeperFacet(record.gatekeeperId);
-    await gatekeeper.applyAction(record.action);
+    // Vendor-neutral deadline: a gatekeeper whose upstream call stalls (no timeout on its outbound
+    // fetch, a hung token mint, ...) must not hold the approval open until the next deploy kills
+    // it. Every vendor's applyAction passes through here, so this is the one place to bound it.
+    // On expiry the record stays pending and the caller receives an explicit error to surface.
+    let deadline = createExportDeadline(
+      "Applying this action timed out after " + (MAX_APPLY_ACTION_MS / 1000) + "s; the " +
+      "connection did not respond. It may or may not have taken effect. Check the destination " +
+      "before approving again.", MAX_APPLY_ACTION_MS);
+    try {
+      await deadline.race(gatekeeper.applyAction(record.action));
+    } catch (err) {
+      if (err === deadline.error) {
+        this.logger.error("applyAction timed out", {
+          event: "action.apply.timeout", actionId: record.id, gatekeeperId: record.gatekeeperId,
+          durationMs: MAX_APPLY_ACTION_MS,
+        });
+      }
+      throw err;
+    } finally {
+      deadline.clear();
+    }
     record.state = "approved";
     record.appliedAt = new Date();
     record.resolvedBy = resolvedBy;
