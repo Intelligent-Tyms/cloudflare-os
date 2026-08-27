@@ -1905,6 +1905,30 @@ class OverseerImpl implements AgentHooks {
     delete gadget.bindings[name];
     this.storage.gadgets.put(gadget);
     this.bumpVersion([gadgetId]);
+    if (forChatId === undefined) this.#reapOrphanedGatekeeper(edge.target);
+  }
+
+  // A user who deletes a connection from an app expects it gone. A connection can be bound by
+  // several apps, so only the last unbind destroys it; until then it stays for the other apps.
+  // Ambient connections are excluded: they mirror the owner's singleton accounts and the
+  // reconciler would just recreate them. Agent-driven unbinds (forChatId set) never reap, since
+  // the chat that wired the connection may still be using it from its own env.
+  #reapOrphanedGatekeeper(target: WorkpieceId): void {
+    let gatekeeper = this.storage.gatekeepers.get(target);
+    if (!gatekeeper || gatekeeper.creationSpec?.type === "ambient") return;
+    for (let gadget of this.storage.gadgets.list()) {
+      for (let edge of Object.values(gadget.bindings)) {
+        if (edge.target === target) return;
+      }
+    }
+    this.removeGatekeeper(target);
+    this.recordGadgetAnalytics({
+      event_name: "connection_removed",
+      gatekeeper_id: target,
+      connection_type: connectionTypeFromCreationSpec(gatekeeper.creationSpec?.type),
+      vendor_id: gatekeeper.creationSpec?.type === "gatekeeper"
+          ? gatekeeper.creationSpec.vendorId : undefined,
+    });
   }
 
   // Rename a binding edge atomically, preserving edge metadata and restarting the gadget once.
@@ -2820,8 +2844,9 @@ class OverseerImpl implements AgentHooks {
   }
 
   // Destroy a gatekeeper (connection) workpiece. Any binding edges pointing at it are severed so
-  // no gadget's env retains a dangling entry. (This is distinct from merely unbinding it from one
-  // gadget -- GadgetClient.unbind() -- which leaves the gatekeeper alive, possibly orphaned.)
+  // no gadget's env retains a dangling entry. (This is distinct from unbinding it from one gadget
+  // -- GadgetClient.unbind() -- which leaves the gatekeeper alive while other gadgets still bind
+  // it, and reaps it only when the last binding goes; see #reapOrphanedGatekeeper.)
   removeGatekeeper(id: number) {
     for (let gadget of Array.from(this.storage.gadgets.list())) {
       let names = Object.entries(gadget.bindings)

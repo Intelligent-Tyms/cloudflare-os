@@ -255,7 +255,7 @@ export default function Connections({ overseer, gadget, chatId, authenticatedApi
                             Delete {gk.resourceTitle}?
                           </p>
                           <p className="truncate text-[12px] leading-4 font-normal tracking-[-0.2px] text-kumo-subtle">
-                            The binding <span className="font-mono">{gk.name}</span> will be removed from this app.
+                            <span className="font-mono">{gk.name}</span> is removed from this app. If no other app uses this connection, it is deleted from the workspace; your account stays connected for future use.
                           </p>
                         </div>
                         <WorkshopButton
