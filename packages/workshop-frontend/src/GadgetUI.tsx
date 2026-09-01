@@ -493,7 +493,9 @@ function GadgetUISession({ gadget, height, reloadTrigger, isVisible = true, chat
           height: '100%',
           border: 'none'
         }}
-        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+        // allow-downloads: lets a gadget hand the user a file (an <a download> on a Blob), the
+        // same grant the integration-app iframe has. Everything else stays as before.
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads"
         title="App UI"
       />
     </div>
