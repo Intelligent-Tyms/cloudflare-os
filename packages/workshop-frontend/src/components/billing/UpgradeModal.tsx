@@ -4,6 +4,7 @@ import { Dialog, Button, Loader } from '@cloudflare/kumo'
 import { Zap } from 'lucide-react'
 import { BillingGateInfo } from '@gadgets/workshop-shared/api'
 import { useOptionalAuthenticatedApi } from '../../AuthContext'
+import { usePoolUpgradeUrl } from '../../ServerConfigContext'
 
 interface UpgradeModalProps {
   open: boolean
@@ -18,6 +19,9 @@ interface UpgradeModalProps {
 export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   const auth = useOptionalAuthenticatedApi()
   const navigate = useNavigate()
+  // On a free pool the plan belongs to Tyms, not the member: upgrading means getting a workspace
+  // of their own, which starts at the central account rather than this deployment's plans page.
+  const poolUpgradeUrl = usePoolUpgradeUrl()
   // undefined = loading; null = no central billing configured.
   const [gate, setGate] = useState<BillingGateInfo | null | undefined>(undefined)
   const [requestState, setRequestState] =
@@ -49,6 +53,31 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   }
 
   const isAdmin = auth?.isAdmin ?? false
+
+  if (poolUpgradeUrl) {
+    return (
+      <Dialog.Root open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+        <Dialog className="p-6 sm:w-[520px]" size="base">
+          <Dialog.Title className="text-lg font-semibold mb-2 flex items-center gap-2">
+            <Zap size={22} strokeWidth={2.5} className="text-kumo-warning" />
+            Upgrade your workspace
+          </Dialog.Title>
+          <div className="space-y-4">
+            <p className="text-sm text-kumo-subtle">
+              You've reached today's free limit. Upgrade to get a workspace of your own with a
+              monthly credit allowance, teammates, templates, and every AI model.
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button variant="secondary" onClick={onClose}>Maybe later</Button>
+              <Button variant="primary" onClick={() => window.location.assign(poolUpgradeUrl)}>
+                See plans
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+    )
+  }
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => { if (!o) onClose() }}>

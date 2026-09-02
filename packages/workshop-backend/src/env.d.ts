@@ -118,6 +118,13 @@ declare global {
       // Public base URL of the deployment.
       PUBLIC_BASE_URL?: string;
 
+      /**
+       * "true" on Tyms free pools: a stack hosting unrelated free users as plain members, chat
+       * only. Disables everything cross-user or deployment-wide (templates, sharing, team chat,
+       * Knowledge). See pool-mode.ts. Absent on company tenants and standalone deployments.
+       */
+      POOL_MODE?: string;
+
       // Daily free-tier LLM-call limit (per user). Defaults to DEFAULT_DAILY_LLM_CALL_LIMIT.
       DAILY_LLM_CALL_LIMIT?: string;
 

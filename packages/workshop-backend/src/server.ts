@@ -34,6 +34,7 @@ import { serveSiteLogo, SITE_LOGO_PATH } from "./site-logo.js";
 import { createWorkshopLogger } from "./observability";
 import { retryOnDoReset, wrapDoStubForTelemetry } from "./do-retry";
 import { TeamChat } from "./team-chat.js";
+import { isPoolMode, poolModeRefusal } from "./pool-mode.js";
 
 const logger = createWorkshopLogger("workshop.server");
 
@@ -244,6 +245,8 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     }
   }
   async getAvatar(userId: string): Promise<Uint8Array | null> {
+    // Pool members are unrelated people; nobody's avatar is anyone else's business there.
+    if (isPoolMode(this.env) && userId !== this.#userId.name) return null;
     let result = await this.env.AVATARS.get(userId, "arrayBuffer");
     if (!result) return null;
     return new Uint8Array(result);
@@ -427,6 +430,7 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
   }
 
   async listFeaturedBlueprints(): Promise<BlueprintPublicInfo[]> {
+    if (isPoolMode(this.env)) return [];
     return (await listFeaturedBlueprintsFromKv(this.env)).map(
         blueprint => publicBlueprintInfo(blueprint.id, blueprint.metadata));
   }
@@ -444,6 +448,8 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
   }
 
   async importBlueprint(archive: ReadableStream<Uint8Array>): Promise<string> {
+    // The blueprint catalog (KV + R2) is deployment-wide, so a pool has none.
+    if (isPoolMode(this.env)) throw poolModeRefusal("Templates");
     let { metadata, contentLength, content } = await parseBlueprintArchive(archive);
     delete metadata.screenshot;
     let blueprintId = randomBlueprintId();
@@ -486,6 +492,7 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     blueprintId: string,
     bindings: Record<string, BlueprintBindingAssignment>
   ): Promise<RpcStub<Overseer>> {
+    if (isPoolMode(this.env)) throw poolModeRefusal("Templates");
     // 1. Read blueprint from KV.
     let kvRecord = await readBlueprintKvRecord(this.env, blueprintId);
     if (!kvRecord) throw new Error("Template not found.");
@@ -957,6 +964,7 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
   }
 
   async getBlueprint(id: string): Promise<BlueprintPublicInfo | null> {
+    if (isPoolMode(this.env)) return null;
     let kvRecord = await readBlueprintKvRecord(this.env, id);
     if (!kvRecord) return null;
 
@@ -964,6 +972,7 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
   }
 
   async downloadBlueprint(id: string): Promise<ReadableStream<Uint8Array>> {
+    if (isPoolMode(this.env)) throw poolModeRefusal("Templates");
     let kvRecord = await readBlueprintKvRecord(this.env, id);
     if (!kvRecord) throw new Error("Template not found.");
 
@@ -1050,8 +1059,9 @@ export default {
       // Make sure the bundled format blueprints are installed. The AdminSettings DO doesn't wake
       // merely because someone deployed, so the install needs a trigger; hanging it off API
       // traffic means a fresh deployment is provisioned by its first visitor. Fire-and-forget,
-      // and the DO is idempotent.
-      if (!formatBlueprintInstallStarted) {
+      // and the DO is idempotent. Pools skip it: bundled formats are templates, and a pool
+      // offers none (the AdminSettings DO refuses as well; this just saves the wake-up).
+      if (!formatBlueprintInstallStarted && !isPoolMode(env)) {
         formatBlueprintInstallStarted = true;
         ctx.waitUntil(ctx.exports.AdminSettings.getByName("").ensureFormatBlueprintsInstalled()
             .then((complete: boolean) => {

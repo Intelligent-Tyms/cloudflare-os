@@ -38,6 +38,12 @@ describe("team chat", () => {
     }
   });
 
+  it("is off on a free pool even with every credential present", () => {
+    const pool = { ...configured, POOL_MODE: "true" } as unknown as Cloudflare.Env;
+    expect(hasTeamChat(pool)).toBe(false);
+    expect(TeamChat.from(pool)).toBeNull();
+  });
+
   it("mints an expiring HS256 user token and upserts the caller with its team", async () => {
     const calls: { url: string; body: any }[] = [];
     const realFetch = globalThis.fetch;

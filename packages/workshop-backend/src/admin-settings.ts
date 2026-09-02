@@ -17,6 +17,7 @@ import { FORMAT_BLUEPRINTS } from './generated/format-blueprints.js';
 import * as teamDirectory from './team-directory.js';
 import * as billingDirectory from './billing-directory.js';
 import type { UsageCollectorDurableObject } from './usage-collector.js';
+import { isPoolMode } from "./pool-mode.js";
 
 const logger = createWorkshopLogger("workshop.admin.settings");
 
@@ -133,6 +134,8 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
    * the same blueprints, and a duplicated id makes setFormatOrder() reject every reordering.
    */
   ensureFormatBlueprintsInstalled(): Promise<boolean> {
+    // A pool offers no templates, bundled ones included: nothing to install, nothing to retry.
+    if (isPoolMode(this.env)) return Promise.resolve(true);
     return this.#installInFlight ??= this.#installFormatBlueprints()
         .finally(() => { this.#installInFlight = undefined; });
   }
@@ -832,7 +835,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
           };
           if (description.autoProvisionsAccount) {
             // Auto-provisioning ("ambient") gatekeeper: a three-state mode, no resources to toggle.
-            let mode = ambientGatekeeperMode(config, id);
+            let mode = ambientGatekeeperMode(config, id, this.env);
             return {
               vendorId: id,
               ...display,

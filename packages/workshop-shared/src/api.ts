@@ -1621,6 +1621,14 @@ export type ServerConfig = {
   centralLoginUrl?: string;
 
   /**
+   * True on a free pool: a Tyms-owned deployment hosting unrelated free users as plain members,
+   * chat only. The client hides everything cross-user or deployment-wide (Templates, Discover,
+   * sharing, Discuss) and points "upgrade" at the central account instead of the in-app plans
+   * page, since the pool's own plan belongs to Tyms.
+   */
+  poolMode: boolean;
+
+  /**
    * Whether the optional Cloudflare free-tier limits + top-up flow is enabled. When false (the
    * default, e.g. self-hosted), usage is unlimited and the credits UI is hidden.
    */

@@ -9,6 +9,7 @@ import { isCloudflareLimitsEnabled } from "./ai-gateway-billing/config.js";
 import { getAuthVendorBinding } from "./auth/auth-vendors.js";
 import { readAdminConfig } from "./admin-config.js";
 import { siteLogoImage } from "./site-logo.js";
+import { isPoolMode } from "./pool-mode.js";
 
 const logger = createWorkshopLogger("workshop.deployment.config");
 
@@ -52,6 +53,7 @@ export async function getServerConfig(env: Cloudflare.Env): Promise<ServerConfig
     passwordAuthEnabled: isPasswordAuthEnabled(env),
     centralLoginUrl: hasCentralLogin(env) ? env.CENTRAL_LOGIN_URL : undefined,
     cloudflareLimitsEnabled: isCloudflareLimitsEnabled(env),
+    poolMode: isPoolMode(env),
     signupsEnabled: config.signupsEnabled,
     siteName: config.siteName,
     siteLogo: siteLogoImage(config.siteLogoConfigured),

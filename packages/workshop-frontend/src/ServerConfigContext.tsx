@@ -31,6 +31,28 @@ export function useAuthVendors(): AuthVendorInfo[] {
   return useContext(ServerConfigContext)?.authVendors ?? []
 }
 
+/**
+ * Convenience: whether this deployment is a free pool (chat only; see ServerConfig.poolMode).
+ * False while config is still loading, so pool-only chrome never flashes on company tenants.
+ */
+export function usePoolMode(): boolean {
+  return useContext(ServerConfigContext)?.poolMode ?? false
+}
+
+/**
+ * Where a pool member goes to upgrade: the central account's upgrade page, derived from the
+ * central login URL (same origin). Null off-pool or before config loads.
+ */
+export function usePoolUpgradeUrl(): string | null {
+  const config = useContext(ServerConfigContext)
+  if (!config?.poolMode || !config.centralLoginUrl) return null
+  try {
+    return new URL('/upgrade', config.centralLoginUrl).toString()
+  } catch {
+    return null
+  }
+}
+
 /** Convenience: whether the Cloudflare limits / top-up flow is enabled. */
 export function useCloudflareLimitsEnabled(): boolean {
   return useContext(ServerConfigContext)?.cloudflareLimitsEnabled ?? false

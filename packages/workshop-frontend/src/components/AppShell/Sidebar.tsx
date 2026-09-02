@@ -9,7 +9,7 @@ import {
   PanelLeft,
   Search,
 } from 'lucide-react'
-import { useSiteName } from '../../ServerConfigContext'
+import { usePoolMode, useSiteName } from '../../ServerConfigContext'
 import SiteLogo from '../SiteLogo'
 import { useGatekeeperApps } from '../../useGatekeeperApps'
 import { openCommandPalette } from './commandPaletteBus'
@@ -40,6 +40,7 @@ export default function Sidebar({
   collapsed: boolean
   onToggleCollapsed: () => void
 }) {
+  const poolMode = usePoolMode()
   const siteName = useSiteName()
   // Gatekeeper-served management apps the user can reach now (one per gatekeeper that provides a UI
   // and is connected / enabled for everyone). Disabled or not-yet-connected ones aren't returned, so
@@ -167,18 +168,23 @@ export default function Sidebar({
               />
               )
             })}
-            <SidebarItem
-              to="/blueprints"
-              label="Templates"
-              icon={<LayoutTemplate size={14} />}
-              collapsed={collapsed}
-            />
-            <SidebarItem
-              to="/explore"
-              label="Discover"
-              icon={<Compass size={14} />}
-              collapsed={collapsed}
-            />
+            {/* Templates and Discover are deployment-wide catalogs; a free pool has none. */}
+            {!poolMode && (
+              <>
+                <SidebarItem
+                  to="/blueprints"
+                  label="Templates"
+                  icon={<LayoutTemplate size={14} />}
+                  collapsed={collapsed}
+                />
+                <SidebarItem
+                  to="/explore"
+                  label="Discover"
+                  icon={<Compass size={14} />}
+                  collapsed={collapsed}
+                />
+              </>
+            )}
           </nav>
 
           {/* Workspace tools: search. Pinned so it's always reachable. */}

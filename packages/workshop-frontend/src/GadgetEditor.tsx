@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { RpcStub, RpcTarget } from 'capnweb'
 import { useAuthenticatedApi } from './AuthContext'
+import { usePoolMode } from './ServerConfigContext'
 import { useConnectionLost } from './RpcContext'
 import UserMenu from './components/UserMenu'
 import SiteLogo from './components/SiteLogo'
@@ -563,6 +564,8 @@ export default function GadgetEditor() {
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [discussShareOpen, setDiscussShareOpen] = useState(false)
   const discuss = useDiscuss()
+  // Free pools have no sharing and no template catalog (the server refuses both; see pool-mode.ts).
+  const poolMode = usePoolMode()
   const [blueprintModalOpen, setBlueprintModalOpen] = useState(false)
   const [previewMode, _setPreviewMode] = useState(false)
   const [workpieceRailExpanded, setWorkpieceRailExpanded] = useState(getInitialAppRailExpanded)
@@ -1564,13 +1567,15 @@ export default function GadgetEditor() {
             </WorkshopIconButton>
           )}
 
-          <WorkshopIconButton
-            onClick={() => setShareModalOpen(true)}
-            title="Share workspace"
-            aria-label="Share workspace"
-          >
-            <Share2 size={15} />
-          </WorkshopIconButton>
+          {!poolMode && (
+            <WorkshopIconButton
+              onClick={() => setShareModalOpen(true)}
+              title="Share workspace"
+              aria-label="Share workspace"
+            >
+              <Share2 size={15} />
+            </WorkshopIconButton>
+          )}
 
           {discuss && (
             <WorkshopIconButton
@@ -1582,14 +1587,16 @@ export default function GadgetEditor() {
             </WorkshopIconButton>
           )}
 
-          <WorkshopIconButton
-            onClick={() => setBlueprintModalOpen(true)}
-            disabled={!selectedGadgetStub}
-            title="Templates"
-            aria-label="Templates"
-          >
-            <Blueprint size={16} />
-          </WorkshopIconButton>
+          {!poolMode && (
+            <WorkshopIconButton
+              onClick={() => setBlueprintModalOpen(true)}
+              disabled={!selectedGadgetStub}
+              title="Templates"
+              aria-label="Templates"
+            >
+              <Blueprint size={16} />
+            </WorkshopIconButton>
+          )}
 
           {!metadata.owner && (
             <WorkshopIconButton
@@ -1696,16 +1703,20 @@ export default function GadgetEditor() {
             <DropdownMenu.Item onClick={() => setIsEditingTitle(true)} className={MENU_ITEM}>
               Rename workspace
             </DropdownMenu.Item>
-            <DropdownMenu.Item onClick={() => setShareModalOpen(true)} className={MENU_ITEM}>
-              Share workspace
-            </DropdownMenu.Item>
-            <DropdownMenu.Item
-              disabled={!selectedGadgetStub}
-              onClick={() => setBlueprintModalOpen(true)}
-              className={MENU_ITEM}
-            >
-              Templates
-            </DropdownMenu.Item>
+            {!poolMode && (
+              <DropdownMenu.Item onClick={() => setShareModalOpen(true)} className={MENU_ITEM}>
+                Share workspace
+              </DropdownMenu.Item>
+            )}
+            {!poolMode && (
+              <DropdownMenu.Item
+                disabled={!selectedGadgetStub}
+                onClick={() => setBlueprintModalOpen(true)}
+                className={MENU_ITEM}
+              >
+                Templates
+              </DropdownMenu.Item>
+            )}
             <DropdownMenu.Item
               disabled={!mobilePreviewActive}
               onClick={enterGadgetFullscreen}

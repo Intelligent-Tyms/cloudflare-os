@@ -1520,7 +1520,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     let config = await readAdminConfig(this.env);
     return (await this.#ambientVendors())
         .filter(({vendorId}) =>
-            ambientGatekeeperMode(config, vendorId) === "optional" && !this.#hasAccountForVendor(vendorId))
+            ambientGatekeeperMode(config, vendorId, this.env) === "optional" && !this.#hasAccountForVendor(vendorId))
         // Same shape as listGatekeeperVendors; ambient gatekeepers expose no resources.
         .map(({vendorId, description}) => ({id: vendorId, description, supportedResources: []}));
   }
@@ -1547,7 +1547,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     let vendor = this.vendors.get(vendorId);
     if (!vendor) throw new Error("No such service: " + vendorId);
 
-    if (ambientGatekeeperMode(await readAdminConfig(this.env), vendorId) === "disabled") {
+    if (ambientGatekeeperMode(await readAdminConfig(this.env), vendorId, this.env) === "disabled") {
       throw new Error(`The "${vendorId}" integration is disabled on this deployment.`);
     }
 
@@ -1607,7 +1607,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
       if (provisioned.has(vendorId)) continue;
       // Only "enabled" (forced) vendors are auto-provisioned for everyone. "optional" vendors are
       // added on demand by the user (provisionAmbientAccount); "disabled" ones never.
-      if (!shouldAutoProvisionAccount(config, vendorId)) continue;
+      if (!shouldAutoProvisionAccount(config, vendorId, this.env)) continue;
 
       try {
         await this.#createAutoProvisionedAccount(vendorId, vendor);
@@ -1662,7 +1662,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
       if (!rec.description.singleton && !rec.description.providesUi) continue;
       // A "disabled" ambient gatekeeper's account stays dormant: don't surface its singleton capsule
       // or management UI. (Its data is preserved, so re-enabling restores it.)
-      if (rec.autoProvisioned && ambientGatekeeperMode(config, rec.vendorId) === "disabled") continue;
+      if (rec.autoProvisioned && ambientGatekeeperMode(config, rec.vendorId, this.env) === "disabled") continue;
       result.push({ accountId: rec.id, vendorId: rec.vendorId, description: rec.description });
     }
     return result;
@@ -1716,6 +1716,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     // re-subscribes (e.g. on reconnect), matching other deployment config.
     let config = await readAdminConfig(this.env);
     let disabledGatekeeperSet = new Set(config.disabledGatekeepers);
+    let env = this.env;
 
     async function notifyAdd(record: ConnectedAccountRecord) {
       // Ambient (auto-provisioned) accounts only appear in the Integrations list when their vendor is
@@ -1723,7 +1724,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
       // nothing to manage, and "disabled" ones are dormant, so both are hidden.
       // Forced accounts are included when observer verification explicitly requests them.
       if (record.autoProvisioned) {
-        let mode = ambientGatekeeperMode(config, record.vendorId);
+        let mode = ambientGatekeeperMode(config, record.vendorId, env);
         if (mode === "disabled" ||
             (mode === "enabled" && !filter?.includeForcedAutoProvisionedAccounts)) {
           return;
@@ -1827,7 +1828,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     if (account) {
       if (account.autoProvisioned) {
         // A forced ("enabled") ambient account can't be removed by the user — the admin controls it.
-        if (shouldAutoProvisionAccount(await readAdminConfig(this.env), account.vendorId)) {
+        if (shouldAutoProvisionAccount(await readAdminConfig(this.env), account.vendorId, this.env)) {
           throw new Error("This account is provided automatically and can't be disconnected.");
         }
         // An opt-in ("optional") ambient account: the user added it, so let them remove it. revoke()
