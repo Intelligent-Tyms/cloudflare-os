@@ -80,18 +80,18 @@ export default function TopBarNotice() {
   )
   const poolContent = () => {
     if (pending?.status === 'ready') {
-      return <>{pending.name} is ready. {externalLink(pending.url, 'Open your workspace')}</>
+      return <>{pending.name} is ready. {externalLink(pending.url, 'Open')}</>
     }
     if (pending?.status === 'provisioning') {
-      return <>Setting up {pending.name}. Usually about five minutes; we'll email you when it's ready.</>
+      return <>Setting up {pending.name}. About 5 minutes.</>
     }
     if (pending?.status === 'delayed') {
-      return <>{pending.name} is taking longer than expected. Our team is on it; we'll email you when it's ready.</>
+      return <>{pending.name} is taking longer. We'll email you when it's ready.</>
     }
     return (
       <>
-        You're on the free plan.
-        {poolUpgradeUrl && <> {externalLink(poolUpgradeUrl, 'Get your own workspace')}</>}
+        Free plan.
+        {poolUpgradeUrl && <> {externalLink(poolUpgradeUrl, 'Upgrade')}</>}
       </>
     )
   }

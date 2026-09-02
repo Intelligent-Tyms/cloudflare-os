@@ -15,6 +15,5 @@ export function isPoolMode(env: PoolEnv): boolean {
 
 /** The refusal thrown by RPCs that pool members cannot use. Names the way out. */
 export function poolModeRefusal(what: string): Error {
-  return new Error(`${what} isn't available on the free plan. Upgrade to a workspace of your own to ` +
-      "use it.");
+  return new Error(`${what} is available on paid plans.`);
 }
