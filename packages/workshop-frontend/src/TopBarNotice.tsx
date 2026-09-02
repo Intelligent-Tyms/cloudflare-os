@@ -2,14 +2,19 @@ import { useEffect, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Link } from '@tanstack/react-router'
-import { useServerConfig } from './ServerConfigContext'
+import { useServerConfig, usePoolMode, usePoolUpgradeUrl } from './ServerConfigContext'
 import { useOptionalAuthenticatedApi } from './AuthContext'
+import type { PendingWorkspaceInfo } from '@gadgets/workshop-shared/api'
 
 /**
  * Centered text in the top bar. Shows the deployment's admin-configured notice (rendered as inline
  * Markdown, so it can include links) when one is set. When no notice is set and the workspace is
  * on the free plan, falls back to a standing upgrade nudge — admins get a link to the plan picker,
  * members just see the plan. An admin-set announcement always wins over the fallback.
+ *
+ * On a pool deployment every user is a free user with no admin: the nudge links to the central
+ * upgrade page, and once they've bought a workspace it tracks the build ("Setting up acme…",
+ * "acme is ready", "taking longer") by polling the pending-workspace lookup.
  *
  * Designed to be placed inside a flex container that has `position: relative`; it absolutely-centers
  * itself so it doesn't affect the left/right layout. Hidden below the `lg` breakpoint where it would
@@ -33,21 +38,63 @@ const INLINE_MARKDOWN_COMPONENTS: Components = {
   ),
 }
 
+// How often a pool member's banner re-checks on their company workspace. Builds take minutes;
+// the ready state is also announced by email, so this needn't be snappy.
+const PENDING_POLL_MS = 60_000
+
 export default function TopBarNotice() {
   const notice = (useServerConfig()?.announcement ?? '').trim()
   const auth = useOptionalAuthenticatedApi()
+  const poolMode = usePoolMode()
+  const poolUpgradeUrl = usePoolUpgradeUrl()
   const [freePlan, setFreePlan] = useState(false)
+  const [pending, setPending] = useState<PendingWorkspaceInfo | null>(null)
 
   useEffect(() => {
-    if (notice || !auth) return
+    if (notice || !auth || poolMode) return
     let cancelled = false
     auth.authenticatedApi.getBillingGate()
       .then((gate) => { if (!cancelled) setFreePlan(gate?.isFreePlan ?? false) })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [notice, auth])
+  }, [notice, auth, poolMode])
 
-  if (!notice && !freePlan) return null
+  useEffect(() => {
+    if (notice || !auth || !poolMode) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const check = () => {
+      auth.authenticatedApi.getPendingWorkspace()
+        .then((p) => { if (!cancelled) setPending(p) })
+        .catch(() => {})
+        .finally(() => { if (!cancelled) timer = setTimeout(check, PENDING_POLL_MS) })
+    }
+    check()
+    return () => { cancelled = true; if (timer) clearTimeout(timer) }
+  }, [notice, auth, poolMode])
+
+  if (!notice && !freePlan && !poolMode) return null
+
+  const externalLink = (href: string, label: string) => (
+    <a href={href} className="text-kumo-brand hover:underline pointer-events-auto">{label}</a>
+  )
+  const poolContent = () => {
+    if (pending?.status === 'ready') {
+      return <>{pending.name} is ready. {externalLink(pending.url, 'Open your workspace')}</>
+    }
+    if (pending?.status === 'provisioning') {
+      return <>Setting up {pending.name}. Usually about five minutes; we'll email you when it's ready.</>
+    }
+    if (pending?.status === 'delayed') {
+      return <>{pending.name} is taking longer than expected. Our team is on it; we'll email you when it's ready.</>
+    }
+    return (
+      <>
+        You're on the free plan.
+        {poolUpgradeUrl && <> {externalLink(poolUpgradeUrl, 'Get your own workspace')}</>}
+      </>
+    )
+  }
 
   return (
     <div
@@ -59,6 +106,8 @@ export default function TopBarNotice() {
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={INLINE_MARKDOWN_COMPONENTS}>
             {notice}
           </ReactMarkdown>
+        ) : poolMode ? (
+          poolContent()
         ) : (
           <>
             You're on the free plan.

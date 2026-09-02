@@ -1,7 +1,7 @@
 import { RpcStub, RpcTarget, newHttpBatchRpcResponse, newWebSocketRpcSession, RpcSessionOptions } from "capnweb";
 import { validateRpc } from "capnweb-validate";
 import type { JWTPayload } from "jose";
-import { PublicApi, AuthenticatedApi, Overseer, GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiGatewayInfo, AiModelProvider, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, ObserverConfigCallback, BlueprintLibrarySummary, BlueprintPublicInfo, BlueprintUserSummary, BlueprintBindingAssignment, AgentSpawnerConfig, WorkpieceId, BLUEPRINT_SCREENSHOT_PATH_PREFIX, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ServerConfig, CloudflareUsageInfo, CloudflareAccountOption, LoginAttempt, GatekeeperAppInfo, AdminApi, GatekeeperVendorInfo, OutputFormatOffer, ListOutputsResult, createOpenGadgetError, getOpenGadgetErrorCode, OPEN_GADGET_ERROR_CODES, AUTH_ERROR_CODES, createAuthError, AssistantProfile, BillingGateInfo, UserChannelsView, TelegramLinkCode, TeamChatSession, TeamChatTeammate, TeamChatChannelChanges } from '@gadgets/workshop-shared/api';
+import { PublicApi, AuthenticatedApi, Overseer, GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiGatewayInfo, AiModelProvider, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, ObserverConfigCallback, BlueprintLibrarySummary, BlueprintPublicInfo, BlueprintUserSummary, BlueprintBindingAssignment, AgentSpawnerConfig, WorkpieceId, BLUEPRINT_SCREENSHOT_PATH_PREFIX, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ServerConfig, CloudflareUsageInfo, CloudflareAccountOption, LoginAttempt, GatekeeperAppInfo, AdminApi, GatekeeperVendorInfo, OutputFormatOffer, ListOutputsResult, createOpenGadgetError, getOpenGadgetErrorCode, OPEN_GADGET_ERROR_CODES, AUTH_ERROR_CODES, createAuthError, AssistantProfile, BillingGateInfo, PendingWorkspaceInfo, UserChannelsView, TelegramLinkCode, TeamChatSession, TeamChatTeammate, TeamChatChannelChanges } from '@gadgets/workshop-shared/api';
 import type { UiFeatureFlags } from "@gadgets/workshop-shared/feature-flags";
 import { getServerConfig } from "./deployment-config.js";
 import { isPasswordAuthEnabled, getAuthGatekeeperAllowlist, hasCentralLogin } from "./auth/config.js";
@@ -15,7 +15,7 @@ import { deploymentOutputForBlueprint, listFormatOffers, readAdminConfig } from 
 export { PendingLogin, LoginConnectCallbackImpl };
 export { UsageCollectorDurableObject } from "./usage-collector.js";
 import { usageCollector } from "./usage-collector.js";
-import { hasBillingDirectory, requestUpgrade } from "./billing-directory.js";
+import { hasBillingDirectory, requestUpgrade, fetchPendingWorkspace } from "./billing-directory.js";
 import { GatekeeperUiFrame } from "@gadgets/workshop-shared/gatekeeper";
 import { LanguageModelGatekeeper } from "./ai-models";
 import { getAiGatewayConfig } from "./ai-gateway.js";
@@ -741,6 +741,14 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     if (!allowed) return { notified: false };
     await requestUpgrade(this.env, { requestedBy });
     return { notified: true };
+  }
+
+  async getPendingWorkspace(): Promise<PendingWorkspaceInfo | null> {
+    if (!isPoolMode(this.env) || !hasBillingDirectory(this.env)) return null;
+    // In pool mode the username is the member's central email (central login handoff).
+    let email = this.#userId.name;
+    if (!email || !email.includes("@")) return null;
+    return await fetchPendingWorkspace(this.env, email).catch(() => null);
   }
 }
 

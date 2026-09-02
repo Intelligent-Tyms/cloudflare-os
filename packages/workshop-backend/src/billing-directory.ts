@@ -144,6 +144,22 @@ export async function requestUpgrade(
   await call(env, "/billing/upgrade-request", opts);
 }
 
+/** Mirrors the control plane's PendingWorkspace (apps/control-plane/src/pool.ts). */
+export type CentralPendingWorkspace = {
+  slug: string;
+  name: string;
+  status: "provisioning" | "ready" | "delayed";
+  url: string;
+};
+
+/** Pool deployments only: the company workspace this member is upgrading to, if any. */
+export async function fetchPendingWorkspace(
+    env: Cloudflare.Env, email: string): Promise<CentralPendingWorkspace | null> {
+  let result = await call<{pending: CentralPendingWorkspace | null}>(
+      env, `/members/pending-workspace?email=${encodeURIComponent(email)}`);
+  return result.pending;
+}
+
 /** One invoice from the tenant's Stripe history (Admin → Billing and usage). */
 export type CentralInvoice = {
   id: string;
