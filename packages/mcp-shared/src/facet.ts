@@ -8,6 +8,7 @@ import type {
   Gatekeeper,
   GatekeeperUserVerifier,
   ResourceDescription,
+  SessionContext,
 } from "@gadgets/workshop-shared/gatekeeper";
 
 import { ActionStore, REVERT_UNSUPPORTED_MESSAGE } from "./action-store.js";
@@ -28,7 +29,12 @@ import type { McpLog } from "./log.js";
 import { DEFAULT_REQUEST_TIMEOUT_MS } from "./fetch.js";
 import { formatToolScope, scopeAllows, type ToolScope } from "./scope.js";
 import { matchesToolQuery, toolQueryTerms, MAX_SEARCH_RESULTS } from "./tool-search.js";
-import { McpSessionBase, type McpSessionHost, type StoredAction } from "./session.js";
+import {
+  McpSessionBase,
+  type McpSessionContext,
+  type McpSessionHost,
+  type StoredAction,
+} from "./session.js";
 import { installToolMethods } from "./session-methods.js";
 import { observerRefusalMessage } from "./sharing-policy.js";
 import {
@@ -46,6 +52,7 @@ type FacetProps = {
 type SessionConstructor<Session extends McpSessionBase> = new (
   host: McpSessionHost,
   queue: RpcStub<ApprovalQueue>,
+  context?: McpSessionContext,
 ) => Session;
 
 const MAX_CONCURRENT_DISCOVERIES = 4;
@@ -222,8 +229,22 @@ export abstract class McpFacetBase<
       .map(entry => actionKindFor(this.actionScopeTag, entry.tool.name));
   }
 
+  /**
+   * What this facet's sessions carry into their calls, derived from what the Workshop knows about
+   * the session being opened (e.g. the person an agent acts for). The default carries nothing;
+   * a connector whose server verifies per-person identity overrides it. Called once per session,
+   * while the Workshop's stubs in `context` are still live.
+   */
+  protected async sessionContext(
+    _context?: SessionContext,
+  ): Promise<McpSessionContext | undefined> {
+    return undefined;
+  }
+
   /** Starts a session with generated per-tool methods when the catalog is available. */
-  async startSession(approvalQueue: RpcStub<ApprovalQueue>): Promise<Session> {
+  async startSession(
+    approvalQueue: RpcStub<ApprovalQueue>, context?: SessionContext,
+  ): Promise<Session> {
     let SessionClass = this.sessionClass;
     try {
       SessionClass = installToolMethods(SessionClass, await this.tools());
@@ -232,7 +253,7 @@ export abstract class McpFacetBase<
         event: "session.tool-methods.unavailable", error: err,
       });
     }
-    return new SessionClass(this, approvalQueue.dup());
+    return new SessionClass(this, approvalQueue.dup(), await this.sessionContext(context));
   }
 
   /** Refuses observers so MCP bindings can only be opened by their owner. */

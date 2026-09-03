@@ -25,6 +25,11 @@ export type FetchOptions = {
   timeoutMs?: number;
   /** Absolute deadline shared by every request in a multi-page or retried operation. */
   deadline?: number;
+  /**
+   * Request headers that, like `Authorization`, are issued for one origin and must not follow a
+   * redirect to another. Names are matched case-insensitively, as `Headers` does.
+   */
+  originBoundHeaders?: string[];
 };
 
 /** The one environment variable this package reads. Each Worker's own `Env` satisfies it structurally. */
@@ -192,6 +197,7 @@ export async function guardedFetch(
       headers = new Headers(headers);
       headers.delete("Authorization");
       headers.delete("Mcp-Session-Id");
+      for (const name of options.originBoundHeaders ?? []) headers.delete(name);
     }
 
     // 303 means "fetch the result of this with GET", and browsers downgrade 301/302 on POST too.

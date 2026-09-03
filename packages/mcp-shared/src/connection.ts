@@ -30,6 +30,12 @@ export type WithClientOptions = {
   retryOnExpiry?: boolean;
   /** Absolute deadline shared with time spent waiting for a discovery slot. */
   deadline?: number;
+  /**
+   * Extra request headers for every request of this operation, bound to the endpoint's origin
+   * (dropped on a cross-origin redirect like the bearer). Used to identify the person an agent
+   * is acting for, where the server verifies such a header itself.
+   */
+  headers?: Record<string, string>;
 };
 
 /**
@@ -109,7 +115,8 @@ export async function withClient<T>(
     }, sessionId, {
       ...fetchOptions(env),
       deadline: options.deadline,
-    });
+      originBoundHeaders: Object.keys(options.headers ?? {}),
+    }, options.headers ?? {});
   let persistedSessionId = sessionId;
 
   const persistSession = async (): Promise<void> => {

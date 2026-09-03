@@ -379,20 +379,28 @@ export class McpClient {
   #endpoint: string;
   #getAuthorization: AuthorizationProvider;
   #fetchOptions: FetchOptions;
+  #extraHeaders: Record<string, string>;
   #requestPrefix = crypto.randomUUID();
   #requestId = 0;
 
   /** Transport session id, assigned by the server during `initialize`. Persist and pass it back. */
   sessionId: string | null;
 
+  /**
+   * `extraHeaders` are sent on every request in addition to the transport headers, for a caller
+   * that must identify more than the bearer does (e.g. the person an agent is acting for). They
+   * are origin-bound: `withClient` lists them in `fetchOptions.originBoundHeaders`.
+   */
   constructor(
     endpoint: string,
     getAuthorization: AuthorizationProvider,
     sessionId?: string | null,
     fetchOptions: FetchOptions = {},
+    extraHeaders: Record<string, string> = {},
   ) {
     this.#endpoint = endpoint;
     this.#getAuthorization = getAuthorization;
+    this.#extraHeaders = extraHeaders;
     this.sessionId = sessionId ?? null;
     this.#fetchOptions = fetchOptions.timeoutMs !== undefined && fetchOptions.deadline === undefined
       ? { ...fetchOptions, deadline: Date.now() + fetchOptions.timeoutMs }
@@ -409,6 +417,7 @@ export class McpClient {
       "Accept": "application/json, text/event-stream",
       "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
     });
+    for (const [name, value] of Object.entries(this.#extraHeaders)) headers.set(name, value);
     const authorization = await this.#getAuthorization(method);
     this.#lastCredential = authorization;
     if (authorization) headers.set("Authorization", `Bearer ${authorization}`);

@@ -2,7 +2,8 @@ import { RpcCompatible, RpcStub, RpcTarget } from "capnweb";
 import { createExportDeadline } from "./export-limits";
 import { validateRpc } from "capnweb-validate";
 import { Overseer, GadgetMetadata, UiBundle, WorkpieceId, WorkpieceSummary, WorkpiecesSubscriber, GadgetClient, GadgetBindingInfo, GatekeeperClient, ActionState, ActionLogEntry, ActionsSubscriber, CodeUpdate, CodeSubscriber, AiChatMetadata, AiChatMessage, AiChatHistoryPage, AiChatSubscriber, AiChatAuthorInfo, AiModelConfig, AiChatMessageBody, AgentSpawnerConfig, ConsoleLogSubscriber, ConsoleLogEvent, CapsuleSpecifier, CollaboratorInfo, CollaboratorRole, AffectedCollaborator, ShareLinkInfo, GatekeeperCreationSpec, ObserverConfigCallback, ObserverBindingNeed, ObserverBindingFailure, BlueprintBindingAnnotation, BlueprintBinding, BlueprintMetadata, BlueprintOutput, MessageFormatRef, isOutputIcon, SpawnerEnvTarget, BlueprintGadgetSummary, AiChatStreamEvent, BlueprintScreenshotUpload, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ChatAttachmentUpload, ChatAttachmentHandle, ChatAttachmentRef, BoundHookInfo, UnboundGatekeeperInfo, PreApprovableAction, PresenceParticipant, PresenceSubscriber, SlashCommandChoice, SlashCommandRequest, validateBindingName, createOpenGadgetError, OPEN_GADGET_ERROR_CODES, resolveSiteName, AssistantProfile, isFreePlanModel } from '@gadgets/workshop-shared/api';
-import { Gatekeeper, HookInitiator, ResourceDescription, ApprovalQueue, ActionDescription, ObservationAuthorizer, ObservationDescription, VendorDescription, SupportedResource, resolveRequestedResource, HookController, HookDescription, AGENT_CATALOG_MAX_ENTRIES, ActionKind } from "@gadgets/workshop-shared/gatekeeper";
+import { Gatekeeper, HookInitiator, ResourceDescription, ApprovalQueue, ActionDescription, ObservationAuthorizer, ObservationDescription, VendorDescription, SupportedResource, resolveRequestedResource, HookController, HookDescription, AGENT_CATALOG_MAX_ENTRIES, ActionKind, SessionContext, ActorAssertionProvider } from "@gadgets/workshop-shared/gatekeeper";
+import { ActorAssertionImpl, hasActorAssertions } from "./actor-assertion";
 import {
   DurableObject, WorkerEntrypoint, RpcStub as NativeRpcStub,
   RpcTarget as NativeRpcTarget, restore,
@@ -2322,8 +2323,13 @@ class OverseerImpl implements AgentHooks {
   // gadget's RPC stub, a gatekeeper session stub, or an agent callback's stored arguments.
   // Entries whose targets no longer exist are silently skipped, mirroring the deleted-gadget
   // behavior elsewhere.
-  getEnvForAgent(chatId: number, bindings: Record<string, ChatBindingEntry>): object {
-    let caller: GatekeeperCaller = {from: "agent", chatId};
+  getEnvForAgent(chatId: number, bindings: Record<string, ChatBindingEntry>,
+                 initiator?: AiChatAuthorInfo): object {
+    // Only a person's own turn carries an actor: a gadget initiator's id is the gadget's owner
+    // (for accounting), not whoever is acting, and an agent initiator is nobody.
+    let caller: GatekeeperCaller = initiator?.type === "user"
+        ? {from: "agent", chatId, actorEmail: initiator.id}
+        : {from: "agent", chatId};
     // This must be a *plain* object: it becomes the loaded worker's `env`, and the loader's
     // serializer rejects anything else (including a null-prototype object) with DataCloneError.
     // So prototype-pollution safety comes from validation instead: names from before name
@@ -6080,7 +6086,7 @@ class OverseerImpl implements AgentHooks {
           "agent.js": code,
         },
         // The agent's env holds the chat's named bindings (see getEnvForAgent).
-        env: this.getEnvForAgent(chatId, bindings),
+        env: this.getEnvForAgent(chatId, bindings, initiator),
         tails: [this.ctx.exports.CodeModeTailLoopback({props: tailProps})],
         globalOutbound: null,
       };
@@ -7579,6 +7585,10 @@ export class OverseerDurableObject extends DurableObject<Cloudflare.Env> {
 type GatekeeperCaller = {
   from: "agent";
   chatId: number;
+  // The signed-in person whose turn is running, when the turn was started by a person rather
+  // than a gadget or hook. Lets a gatekeeper whose server verifies per-person identity act as
+  // that person (see SessionContext); everything else ignores it.
+  actorEmail?: string;
 } | {
   from: "gadget";
   chatId?: number;
@@ -10291,8 +10301,29 @@ class GatekeeperClientImpl<Session extends RpcCompatible<Session>>
   }
 
   async openSession(): Promise<RpcStub<Session>> {
+    let queue = new ApprovalQueueImpl(this.impl, this.id, this.caller);
+    let context = this.#sessionContext();
     // @ts-expect-error TODO: Remove annotation when Cap'n Web fixes cyclic type issues
-    return this.facet.startSession(new ApprovalQueueImpl(this.impl, this.id, this.caller));
+    return this.facet.startSession(queue, context);
+  }
+
+  // The person an agent session acts for, with a way to prove it to a server that checks. Only
+  // an agent turn started by a person has one; a hook, gadget, or user-opened session passes
+  // nothing and the gatekeeper behaves as it always has.
+  #sessionContext(): SessionContext | undefined {
+    if (this.caller.from !== "agent" || !this.caller.actorEmail) return undefined;
+    let email = this.caller.actorEmail;
+    return {
+      actor: {
+        email,
+        // Handed across the facet boundary as a stub, exactly like the ApprovalQueueImpl above;
+        // the declared type is the stub the gatekeeper sees.
+        ...(hasActorAssertions(this.impl.env)
+            ? {assertion: new ActorAssertionImpl(this.impl.env, email) as
+                unknown as NativeRpcStub<ActorAssertionProvider>}
+            : {}),
+      },
+    };
   }
 
   async getCreationSpec(): Promise<GatekeeperCreationSpec> {

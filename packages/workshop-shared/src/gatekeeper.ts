@@ -991,7 +991,7 @@ export interface Gatekeeper<Session> extends DurableObject {
    * simulation -- it is really up to the gatekeeper author to decide what is appropriate for the
    * particular API.
    */
-  startSession(approvalQueue: RpcStub<ApprovalQueue>): Promise<Session>;
+  startSession(approvalQueue: RpcStub<ApprovalQueue>, context?: SessionContext): Promise<Session>;
 
   /**
    * Bounded, user-specific metadata the agent uses to discover entries reachable through this
@@ -1135,6 +1135,31 @@ export interface Gatekeeper<Session> extends DurableObject {
    */
   revertAction(action: number):
       Promise<void | {message?: string, canRetry?: boolean, restart?: boolean}>;
+}
+
+/**
+ * What the Workshop knows about the session it is opening, beyond the approval queue. Optional
+ * and additive: a gatekeeper that ignores it behaves as before. Today it carries the person an
+ * agent is acting for, so a gatekeeper whose server verifies per-person identity (the
+ * Organization Intelligence wiki) can send a signed assertion of that person with each call.
+ */
+export type SessionContext = {
+  actor?: {
+    /** The signed-in person whose turn started this session. */
+    email: string;
+    /**
+     * Mints a short-lived, signed assertion of that person for the gatekeeper's server. Absent when
+     * the deployment cannot mint one (no central directory); the gatekeeper then calls without it.
+     * The stub is live for the duration of `startSession`.
+     */
+    assertion?: RpcStub<ActorAssertionProvider>;
+  };
+};
+
+/** Mints actor assertions for one person; see SessionContext. */
+export interface ActorAssertionProvider extends RpcTarget {
+  /** A signed assertion and its expiry (epoch ms), or null when none can be minted right now. */
+  mint(): Promise<{ token: string; expiresAt: number } | null>;
 }
 
 export interface ObservationAuthorizer extends RpcTarget {

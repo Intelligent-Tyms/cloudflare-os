@@ -27,6 +27,7 @@ import {
   type ResourceConfiguratorFrame,
   type ResourceDescription,
   type SupportedResource,
+  type SessionContext,
   type VendorDescription,
   type VendorSetup,
 } from "@gadgets/workshop-shared/gatekeeper";
@@ -35,7 +36,7 @@ import { hostOf } from "@gadgets/mcp-shared/util";
 import type { McpLogFields } from "@gadgets/mcp-shared/log";
 import { generateSessionTypes, sessionTypeName } from "@gadgets/mcp-shared/schema-to-ts";
 import type { ConnectionAccount, McpConnection } from "@gadgets/mcp-shared/connection";
-import { McpSessionBase } from "@gadgets/mcp-shared/session";
+import { McpSessionBase, type McpSessionContext } from "@gadgets/mcp-shared/session";
 import { McpFacetBase } from "@gadgets/mcp-shared/facet";
 import { endpointTag, formatToolScope, type ToolScope } from "@gadgets/mcp-shared/scope";
 import { DEFAULT_REQUEST_TIMEOUT_MS, fetchOptions } from "@gadgets/mcp-shared/fetch";
@@ -435,6 +436,29 @@ export class IntelligenceGatekeeper
 
   protected get trust(): ServerTrust {
     return TRUST;
+  }
+
+  /**
+   * The wiki records who acted, not just which key: when the Workshop knows the person behind the
+   * session it mints a signed actor assertion (start.tyms.ai's key, verified by the cell) and every
+   * call of the session carries it. Without one, reads still work under the assistant key alone;
+   * the cell decides whether a write needs the person (REQUIRE_ACTOR_ASSERTION).
+   */
+  protected override async sessionContext(
+    context?: SessionContext,
+  ): Promise<McpSessionContext | undefined> {
+    const assertion = context?.actor?.assertion;
+    if (!assertion) return undefined;
+    try {
+      const minted = await assertion.mint();
+      if (!minted) return undefined;
+      return { callOptions: { headers: { "x-tyms-actor": minted.token } } };
+    } catch (err) {
+      this.log.warn("could not mint an actor assertion; calling as the assistant only", {
+        event: "actor-assertion.unavailable", error: err,
+      });
+      return undefined;
+    }
   }
 
   protected get sessionClass() {

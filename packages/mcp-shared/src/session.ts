@@ -91,6 +91,16 @@ export interface McpSessionHost {
   lookupAction(id: number): StoredAction | undefined;
 }
 
+/**
+ * What one session carries into every call it makes, beyond what the facet already knows. Set by
+ * the facet from the `SessionContext` the Workshop passed to `startSession`; a session opened
+ * without one behaves exactly as before.
+ */
+export type McpSessionContext = {
+  /** Per-call options merged into every `host.call` this session makes. */
+  callOptions?: WithClientOptions;
+};
+
 function requireToolName(method: string, name: unknown): asserts name is string {
   if (typeof name !== "string" || name.length === 0) {
     throw new Error(`${method}() requires a tool name.`);
@@ -108,11 +118,13 @@ function requireToolName(method: string, name: unknown): asserts name is string 
 export class McpSessionBase extends RpcTarget {
   #host: McpSessionHost;
   #queue: RpcStub<ApprovalQueue>;
+  #context: McpSessionContext | undefined;
 
-  constructor(host: McpSessionHost, queue: RpcStub<ApprovalQueue>) {
+  constructor(host: McpSessionHost, queue: RpcStub<ApprovalQueue>, context?: McpSessionContext) {
     super();
     this.#host = host;
     this.#queue = queue;
+    this.#context = context;
   }
 
   [Symbol.dispose](): void {
@@ -203,7 +215,8 @@ export class McpSessionBase extends RpcTarget {
     });
 
     if (entry.mode === "read") {
-      const result = await host.call(client => client.callTool(name, toolArgs));
+      const result = await host.call(
+        client => client.callTool(name, toolArgs), this.#context?.callOptions);
       // Authorize before the data is handed back, per the gatekeeper contract.
       await this.#queue.authorizeObservation(described);
       return toCallResult(result);
