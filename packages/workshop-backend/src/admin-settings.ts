@@ -1,4 +1,4 @@
-import { AdminApi, AdminFormat, AdminFormatPatch, AdminModel, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BillingCreditType, BillingInvoice, BillingOverview, BillingPaymentDetails, BillingPlanChangeResult, BillingPlanOption,BlueprintPublicInfo, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { AdminApi, AdminFormat, AdminFormatPatch, AdminModel, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BillingCreditType, BillingInvoice, BillingOverview, BillingPaymentDetails, BillingPlanChangeResult, BillingPlanOption, BlueprintPublicInfo, IntelligenceInstanceView, IntelligenceOverview, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor, SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES, SkillPackage, SkillPackageFile, VendorSetup } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
@@ -17,6 +17,8 @@ import { formatBlueprintsManifestVersion, installBlueprintArchive, installFormat
 import { FORMAT_BLUEPRINTS } from './generated/format-blueprints.js';
 import * as teamDirectory from './team-directory.js';
 import * as billingDirectory from './billing-directory.js';
+import * as intelligenceDirectory from './intelligence-directory.js';
+import { INTELLIGENCE_SETUP_NAMES } from './intelligence-setup.js';
 import type { UsageCollectorDurableObject } from './usage-collector.js';
 import { isPoolMode, poolModeRefusal } from "./pool-mode.js";
 
@@ -28,6 +30,9 @@ const logger = createWorkshopLogger("workshop.admin.settings");
 type SkillListerStub = Required<Pick<GatekeeperVendor, "listDeploymentSkills">>;
 type SkillInstallerStub = Required<Pick<GatekeeperVendor, "installSkillPackage">>;
 type VendorSetupStub = Required<Pick<GatekeeperVendor, "describeSetup" | "applySetup" | "clearSetup">>;
+
+// The intelligence gatekeeper's vendor id (its GATEKEEPER_INTELLIGENCE binding, lowercased).
+const INTELLIGENCE_VENDOR_ID = "intelligence";
 
 // Bounds on admin-entered vendor setup values forwarded to the vendor (which re-validates
 // against its own input schema).
@@ -1298,5 +1303,118 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
       throw new Error("Return URLs must be http(s) URLs.");
     }
     return billingDirectory.createBillingPortalSession(this.env, returnUrl);
+  }
+
+  // --- Intelligence (control plane + the intelligence gatekeeper's setup store) ---
+  //
+  // Provisioning is the control plane's job (never by hand against the cell). The assistant
+  // key it hands back is stored only in the gatekeeper's per-tenant setup store, through the
+  // same service-binding path the admin setup modal uses, so nothing here or in the control
+  // plane ever holds it.
+
+  #requireIntelligenceDirectory(): void {
+    if (!intelligenceDirectory.hasIntelligenceDirectory(this.env)) {
+      throw new Error("This deployment has no central directory configured.");
+    }
+  }
+
+  // The gatekeeper's setup stub, or null when the intelligence connector is not bound here
+  // (a deployment without the fleet gatekeeper). The overview then reports "off".
+  async #intelligenceVendor(): Promise<VendorSetupStub | null> {
+    try {
+      return await this.#setupVendor(INTELLIGENCE_VENDOR_ID);
+    } catch {
+      return null;
+    }
+  }
+
+  async #intelligenceOverview(view: intelligenceDirectory.CentralIntelligence): Promise<IntelligenceOverview> {
+    let instance = intelligenceDirectory.organizationInstance(view);
+    let connector: IntelligenceOverview["connector"] = "off";
+    let vendor = await this.#intelligenceVendor();
+    if (vendor) {
+      try {
+        let setup = await vendor.describeSetup();
+        let stored = new Set(setup.configured.map(entry => entry.name));
+        let complete = INTELLIGENCE_SETUP_NAMES.required.every(name => stored.has(name));
+        if (setup.status === "configured" && complete) connector = "connected";
+        else if (instance?.status === "active") connector = "missing-key";
+      } catch (err) {
+        logger.warn("failed to read the intelligence connector setup", {
+          event: "intelligence.setup.read.failed", error: err,
+        });
+        if (instance?.status === "active") connector = "missing-key";
+      }
+    } else if (instance?.status === "active") {
+      connector = "missing-key";
+    }
+    return {
+      entitled: view.entitled,
+      credits: view.credits,
+      instance,
+      connector,
+      wikiUrl: instance?.status === "active" ? instance.wikiUrl : null,
+    };
+  }
+
+  async #storeAssistantKey(instance: IntelligenceInstanceView, assistantKey: string): Promise<boolean> {
+    let vendor = await this.#intelligenceVendor();
+    if (!vendor || !instance.mcpUrl) return false;
+    try {
+      await vendor.applySetup({
+        [INTELLIGENCE_SETUP_NAMES.mcpUrl]: instance.mcpUrl,
+        ...(instance.wikiUrl ? { [INTELLIGENCE_SETUP_NAMES.wikiUrl]: instance.wikiUrl } : {}),
+        [INTELLIGENCE_SETUP_NAMES.assistantKey]: assistantKey,
+      });
+      return true;
+    } catch (err) {
+      // The key is gone once this returns: the overview reports "missing-key" and the panel
+      // offers Reconnect, which rotates it on the cell.
+      logger.error("failed to store the intelligence assistant key", {
+        event: "intelligence.setup.write.failed", error: err,
+      });
+      return false;
+    }
+  }
+
+  async getIntelligenceOverview(): Promise<IntelligenceOverview | null> {
+    if (!intelligenceDirectory.hasIntelligenceDirectory(this.env)) return null;
+    return this.#intelligenceOverview(await intelligenceDirectory.fetchIntelligence(this.env));
+  }
+
+  async provisionIntelligence(): Promise<IntelligenceOverview> {
+    this.#requireIntelligenceDirectory();
+    if (isPoolMode(this.env)) throw poolModeRefusal("Organization Intelligence");
+    let { instance, assistantKey } = await intelligenceDirectory.provisionOrganization(this.env);
+    if (assistantKey !== null) await this.#storeAssistantKey(instance, assistantKey);
+    return this.#intelligenceOverview(await intelligenceDirectory.fetchIntelligence(this.env));
+  }
+
+  async deprovisionIntelligence(): Promise<IntelligenceOverview> {
+    this.#requireIntelligenceDirectory();
+    await intelligenceDirectory.deprovisionOrganization(this.env);
+    let vendor = await this.#intelligenceVendor();
+    if (vendor) {
+      await vendor.clearSetup().catch((err: unknown) => {
+        logger.warn("failed to clear the intelligence connector setup", {
+          event: "intelligence.setup.clear.failed", error: err,
+        });
+      });
+    }
+    return this.#intelligenceOverview(await intelligenceDirectory.fetchIntelligence(this.env));
+  }
+
+  async reconnectIntelligence(): Promise<IntelligenceOverview> {
+    this.#requireIntelligenceDirectory();
+    let view = await intelligenceDirectory.fetchIntelligence(this.env);
+    let instance = intelligenceDirectory.organizationInstance(view);
+    if (instance?.status !== "active") {
+      throw new Error("Organization Intelligence is not provisioned for this workspace.");
+    }
+    let { assistantKey } = await intelligenceDirectory.rotateAssistantKey(this.env);
+    if (!(await this.#storeAssistantKey(instance, assistantKey))) {
+      throw new Error("The new assistant key could not be stored. Check that the intelligence connector is installed, then reconnect again.");
+    }
+    return this.#intelligenceOverview(view);
   }
 }

@@ -61,6 +61,8 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import * as Y from "yjs";
 import styles from "./ChatInterface.module.css";
+import { CitationChip } from "./components/chat/CitationChip";
+import { useServerConfig } from "./ServerConfigContext";
 import {
   getStoredSelectedModel,
   persistSelectedModel,
@@ -1241,8 +1243,18 @@ function FormatMention({ format }: { format: MessageFormatRef }) {
   );
 }
 
+// Whether a model-authored href points at the organization's wiki (a host under the Intelligence
+// cell's base domain), so it renders as a citation chip rather than a plain external link.
+export function isWikiCitationHref(href: string | undefined, citationHostSuffix: string | undefined): boolean {
+  if (!href || !citationHostSuffix || href.length > INTERNAL_APP_LINK_MAX_LENGTH) return false;
+  const parsed = URL.parse(href);
+  if (!parsed || parsed.protocol !== "https:") return false;
+  return parsed.hostname.endsWith("." + citationHostSuffix.toLowerCase());
+}
+
 function getMarkdownComponents(
   mentionsByToken?: Map<string, Mention>,
+  citationHostSuffix?: string,
 ): Components {
   return {
     table: ({ node: _node, children, ...props }) => (
@@ -1275,6 +1287,10 @@ function getMarkdownComponents(
         return <>{children}</>;
       }
 
+      if (isWikiCitationHref(safeHref, citationHostSuffix)) {
+        return <CitationChip href={safeHref} {...props}>{children}</CitationChip>;
+      }
+
       return (
         <a
           {...props}
@@ -1290,7 +1306,17 @@ function getMarkdownComponents(
 }
 
 const REMARK_PLUGINS_NO_CAPSULES = [remarkGfm];
-const MARKDOWN_COMPONENTS_NO_CAPSULES = getMarkdownComponents();
+// One components table per citation host suffix (there is at most one per deployment), so the
+// common no-capsules path stays referentially stable across renders.
+const MARKDOWN_COMPONENTS_BY_SUFFIX = new Map<string | undefined, Components>();
+function markdownComponentsNoCapsules(citationHostSuffix: string | undefined): Components {
+  let components = MARKDOWN_COMPONENTS_BY_SUFFIX.get(citationHostSuffix);
+  if (!components) {
+    components = getMarkdownComponents(undefined, citationHostSuffix);
+    MARKDOWN_COMPONENTS_BY_SUFFIX.set(citationHostSuffix, components);
+  }
+  return components;
+}
 
 /**
  * Exported for unit testing (see ChatInterface.markdown.test.tsx), which verifies that a
@@ -1310,11 +1336,12 @@ export const MarkdownMessage = memo(function MarkdownMessage(
       : null,
     [capsules, formats, message],
   );
+  const citationHostSuffix = useServerConfig()?.intelligenceBaseDomain;
   const components = useMemo(
     () => tokenizedMessage
-      ? getMarkdownComponents(tokenizedMessage.mentionsByToken)
-      : MARKDOWN_COMPONENTS_NO_CAPSULES,
-    [tokenizedMessage],
+      ? getMarkdownComponents(tokenizedMessage.mentionsByToken, citationHostSuffix)
+      : markdownComponentsNoCapsules(citationHostSuffix),
+    [tokenizedMessage, citationHostSuffix],
   );
   const remarkPlugins = useMemo(
     () => tokenizedMessage

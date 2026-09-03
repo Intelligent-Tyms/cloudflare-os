@@ -111,6 +111,11 @@ declare global {
       CENTRAL_TEAM_API_URL?: string;
       CENTRAL_TEAM_API_TOKEN?: string;
 
+      // Base domain of the Organization Intelligence cell (e.g. "organization.tyms.ai"). The
+      // client renders links onto it as wiki citations; the connector itself is configured
+      // per tenant in the intelligence gatekeeper's setup store. Absent = no cell.
+      INTELLIGENCE_BASE_DOMAIN?: string;
+
       // Team chat (Stream Chat, getstream.io). The platform's shared Stream app: the key is a
       // public var (the browser connects with it), the secret a worker secret pushed by the
       // deploy tooling. Both set + CF_AI_GATEWAY_TENANT (the Stream team) + a team directory

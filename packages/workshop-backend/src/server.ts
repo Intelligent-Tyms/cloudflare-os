@@ -629,6 +629,8 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
           id: account.vendorId,
           title: account.description.providesUi!.title,
           icon: account.description.providesUi!.icon,
+          ...(account.description.providesUi!.externalUrl
+              ? { externalUrl: account.description.providesUi!.externalUrl } : {}),
         }));
   }
 

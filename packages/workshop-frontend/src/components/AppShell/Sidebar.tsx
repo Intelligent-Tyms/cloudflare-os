@@ -139,6 +139,7 @@ export default function Sidebar({
                 key={app.id}
                 to="/gatekeepers/$appId"
                 params={{ appId: app.id }}
+                href={app.externalUrl}
                 label={app.title}
                 icon={
                   maskUrl ? (

@@ -863,6 +863,11 @@ export type GatekeeperAppInfo = {
   title: string;
   /** Optional icon. */
   icon?: AvatarImage;
+  /**
+   * When set, the nav entry opens this URL in a new tab instead of routing to /gatekeepers/$id
+   * (e.g. the organization wiki, which lives on its own host).
+   */
+  externalUrl?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -1431,7 +1436,55 @@ export interface AdminApi {
   // Start a billing-portal session (update card, billing email, address, tax ids) and
   // return the URL to send the browser to. Throws when there is no billing profile.
   createBillingPortalSession(returnUrl: string): Promise<string>;
+
+  // --- Intelligence (Admin → Intelligence; see intelligence-directory.ts) ---
+  //
+  // Organization Intelligence is a per-tenant wiki on the Tyms Intelligence cell. The control
+  // plane provisions it (never by hand against the cell); the workshop keeps the wiki's MCP
+  // endpoint and preissued assistant key in the intelligence gatekeeper's setup store, which
+  // makes the wiki an ambient capability of every assistant here.
+
+  // Entitlement, credit pool, the Organization instance and the connector state, or null when
+  // this deployment has no central directory configured.
+  getIntelligenceOverview(): Promise<IntelligenceOverview | null>;
+
+  // Provision (or resume) Organization Intelligence for this workspace and connect the
+  // assistant. Throws with an actionable message when the plan does not include it or the
+  // cell refused. When the cell hands the assistant key over but storing it fails, the
+  // returned overview reports `connector: "missing-key"` and reconnectIntelligence() fixes it.
+  provisionIntelligence(): Promise<IntelligenceOverview>;
+
+  // Suspend the wiki (data kept for 30 days, then purged) and disconnect the assistant.
+  deprovisionIntelligence(): Promise<IntelligenceOverview>;
+
+  // Rotate the assistant key on the cell and store the new one; the old key stops working.
+  reconnectIntelligence(): Promise<IntelligenceOverview>;
 }
+
+// One Intelligence instance as the control plane reports it (mirrors InstanceView in
+// apps/control-plane/src/intelligence.ts). Timestamps are ms since epoch.
+export type IntelligenceInstanceView = {
+  kind: "organization" | "market" | "data" | "process";
+  status: "provisioning" | "active" | "suspended" | "failed" | "decommissioned";
+  hostname: string;
+  wikiUrl: string | null;
+  mcpUrl: string | null;
+  provisionedAt: number | null;
+  suspendedAt: number | null;
+  lastError: string | null;
+};
+
+// The Admin → Intelligence snapshot: what the plan allows, the Intelligence credit pool, the
+// Organization instance (null until first provisioned) and whether the assistant is connected.
+// `connector` is "connected" when the gatekeeper holds the endpoint and key, "missing-key" when
+// the instance is active but the key is not stored here (reconnect to fix), "off" otherwise.
+export type IntelligenceOverview = {
+  entitled: boolean;
+  credits: BillingCreditBucket;
+  instance: IntelligenceInstanceView | null;
+  connector: "connected" | "missing-key" | "off";
+  wikiUrl: string | null;
+};
 
 // One entry in the self-serve plan picker. Prices are the billed amounts in cents:
 // priceCents per month, annualPriceCents per year (null when no annual price exists).
@@ -1675,6 +1728,18 @@ export type ServerConfig = {
    * overrides the brand CSS variables with this (and derived shades) at runtime.
    */
   accentColor: string;
+
+  /**
+   * This tenant's slug on a fleet deployment (the `<slug>` in `<slug>.os.tyms.ai`), or undefined
+   * on standalone deployments. Display only; nothing authorizes on it.
+   */
+  tenantSlug?: string;
+
+  /**
+   * Base domain of the Organization Intelligence cell (e.g. "organization.tyms.ai"): links whose
+   * host ends with it render as wiki citations in chat. Undefined when the fleet has no cell.
+   */
+  intelligenceBaseDomain?: string;
 };
 
 /**

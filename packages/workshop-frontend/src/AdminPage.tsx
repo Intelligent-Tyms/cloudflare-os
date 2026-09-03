@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router'
 import { Switch, Textarea, Input, Button, useKumoToastManager } from '@cloudflare/kumo'
 import {
   ArrowLeft,
+  BookOpenCheck,
   Bot,
   Building2,
   ChevronRight,
@@ -33,6 +34,7 @@ import AdminBillingPanel from './components/AdminBillingPanel'
 import AdminChannelsPanel from './components/AdminChannelsPanel'
 import AdminPlansPanel from './components/AdminPlansPanel'
 import AdminFormatsPanel from './components/format/AdminFormatsPanel'
+import AdminIntelligencePanel from './components/AdminIntelligencePanel'
 import AdminProvidersPanel from './components/AdminProvidersPanel'
 import AdminSkillsPanel from './components/AdminSkillsPanel'
 import AdminTeamPanel from './components/AdminTeamPanel'
@@ -65,6 +67,7 @@ export type AdminSectionId =
   | 'channels'
   | 'integrations'
   | 'providers'
+  | 'intelligence'
 
 type AdminSection = {
   id: AdminSectionId
@@ -182,6 +185,19 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         description:
           'The AI models offered to everyone on this deployment. Turn models on or off to choose what users can pick.',
         icon: <Zap size={18} />,
+      },
+    ],
+  },
+  {
+    label: 'Intelligence',
+    sections: [
+      {
+        id: 'intelligence',
+        title: 'Intelligence',
+        blurb: 'Provision your organization’s wiki and connect the assistant to it.',
+        description:
+          'Tyms Intelligence products for this workspace. Organization Intelligence turns your own documents into a reviewed wiki the assistant answers from and cites; Market, Data and Process follow. Provisioning happens here and takes seconds.',
+        icon: <BookOpenCheck size={18} />,
       },
     ],
   },
@@ -531,14 +547,20 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
         </div>
 
         <div className="mt-8 flex flex-col gap-9">
-          {ADMIN_GROUPS.map((group) => (
+          {ADMIN_GROUPS.map((group) => ({
+            ...group,
+            // Teammates and Intelligence live in the central directory; without central login
+            // there is nothing behind them, so their cards (and an emptied group) are hidden.
+            sections: group.sections.filter(
+              (s) => (s.id !== 'teammates' && s.id !== 'intelligence') || Boolean(centralLoginUrl),
+            ),
+          })).filter((group) => group.sections.length > 0).map((group) => (
             <section key={group.label} className="flex flex-col gap-3">
               <h2 className="px-1 text-[12px] font-medium uppercase tracking-[0.08em] text-kumo-inactive">
                 {group.label}
               </h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {group.sections
-                  .filter((s) => s.id !== 'teammates' || Boolean(centralLoginUrl))
                   .map((s) => (
                   <Link
                     key={s.id}
@@ -1046,6 +1068,9 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
 
       {/* Teammates: full management, proxied to the central team directory. */}
       {section === 'teammates' && admin && <AdminTeamPanel admin={admin.api} />}
+
+      {/* Intelligence: provisioning and the assistant connection, proxied to the control plane. */}
+      {section === 'intelligence' && admin && <AdminIntelligencePanel admin={admin.api} />}
 
       {/* Integrations: a department-grouped index. Everything per-integration (on/off, resource
           toggles, setup) lives on /admin/integrations/$vendorId. */}
