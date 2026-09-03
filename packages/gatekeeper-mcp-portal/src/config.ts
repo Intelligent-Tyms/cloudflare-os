@@ -120,35 +120,39 @@ export type PortalSetupExports = {
   };
 };
 
-// The active setup source: the admin-entered store when it holds any values, else the
-// deployment's vars. The store sits behind a Durable Object RPC and this is consulted on the
-// token path of every authenticated request, so results are cached per isolate briefly;
-// writers reset their own isolate's cache (`invalidatePortalSetupCache`) and other isolates
+// The active setup source for one tenant: the admin-entered store instance keyed by the
+// tenant when it holds any values, else — for the owning deployment only (tenant "") — the
+// deployment's vars. A tenant of a shared connector never inherits another deployment's
+// portal. The store sits behind a Durable Object RPC and this is consulted on the token path
+// of every authenticated request, so results are cached per isolate briefly, per tenant;
+// writers reset their own isolate's entry (`invalidatePortalSetupCache`) and other isolates
 // converge within the TTL.
-let setupCache: { values: PortalSetupValues; expiresAt: number } | undefined;
+const setupCache = new Map<string, { values: PortalSetupValues; expiresAt: number }>();
 const SETUP_CACHE_MS = 30_000;
 
-export function invalidatePortalSetupCache(): void {
-  setupCache = undefined;
+export function invalidatePortalSetupCache(tenant: string = ""): void {
+  setupCache.delete(tenant);
 }
 
 export async function loadPortalSetup(
-  env: Env, exports: PortalSetupExports, options?: { fresh?: boolean },
+  env: Env, exports: PortalSetupExports, tenant: string = "", options?: { fresh?: boolean },
 ): Promise<PortalSetupValues> {
-  if (!options?.fresh && setupCache && Date.now() < setupCache.expiresAt) {
-    return setupCache.values;
+  const cached = setupCache.get(tenant);
+  if (!options?.fresh && cached && Date.now() < cached.expiresAt) {
+    return cached.values;
   }
-  const stored = await exports.VendorSetupStore.getByName("").getValues();
-  const values = Object.keys(stored).length > 0 ? (stored as PortalSetupValues) : envSetupValues(env);
-  setupCache = { values, expiresAt: Date.now() + SETUP_CACHE_MS };
+  const stored = await exports.VendorSetupStore.getByName(tenant).getValues();
+  const values = Object.keys(stored).length > 0 ? (stored as PortalSetupValues)
+    : tenant === "" ? envSetupValues(env) : {};
+  setupCache.set(tenant, { values, expiresAt: Date.now() + SETUP_CACHE_MS });
   return values;
 }
 
 // The portal configuration from the active source, or null when unconfigured.
 export async function loadPortalConfig(
-  env: Env, exports: PortalSetupExports, options?: { fresh?: boolean },
+  env: Env, exports: PortalSetupExports, tenant: string = "", options?: { fresh?: boolean },
 ): Promise<PortalConfig | null> {
-  return parsePortalConfig(await loadPortalSetup(env, exports, options),
+  return parsePortalConfig(await loadPortalSetup(env, exports, tenant, options),
     fetchOptions(env).allowInsecure === true);
 }
 
@@ -288,9 +292,9 @@ export function portalTokenOf(
 
 // The active source's preissued token for `endpoint` (see `portalTokenOf`).
 export async function loadPortalToken(
-  env: Env, exports: PortalSetupExports, endpoint: string,
+  env: Env, exports: PortalSetupExports, endpoint: string, tenant: string = "",
 ): Promise<string | null> {
-  return portalTokenOf(await loadPortalSetup(env, exports), fetchOptions(env).allowInsecure === true, endpoint);
+  return portalTokenOf(await loadPortalSetup(env, exports, tenant), fetchOptions(env).allowInsecure === true, endpoint);
 }
 
 // Env-only variant kept for the deployment-var source (tests exercise the parse rules here).

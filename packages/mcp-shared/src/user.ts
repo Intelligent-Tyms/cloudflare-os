@@ -30,9 +30,12 @@ export interface McpGatekeeperUserContext {
 /** Symbol-named hook that cannot be invoked as an RPC method. */
 export const mcpGatekeeperUserContext = Symbol("mcpGatekeeperUserContext");
 
-/** Common account lifecycle for MCP gatekeeper user entrypoints. */
-export abstract class McpGatekeeperUserBase<E>
-  extends WorkerEntrypoint<E, McpGatekeeperUserProps> {
+/**
+ * Common account lifecycle for MCP gatekeeper user entrypoints. Connectors that carry more in
+ * their props (e.g. the tenant a shared connector minted the account for) widen `P`.
+ */
+export abstract class McpGatekeeperUserBase<E, P extends McpGatekeeperUserProps = McpGatekeeperUserProps>
+  extends WorkerEntrypoint<E, P> {
 
   /** Supplies connector-owned lifecycle values without exposing an RPC-addressable method. */
   protected abstract [mcpGatekeeperUserContext](): McpGatekeeperUserContext;
