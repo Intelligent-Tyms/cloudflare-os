@@ -35,6 +35,12 @@ declare global {
       // Skills panel hides its marketplace section and installs are refused.
       SKILL_MARKETPLACE_URL?: string;
 
+      // Template catalog URL (the fleet's curated app templates, e.g.
+      // https://start.tyms.ai/marketplace/templates). Templates it lists are offered on the Apps
+      // page and installed into this deployment on first use (src/template-catalog.ts).
+      // Absent ⇒ only bundled and locally published blueprints exist.
+      TEMPLATE_CATALOG_URL?: string;
+
       // Blueprint storage bindings.
       BLUEPRINTS: KVNamespace;             // Workers KV for blueprint metadata lookup
       BLUEPRINT_CONTENT: R2Bucket;         // R2 bucket for blueprint code snapshots

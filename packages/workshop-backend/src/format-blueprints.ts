@@ -35,13 +35,28 @@ export function formatBlueprintsManifestVersion(): string {
       .join(",");
 }
 
+/** How an installed blueprint is presented, overriding whatever its archive carries. */
+export type BlueprintPresentation = Pick<BundledFormatBlueprint,
+    "blueprintId" | "title" | "description" | "author" | "output">;
+
 // Install one bundled blueprint, returning its public info for the featured mirror.
 async function installOne(env: InstallEnv, entry: BundledFormatBlueprint)
+    : Promise<BlueprintPublicInfo> {
+  return installBlueprintArchive(env, entry, Uint8Array.fromBase64(entry.archive));
+}
+
+/**
+ * Install a blueprint from archive bytes — a bundled format, or a catalog template packed on
+ * the fly (see template-catalog.ts) — as an ordinary blueprint, returning its public info for
+ * the featured mirror.
+ */
+export async function installBlueprintArchive(
+    env: InstallEnv, entry: BlueprintPresentation, archiveBytes: Uint8Array)
     : Promise<BlueprintPublicInfo> {
   // Parse through the ordinary archive reader so a corrupt bundled file fails the same way an
   // uploaded one would, rather than producing a half-installed blueprint.
   let {metadata, contentLength, content} = await parseBlueprintArchive(
-      new Response(Uint8Array.fromBase64(entry.archive) as BufferSource).body!);
+      new Response(archiveBytes as BufferSource).body!);
 
   // R2 needs a known length, and the archive is already fully in memory (it came out of the
   // Worker bundle), so buffer rather than plumbing a FixedLengthStream through as the upload path

@@ -5,6 +5,7 @@ import { RpcTarget } from 'capnweb';
 import { validateRpc } from 'capnweb-validate';
 import { collection, createTypedStorage } from '@gadgets/typed-storage';
 import { createWorkshopLogger } from "./observability";
+import { buildTemplateArchive, catalogMetadata, fetchCatalogPackage } from "./template-catalog.js";
 import { ADMIN_CONFIG_KEY, FEATURED_BLUEPRINTS_KEY, isReservedBlueprintKey, parseBlueprintKvRecord, readBlueprintKvRecord, sanitizeBlueprintOutput, serializeFeaturedBlueprints } from './blueprint-archive.js';
 import { AdminConfig, DEFAULT_ADMIN_CONFIG, FormatCuration, MAX_AGENT_HINT, defaultOutputFormatId, listPromotedFormats, reorderFormats, sanitizeOutputOverrides, serializeAdminConfig } from './admin-config.js';
 import { SITE_LOGO_R2_KEY, siteLogoImage, validateSiteLogo } from './site-logo.js';
@@ -12,12 +13,12 @@ import { ambientGatekeeperMode, DEFAULT_AMBIENT_GATEKEEPER_MODE } from './provis
 import { buildGatekeeperVendorMap } from './auth/auth-vendors.js';
 import { UserDurableObject, type UserAiModelRecord } from './user.js';
 import { getAiGatewayConfig } from './ai-gateway.js';
-import { formatBlueprintsManifestVersion, installFormatBlueprints } from './format-blueprints.js';
+import { formatBlueprintsManifestVersion, installBlueprintArchive, installFormatBlueprints } from './format-blueprints.js';
 import { FORMAT_BLUEPRINTS } from './generated/format-blueprints.js';
 import * as teamDirectory from './team-directory.js';
 import * as billingDirectory from './billing-directory.js';
 import type { UsageCollectorDurableObject } from './usage-collector.js';
-import { isPoolMode } from "./pool-mode.js";
+import { isPoolMode, poolModeRefusal } from "./pool-mode.js";
 
 const logger = createWorkshopLogger("workshop.admin.settings");
 
@@ -173,35 +174,75 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
 
     // Promotion is checked on every run, not just after an install, so a deployment that installed
     // before curation existed still ends up offering its bundled formats.
-    await this.#promoteBundledFormats();
+    await this.#promoteFormats(FORMAT_BLUEPRINTS.map(entry => entry.blueprintId));
     return complete;
   }
 
-  // Offer each bundled blueprint as a standard format, once ever. A separate one-shot decision per
-  // blueprint: re-deriving the list from the manifest would undo an admin's removal on every
-  // startup, and reinstalling an updated archive must refresh the blueprint without resetting how
-  // the deployment has chosen to offer it.
+  /**
+   * Install (or upgrade) one template from the fleet's catalog, as an ordinary blueprint plus a
+   * featured-mirror entry and a one-time format promotion, exactly like a bundled format. Called
+   * lazily from every read path that meets a catalog id this deployment lacks or holds an older
+   * revision of (see template-catalog.ts readBlueprintKvRecordViaCatalog). Concurrent callers
+   * for one id share a run.
+   */
+  installCatalogTemplate(id: string): Promise<BlueprintPublicInfo> {
+    if (isPoolMode(this.env)) throw poolModeRefusal("Templates");
+    let inFlight = this.#catalogInstalls.get(id);
+    if (inFlight) return inFlight;
+    let run = this.#installCatalogTemplate(id)
+        .finally(() => { this.#catalogInstalls.delete(id); });
+    this.#catalogInstalls.set(id, run);
+    return run;
+  }
+
+  #catalogInstalls = new Map<string, Promise<BlueprintPublicInfo>>();
+
+  async #installCatalogTemplate(id: string): Promise<BlueprintPublicInfo> {
+    let {entry, files} = await fetchCatalogPackage(this.env, id);
+    let archive = await buildTemplateArchive(catalogMetadata(entry), files);
+    let publicInfo = await installBlueprintArchive(this.env, {
+      blueprintId: entry.id,
+      title: entry.title,
+      description: entry.description,
+      author: entry.author,
+      // A catalog template always declares its output; the archive's own copy is the same.
+      output: entry.output ?? {id: entry.id, noun: entry.title, plural: entry.title, icon: "appWindow"},
+    }, archive);
+    this.storage.featuredBlueprints.put(publicInfo);
+    await this.#writeFeaturedSnapshot();
+    await this.#promoteFormats([id]);
+    logger.info("installed catalog template", {
+      event: "templates.catalog.install.ok", blueprintId: id,
+    });
+    return publicInfo;
+  }
+
+  // Offer each installed-by-the-deployment blueprint (bundled format or catalog template) as a
+  // standard format, once ever. A separate one-shot decision per blueprint: re-deriving the list
+  // from the manifest would undo an admin's removal on every startup, and reinstalling an
+  // updated archive must refresh the blueprint without resetting how the deployment has chosen
+  // to offer it.
   //
   // The converse isn't handled: a blueprint dropped from the bundle, or given a new blueprintId,
   // leaves its record and its promotion behind for an admin to remove by hand. Withdrawing them
   // would mean tracking which promotions this installer made, which is worth doing before the
   // bundled set ever changes.
-  async #promoteBundledFormats(): Promise<void> {
+  async #promoteFormats(blueprintIds: string[]): Promise<void> {
     let promoted = new Set(this.storage.promotedFormatBlueprints.get());
-    let pending = FORMAT_BLUEPRINTS.filter(entry => !promoted.has(entry.blueprintId));
+    let pending = blueprintIds.filter(blueprintId => !promoted.has(blueprintId));
     if (pending.length === 0) return;
 
     let config = this.#config();
     let known = new Set(config.formats.map(f => f.blueprintId));
     let added = pending
-        .filter(entry => !known.has(entry.blueprintId))
-        .map(entry => ({blueprintId: entry.blueprintId, enabled: true}));
+        .filter(blueprintId => !known.has(blueprintId))
+        .map(blueprintId => ({blueprintId, enabled: true}));
     // Always write, even when every pending format is already in DO storage. That is the retry
     // state after a prior KV mirror failure; stamping promotion without writing would strand the
     // hot-path mirror on its old config forever.
     await this.updateAdminConfig({formats: [...config.formats, ...added]});
 
-    for (let entry of pending) promoted.add(entry.blueprintId);
+    for (let blueprintId of pending) promoted.add(blueprintId);
     this.storage.promotedFormatBlueprints.put([...promoted]);
   }
 

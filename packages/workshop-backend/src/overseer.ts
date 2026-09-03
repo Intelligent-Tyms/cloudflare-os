@@ -24,7 +24,8 @@ import { AgentGadgetInfo, AgentHooks, AiChatAgentContext, ChatBindingEntry, Seed
 import { deploymentOutputForBlueprint, FormatOffer, listFormatOffers, readAdminConfig } from "./admin-config";
 import { foldProposedChanges, isCompactionTurn, type ChangeBatch } from "./agent-compaction";
 import { ambientGatekeeperMode } from "./provisioning-policy";
-import { listFeaturedBlueprintsFromKv, readBlueprintContent, readBlueprintKvRecord, sanitizeBlueprintOutput } from "./blueprint-archive";
+import { readBlueprintContent, readBlueprintKvRecord, sanitizeBlueprintOutput } from "./blueprint-archive";
+import { listFeaturedWithCatalog, readBlueprintKvRecordViaCatalog } from "./template-catalog";
 import { WebFetchEnv, convertBytesToMarkdown } from "./web-fetch";
 import { UserDurableObject, UserAiModelRecord, type UserChatContext, type WorkspaceOutputEntry } from "./user";
 import { AgentSpawnerBinding } from "./agent-spawner-binding";
@@ -6379,7 +6380,7 @@ class OverseerImpl implements AgentHooks {
     let [own, library, featured, formats] = await Promise.all([
       userStub.listBlueprints(),
       userStub.listLibraryBlueprints(),
-      listFeaturedBlueprintsFromKv(this.env),
+      listFeaturedWithCatalog(this.env),
       this.#listStandardFormats(),
     ]);
 
@@ -6477,7 +6478,7 @@ class OverseerImpl implements AgentHooks {
   // links), so possession of the id is sufficient to read it. Throws agent-readable errors.
   async fetchBlueprint(blueprintId: string)
       : Promise<{files: Record<string, string>, notes: string, output?: BlueprintOutput}> {
-    let kvRecord = await readBlueprintKvRecord(this.env, blueprintId);
+    let kvRecord = await readBlueprintKvRecordViaCatalog(this.env, this.ctx.exports, blueprintId);
     if (!kvRecord) {
       throw new Error(`No such template: ${blueprintId}. Use listBlueprints to see available ` +
           `templates.`);
