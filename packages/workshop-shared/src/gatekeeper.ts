@@ -388,9 +388,11 @@ export type AccountDescription = {
 
   /**
    * If set, this account has a full-page management UI (see GatekeeperUser.startAppUi). The Workshop
-   * surfaces it as a nav entry / page using this title.
+   * surfaces it as a nav entry / page using this title. When `externalUrl` is set the entry opens
+   * that URL in a new tab instead (the iframe sandbox cannot open windows), and `startAppUi` is only
+   * a fallback for direct loads of the in-app page.
    */
-  providesUi?: { title: string; icon?: AvatarImage };
+  providesUi?: { title: string; icon?: AvatarImage; externalUrl?: string };
 }
 
 /** Describes metadata about a specific instance of a resource. Returned by Gatekeeper.describe(). */

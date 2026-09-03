@@ -467,6 +467,48 @@
         "BASE_URL": "$PUBLIC_BASE_URL/gatekeeper/homeassistant"
       }
     },
+    "gatekeeper-intelligence": {
+      "bindings": [],
+      "compatibilityDate": "2026-02-02",
+      "compatibilityFlags": [
+        "allow_irrevocable_stub_storage",
+        "global_fetch_strictly_public"
+      ],
+      "inputs": [],
+      "installable": true,
+      "kind": "gatekeeper",
+      "mainModule": "intelligence.js",
+      "migrations": [
+        {
+          "new_sqlite_classes": [
+            "VendorSetupStore",
+            "IntelligenceGatekeeper"
+          ],
+          "tag": "v1"
+        }
+      ],
+      "modules": [
+        {
+          "name": "intelligence.js",
+          "r2Key": "blobs/modules/ea085cd873e9f4e8072c43a7656f28a5559f0b71a1fb4b97c23107801e8c2b8e",
+          "sha256": "ea085cd873e9f4e8072c43a7656f28a5559f0b71a1fb4b97c23107801e8c2b8e",
+          "size": 65,
+          "type": "esm"
+        }
+      ],
+      "observability": {
+        "enabled": true,
+        "head_sampling_rate": 1,
+        "logs": {
+          "invocation_logs": false
+        }
+      },
+      "shortName": "intelligence",
+      "vars": {
+        "BASE_URL": "$PUBLIC_BASE_URL/gatekeeper/intelligence",
+        "MCP_ALLOW_INSECURE": "false"
+      }
+    },
     "gatekeeper-linear": {
       "bindings": [
         {

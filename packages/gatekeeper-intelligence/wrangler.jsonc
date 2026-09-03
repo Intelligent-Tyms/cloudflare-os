@@ -1,0 +1,35 @@
+{
+  "name": "gatekeeper-intelligence",
+  "main": ".wrangler/validate/src/intelligence.ts",
+  "build": {
+    "command": "pnpm exec capnweb-validate build --out .wrangler/validate",
+    "watch_dir": "src"
+  },
+  "compatibility_date": "2026-02-02",
+
+  // The wiki endpoint is administrator- or provisioning-supplied, never user input, but it is still
+  // a URL this worker fetches: `global_fetch_strictly_public` makes workerd reject reserved IP
+  // ranges after DNS resolution, which no hostname check can do.
+  "compatibility_flags": [
+    "allow_irrevocable_stub_storage",
+    "global_fetch_strictly_public"
+  ],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["VendorSetupStore", "IntelligenceGatekeeper"]
+    }
+  ],
+  // Nothing tenant-specific is configured here. The wiki endpoint and the assistant key reach this
+  // worker through the per-tenant setup store (Admin → Intelligence writes it after provisioning);
+  // unset, the connector advertises nothing and the Workshop hides it.
+  "vars": {
+    // Set to "true" to permit http:// and private-network endpoints. Local development only.
+    "MCP_ALLOW_INSECURE": "false"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "invocation_logs": false }
+  }
+}
