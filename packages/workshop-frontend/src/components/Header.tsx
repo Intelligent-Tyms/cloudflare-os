@@ -75,11 +75,11 @@ export default function Header() {
               Integrations
             </Link>
             <Link
-              to="/explore"
+              to="/apps"
               className={navLinkClass}
               activeProps={{ className: navLinkActiveClass }}
             >
-              Discover
+              Apps
             </Link>
             {gatekeeperApps.map((app) => (
               <Link
@@ -139,12 +139,12 @@ export default function Header() {
               Integrations
             </Link>
             <Link
-              to="/explore"
+              to="/apps"
               onClick={closeMobileMenu}
               className={navLinkClass}
               activeProps={{ className: navLinkActiveClass }}
             >
-              Discover
+              Apps
             </Link>
             {gatekeeperApps.map((app) => (
               <Link

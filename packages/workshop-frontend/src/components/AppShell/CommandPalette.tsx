@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import {
-  Compass,
+  Blocks,
   LayoutTemplate as Blueprint,
   Search,
   Plus,
@@ -249,16 +249,16 @@ export default function CommandPalette({
         run: () => navigate({ to: '/workspaces' }),
       },
       {
-        id: 'nav-blueprints',
-        label: 'Templates',
-        icon: <Blueprint size={15} />,
-        run: () => navigate({ to: '/blueprints' }),
+        id: 'nav-apps',
+        label: 'Apps',
+        icon: <Blocks size={15} />,
+        run: () => navigate({ to: '/apps' }),
       },
       {
-        id: 'nav-explore',
-        label: 'Discover',
-        icon: <Compass size={15} />,
-        run: () => navigate({ to: '/explore' }),
+        id: 'nav-blueprints',
+        label: 'Your templates',
+        icon: <Blueprint size={15} />,
+        run: () => navigate({ to: '/apps', search: { tab: 'yours' } }),
       },
     ]
 

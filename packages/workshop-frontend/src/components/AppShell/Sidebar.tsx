@@ -1,7 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import {
-  Compass,
-  LayoutTemplate,
+  Blocks,
   Hexagon,
   House,
   HardDrive,
@@ -168,22 +167,14 @@ export default function Sidebar({
               />
               )
             })}
-            {/* Templates and Discover are deployment-wide catalogs; a free pool has none. */}
+            {/* Apps (featured catalog + the user's templates) is deployment-wide; a free pool has none. */}
             {!poolMode && (
-              <>
-                <SidebarItem
-                  to="/blueprints"
-                  label="Templates"
-                  icon={<LayoutTemplate size={14} />}
-                  collapsed={collapsed}
-                />
-                <SidebarItem
-                  to="/explore"
-                  label="Discover"
-                  icon={<Compass size={14} />}
-                  collapsed={collapsed}
-                />
-              </>
+              <SidebarItem
+                to="/apps"
+                label="Apps"
+                icon={<Blocks size={14} />}
+                collapsed={collapsed}
+              />
             )}
           </nav>
 

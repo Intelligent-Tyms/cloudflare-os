@@ -1,13 +1,16 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import BlueprintList from '../components/BlueprintList'
 import { useDocumentTitle } from '../useDocumentTitle'
 
 /**
- * "Blueprints" — the user's own + saved blueprints, laid out like the Workspaces page. Discovering
- * new blueprints lives on the separate Explore page, linked from the list's toolbar (alongside
- * Upload, so the two actions line up) and from the rail's bottom nav.
+ * Legacy path: the user's own + saved templates now live on the Apps page (routes/apps.tsx,
+ * "Your templates" tab). This route only redirects old links and bookmarks; the page component
+ * stays in this file so upstream merges remain cheap.
  */
 export const Route = createFileRoute('/blueprints')({
+  beforeLoad: () => {
+    throw redirect({ to: '/apps', search: { tab: 'yours' } })
+  },
   component: BlueprintsRoutePage,
 })
 

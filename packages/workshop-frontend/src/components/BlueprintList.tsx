@@ -273,9 +273,9 @@ export default function BlueprintList() {
           {/* Grid, not flex: 1fr columns give the two buttons a matching width, where flex would
               size each to its own label. */}
           <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:shrink-0">
-            <Link to="/explore" className={ACTION_BUTTON}>
+            <Link to="/apps" className={ACTION_BUTTON}>
               <Compass size={14} />
-              Discover
+              Featured
             </Link>
             <button
               type="button"
@@ -316,13 +316,13 @@ export default function BlueprintList() {
               <div>
                 <p className="text-sm font-medium text-kumo-default">No templates yet</p>
                 <p className="mt-1 text-[13px] leading-[18px] text-kumo-subtle">
-                  Publish a workspace as a template, or add one from Discover.
+                  Publish a workspace as a template, or save one from Featured.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <Link to="/explore" className={ACTION_BUTTON}>
+                <Link to="/apps" className={ACTION_BUTTON}>
                   <Compass size={14} />
-                  Discover templates
+                  Browse featured
                 </Link>
                 <button
                   type="button"

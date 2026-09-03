@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useKumoToastManager } from "@cloudflare/kumo";
 import {
   LayoutTemplate as BlueprintIcon,
@@ -9,12 +9,89 @@ import { BlueprintPublicInfo } from "@gadgets/workshop-shared/api";
 import { VendorDescription } from "@gadgets/workshop-shared/gatekeeper";
 import { useAuthenticatedApi } from "./AuthContext";
 import { BindingBadge, uniqueBindingBadges } from "./components/BlueprintCard";
+import BlueprintList from "./components/BlueprintList";
 import { BlueprintPreviewPlaceholder } from "./components/BlueprintPreviewImage";
+import { TabButton } from "./components/TabButton";
 import ViewToggle from "./components/ViewToggle";
 
 type VendorMap = Map<string, VendorDescription>;
 
-export default function BlueprintsPage() {
+/** The two Apps tabs: the deployment-wide featured catalog, and the user's own + saved templates. */
+export type AppsTab = "featured" | "yours";
+
+const TABS: { id: AppsTab; label: string }[] = [
+  { id: "featured", label: "Featured" },
+  { id: "yours", label: "Your templates" },
+];
+
+/**
+ * The Apps page. One header, a tab strip, and a body that is either the featured catalog (this
+ * file) or the user's own templates list (BlueprintList). The tab is owned by the route's `?tab=`
+ * search param so it survives reloads and can be deep-linked (e.g. from the command palette).
+ */
+export default function BlueprintsPage({ tab }: { tab: AppsTab }) {
+  const navigate = useNavigate();
+
+  const [view, setView] = useState<"grid" | "list">(() => {
+    if (typeof window === "undefined") return "grid";
+    return localStorage.getItem("explore-view") === "list" ? "list" : "grid";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("explore-view", view);
+  }, [view]);
+
+  const selectTab = (next: AppsTab) => {
+    if (next === tab) return;
+    navigate({
+      to: "/apps",
+      search: next === "featured" ? {} : { tab: next },
+      replace: true,
+    });
+  };
+
+  return (
+    <div className="mx-auto flex h-full w-full max-w-5xl flex-col px-3 sm:px-10">
+      <header className="flex items-end justify-between gap-4 px-3 pb-4 pt-6 sm:pt-10">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">Apps</h1>
+          <p className="mt-1 text-[13px] leading-[18px] tracking-[-0.25px] text-kumo-subtle">
+            Start a workspace from a featured app, or from a template you've published or saved.
+          </p>
+        </div>
+        {/* The grid/list toggle only applies to the featured catalog; the templates list is rows. */}
+        {tab === "featured" && <ViewToggle view={view} onChange={setView} />}
+      </header>
+
+      {/* Tab strip. Same treatment as Admin → Billing so tabs look identical across the app. */}
+      <div
+        role="tablist"
+        aria-label="Apps"
+        className="mb-4 flex shrink-0 items-center gap-5 border-b border-kumo-line px-3"
+      >
+        {TABS.map((t) => (
+          <TabButton
+            key={t.id}
+            active={tab === t.id}
+            onClick={() => selectTab(t.id)}
+            className="h-9"
+          >
+            {t.label}
+          </TabButton>
+        ))}
+      </div>
+
+      {tab === "featured" ? <FeaturedApps view={view} /> : (
+        <div className="min-h-0 flex-1">
+          <BlueprintList />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The featured catalog: deployment-wide templates promoted by an admin. Formerly the Discover page. */
+function FeaturedApps({ view }: { view: "grid" | "list" }) {
   const { authenticatedApi } = useAuthenticatedApi();
   const toasts = useKumoToastManager();
   const toastsRef = useRef(toasts);
@@ -23,16 +100,7 @@ export default function BlueprintsPage() {
   const [featuredBlueprints, setFeaturedBlueprints] = useState<BlueprintPublicInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [vendorDescriptions, setVendorDescriptions] = useState<VendorMap>(() => new Map());
-
-  const [view, setView] = useState<"grid" | "list">(() => {
-    if (typeof window === "undefined") return "grid";
-    return localStorage.getItem("explore-view") === "list" ? "list" : "grid";
-  });
   const [search, setSearch] = useState("");
-
-  useEffect(() => {
-    localStorage.setItem("explore-view", view);
-  }, [view]);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,9 +118,9 @@ export default function BlueprintsPage() {
         );
       })
       .catch((err) => {
-        console.error("Failed to load Explore data:", err);
+        console.error("Failed to load featured apps:", err);
         toastsRef.current.add({
-          title: "Failed to load featured templates",
+          title: "Failed to load featured apps",
           variant: "error",
         });
       })
@@ -75,18 +143,7 @@ export default function BlueprintsPage() {
   });
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-5xl flex-col px-3 sm:px-10">
-      <header className="flex items-end justify-between gap-4 px-3 pb-4 pt-6 sm:pt-10">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight text-kumo-default">Discover</h1>
-          <p className="mt-1 text-[13px] leading-[18px] tracking-[-0.25px] text-kumo-subtle">
-            Discover featured templates to use as starting points. Open one to create a workspace
-            from it, or save it to reuse later.
-          </p>
-        </div>
-        <ViewToggle view={view} onChange={setView} />
-      </header>
-
+    <>
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-3 px-3 pb-3">
         <span className="text-[12px] font-medium uppercase tracking-[0.08em] text-kumo-inactive">
@@ -101,7 +158,7 @@ export default function BlueprintsPage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search templates…"
+            placeholder="Search apps…"
             className="h-10 w-full rounded-lg border border-kumo-line bg-kumo-base pl-9 pr-4 text-[16px] text-kumo-default placeholder:text-kumo-inactive transition-[border-color,box-shadow] duration-150 ease-out focus:border-kumo-ring focus:outline-none focus:ring-[3px] focus:ring-kumo-ring/15 sm:h-9 sm:text-[13px]"
           />
         </div>
@@ -114,13 +171,13 @@ export default function BlueprintsPage() {
           <EmptySection
             title={
               search
-                ? "No templates match"
-                : "No featured templates yet"
+                ? "No apps match"
+                : "No featured apps yet"
             }
             message={
               search
                 ? "Try a different search term."
-                : "Featured templates will appear here when they’re published. You can still create templates from your own workspaces."
+                : "Featured apps will appear here when they’re published. You can still create templates from your own workspaces."
             }
           />
         ) : view === "grid" ? (
@@ -145,7 +202,7 @@ export default function BlueprintsPage() {
           </div>
         )}
       </div>
-    </div>
+    </>
   );
 }
 
@@ -180,7 +237,7 @@ function FeaturedBlueprintCard({
       <Link
         to="/blueprint/$id"
         params={{ id: blueprint.id }}
-        aria-label={`Open featured template ${blueprint.metadata.title}`}
+        aria-label={`Open featured app ${blueprint.metadata.title}`}
         className="absolute inset-0 z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kumo-brand"
       />
 

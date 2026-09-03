@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
+import { Route as AppsRouteImport } from './routes/apps'
 import { Route as AssistantRouteImport } from './routes/assistant'
 import { Route as BlueprintsRouteImport } from './routes/blueprints'
 import { Route as ChannelsRouteImport } from './routes/channels'
@@ -43,6 +44,11 @@ const IndexRoute = IndexRouteImport.update({
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppsRoute = AppsRouteImport.update({
+  id: '/apps',
+  path: '/apps',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AssistantRoute = AssistantRouteImport.update({
@@ -165,6 +171,7 @@ const AdminSkillsSkillNameRoute = AdminSkillsSkillNameRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/apps': typeof AppsRoute
   '/assistant': typeof AssistantRoute
   '/blueprints': typeof BlueprintsRoute
   '/channels': typeof ChannelsRoute
@@ -192,6 +199,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/apps': typeof AppsRoute
   '/assistant': typeof AssistantRoute
   '/blueprints': typeof BlueprintsRoute
   '/channels': typeof ChannelsRoute
@@ -220,6 +228,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/apps': typeof AppsRoute
   '/assistant': typeof AssistantRoute
   '/blueprints': typeof BlueprintsRoute
   '/channels': typeof ChannelsRoute
@@ -249,6 +258,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/apps'
     | '/assistant'
     | '/blueprints'
     | '/channels'
@@ -276,6 +286,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin'
+    | '/apps'
     | '/assistant'
     | '/blueprints'
     | '/channels'
@@ -303,6 +314,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin'
+    | '/apps'
     | '/assistant'
     | '/blueprints'
     | '/channels'
@@ -331,6 +343,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
+  AppsRoute: typeof AppsRoute
   AssistantRoute: typeof AssistantRoute
   BlueprintsRoute: typeof BlueprintsRoute
   ChannelsRoute: typeof ChannelsRoute
@@ -370,6 +383,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/apps': {
+      id: '/apps'
+      path: '/apps'
+      fullPath: '/apps'
+      preLoaderRoute: typeof AppsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/assistant': {
@@ -539,6 +559,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
+  AppsRoute: AppsRoute,
   AssistantRoute: AssistantRoute,
   BlueprintsRoute: BlueprintsRoute,
   ChannelsRoute: ChannelsRoute,
