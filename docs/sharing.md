@@ -163,6 +163,7 @@ Note this is only needed for removals/downgrades. Granting or raising access nev
 - **More permission levels.** Beyond `build` and `use`, planned levels include: chat-only (can create chats but not merge to mainline) and read-only.
 - **Resharing of `use` access.** Allow `use` collaborators to grant `use` access to others. The permission graph already supports this; it only requires adding the relevant sharing methods to the `use` allowlist.
 - **Binding-aware access control.** Prohibit adding collaborators when the gadget holds binding permissions that the collaborator lacks, and conversely prohibit adding sensitive bindings when existing collaborators lack the required permissions.
+- **Share-time warnings for owner-only connections.** Observer checks run at `open()` and cover every gatekeeper in the workspace, including ones no app binds (chat capsules, reverted drafts). The Connections tab lists those under "Not used by any app" with a remove control, but the Share modal still reports success for a workspace whose MCP connection will refuse every recipient.
 - **Share link expiration and usage limits.** Including single-use links.
 - **Un-revoking share links.** Revocation is non-destructive (the `revoked` flag), but there is no UI or RPC to list revoked links or clear the flag, so link revocation is currently one-way in practice.
 - **Garbage-collecting dead records.** Removed collaborators and revoked links accumulate in storage under the lazy model; a background sweep could reclaim entries that have been unreachable for a long time.

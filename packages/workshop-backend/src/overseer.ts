@@ -1,7 +1,7 @@
 import { RpcCompatible, RpcStub, RpcTarget } from "capnweb";
 import { createExportDeadline } from "./export-limits";
 import { validateRpc } from "capnweb-validate";
-import { Overseer, GadgetMetadata, UiBundle, WorkpieceId, WorkpieceSummary, WorkpiecesSubscriber, GadgetClient, GadgetBindingInfo, GatekeeperClient, ActionState, ActionLogEntry, ActionsSubscriber, CodeUpdate, CodeSubscriber, AiChatMetadata, AiChatMessage, AiChatHistoryPage, AiChatSubscriber, AiChatAuthorInfo, AiModelConfig, AiChatMessageBody, AgentSpawnerConfig, ConsoleLogSubscriber, ConsoleLogEvent, CapsuleSpecifier, CollaboratorInfo, CollaboratorRole, AffectedCollaborator, ShareLinkInfo, GatekeeperCreationSpec, ObserverConfigCallback, ObserverBindingNeed, ObserverBindingFailure, BlueprintBindingAnnotation, BlueprintBinding, BlueprintMetadata, BlueprintOutput, MessageFormatRef, isOutputIcon, SpawnerEnvTarget, BlueprintGadgetSummary, AiChatStreamEvent, BlueprintScreenshotUpload, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ChatAttachmentUpload, ChatAttachmentHandle, ChatAttachmentRef, BoundHookInfo, PreApprovableAction, PresenceParticipant, PresenceSubscriber, SlashCommandChoice, SlashCommandRequest, validateBindingName, createOpenGadgetError, OPEN_GADGET_ERROR_CODES, resolveSiteName, AssistantProfile, isFreePlanModel } from '@gadgets/workshop-shared/api';
+import { Overseer, GadgetMetadata, UiBundle, WorkpieceId, WorkpieceSummary, WorkpiecesSubscriber, GadgetClient, GadgetBindingInfo, GatekeeperClient, ActionState, ActionLogEntry, ActionsSubscriber, CodeUpdate, CodeSubscriber, AiChatMetadata, AiChatMessage, AiChatHistoryPage, AiChatSubscriber, AiChatAuthorInfo, AiModelConfig, AiChatMessageBody, AgentSpawnerConfig, ConsoleLogSubscriber, ConsoleLogEvent, CapsuleSpecifier, CollaboratorInfo, CollaboratorRole, AffectedCollaborator, ShareLinkInfo, GatekeeperCreationSpec, ObserverConfigCallback, ObserverBindingNeed, ObserverBindingFailure, BlueprintBindingAnnotation, BlueprintBinding, BlueprintMetadata, BlueprintOutput, MessageFormatRef, isOutputIcon, SpawnerEnvTarget, BlueprintGadgetSummary, AiChatStreamEvent, BlueprintScreenshotUpload, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ChatAttachmentUpload, ChatAttachmentHandle, ChatAttachmentRef, BoundHookInfo, UnboundGatekeeperInfo, PreApprovableAction, PresenceParticipant, PresenceSubscriber, SlashCommandChoice, SlashCommandRequest, validateBindingName, createOpenGadgetError, OPEN_GADGET_ERROR_CODES, resolveSiteName, AssistantProfile, isFreePlanModel } from '@gadgets/workshop-shared/api';
 import { Gatekeeper, HookInitiator, ResourceDescription, ApprovalQueue, ActionDescription, ObservationAuthorizer, ObservationDescription, VendorDescription, SupportedResource, resolveRequestedResource, HookController, HookDescription, AGENT_CATALOG_MAX_ENTRIES, ActionKind } from "@gadgets/workshop-shared/gatekeeper";
 import {
   DurableObject, WorkerEntrypoint, RpcStub as NativeRpcStub,
@@ -450,6 +450,63 @@ function connectionTypeFromCreationSpec(
     case "ambient": return undefined;   // auto-provided, not a user-initiated connection
     case undefined: return undefined;
   }
+}
+
+/** The parts of a gatekeeper record the unbound-connection helpers read. Exported for tests. */
+export type UnboundGatekeeperCandidate =
+    Pick<GatekeeperRecord, "id" | "creationSpec" | "resourceTitle" | "resourceUrl">;
+
+/** A gadget's binding edges, as the unbound-connection helpers see them. */
+export type BindingEdges = {bindings: Record<string, {target: WorkpieceId}>};
+
+/**
+ * Whether any gadget's env references the gatekeeper. Pending (chat-provisional) edges count: the
+ * proposing chat may still be using the gatekeeper, and accepting the chat would make the edge
+ * permanent, so the gatekeeper is not free to reap.
+ */
+export function isBoundByAnyGadget(target: WorkpieceId, gadgets: Iterable<BindingEdges>): boolean {
+  for (let gadget of gadgets) {
+    for (let edge of Object.values(gadget.bindings)) {
+      if (edge.target === target) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Gatekeepers that no gadget binds, excluding ambient ones (auto-provided, reconciled elsewhere).
+ * Exported for tests.
+ */
+export function findUnboundGatekeepers<T extends UnboundGatekeeperCandidate>(
+    gatekeepers: Iterable<T>, gadgets: Iterable<BindingEdges>): T[] {
+  let bound = new Set<WorkpieceId>();
+  for (let gadget of gadgets) {
+    for (let edge of Object.values(gadget.bindings)) bound.add(edge.target);
+  }
+  let result: T[] = [];
+  for (let gk of gatekeepers) {
+    if (gk.creationSpec?.type === "ambient") continue;
+    if (bound.has(gk.id)) continue;
+    result.push(gk);
+  }
+  return result;
+}
+
+/** Display shape for one unbound gatekeeper. Exported for tests. */
+export function unboundGatekeeperInfo(gk: UnboundGatekeeperCandidate): UnboundGatekeeperInfo {
+  let spec = gk.creationSpec;
+  let connectionType: UnboundGatekeeperInfo["connectionType"] =
+      spec === undefined ? "legacy"
+      : spec.type === "gatekeeper" || spec.type === "aiModel" || spec.type === "agentSpawner"
+      ? spec.type
+      : "legacy";
+  return {
+    id: gk.id,
+    resourceTitle: gk.resourceTitle || "(title unavailable)",
+    ...(gk.resourceUrl ? {resourceUrl: gk.resourceUrl} : {}),
+    ...(spec?.type === "gatekeeper" ? {vendorId: spec.vendorId} : {}),
+    connectionType,
+  };
 }
 
 // Blueprint record stored in the Overseer DO's `blueprints` collection.
@@ -1917,18 +1974,49 @@ class OverseerImpl implements AgentHooks {
   #reapOrphanedGatekeeper(target: WorkpieceId): void {
     let gatekeeper = this.storage.gatekeepers.get(target);
     if (!gatekeeper || gatekeeper.creationSpec?.type === "ambient") return;
-    for (let gadget of this.storage.gadgets.list()) {
-      for (let edge of Object.values(gadget.bindings)) {
-        if (edge.target === target) return;
-      }
-    }
+    if (isBoundByAnyGadget(target, this.storage.gadgets.list())) return;
     this.removeGatekeeper(target);
+    this.#recordConnectionRemoved(gatekeeper);
+  }
+
+  #recordConnectionRemoved(gatekeeper: GatekeeperRecord): void {
     this.recordGadgetAnalytics({
       event_name: "connection_removed",
-      gatekeeper_id: target,
+      gatekeeper_id: gatekeeper.id,
       connection_type: connectionTypeFromCreationSpec(gatekeeper.creationSpec?.type),
       vendor_id: gatekeeper.creationSpec?.type === "gatekeeper"
           ? gatekeeper.creationSpec.vendorId : undefined,
+    });
+  }
+
+  // Connections no app binds, for the Connections tab's cleanup section. See
+  // UnboundGatekeeperInfo for how they arise and why they matter (they still gate sharing).
+  listUnboundGatekeepers(): UnboundGatekeeperInfo[] {
+    return findUnboundGatekeepers(this.storage.gatekeepers.list(), this.storage.gadgets.list())
+        .map(unboundGatekeeperInfo);
+  }
+
+  // Owner-initiated removal of a connection no app binds. Refuses anything a binding still
+  // references (that path is GadgetClient.unbind(), which reaps on the last unbind) and ambient
+  // connections (the reconciler would recreate them). Hooks delivered by the gatekeeper go with
+  // it: they could never fire into a gadget that can't reach the gatekeeper anyway.
+  async removeUnboundGatekeeper(id: WorkpieceId): Promise<void> {
+    let gatekeeper = this.storage.gatekeepers.get(id);
+    if (!gatekeeper) throw new Error(`No such integration: ${id}`);
+    if (gatekeeper.creationSpec?.type === "ambient") {
+      throw new Error("This integration is provided automatically and cannot be removed here.");
+    }
+    if (isBoundByAnyGadget(id, this.storage.gadgets.list())) {
+      throw new Error("This integration is still used by an app. Remove it from the app instead.");
+    }
+    for (let hook of Array.from(this.storage.boundHooks.list())) {
+      if (hook.gatekeeperId === id) await this.deleteHook(hook.id);
+    }
+    this.removeGatekeeper(id);
+    this.#recordConnectionRemoved(gatekeeper);
+    this.logger.info("unbound integration removed", {
+      event: "integration.unbound.removed", gatekeeperId: id,
+      vendorId: gatekeeperVendorId(gatekeeper),
     });
   }
 
@@ -8308,6 +8396,14 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
     this.impl.ctx.waitUntil(this.impl.drainAutoApprovals(action.gatekeeperId));
   }
 
+  async listUnboundGatekeepers(): Promise<UnboundGatekeeperInfo[]> {
+    return this.impl.listUnboundGatekeepers();
+  }
+
+  async removeUnboundGatekeeper(id: WorkpieceId): Promise<void> {
+    await this.impl.removeUnboundGatekeeper(id);
+  }
+
   async listHooks(): Promise<BoundHookInfo[]> {
     let defaultGadgetId = this.impl.defaultGadgetId;
     let result: BoundHookInfo[] = [];
@@ -9697,6 +9793,8 @@ class UseOverseerInterface extends RpcTarget implements Overseer {
   async approveAction(_id: number): Promise<void> { this.#deny(); }
   async rejectAction(_id: number): Promise<void> { this.#deny(); }
   async listHooks(): Promise<BoundHookInfo[]> { this.#deny(); }
+  async listUnboundGatekeepers(): Promise<UnboundGatekeeperInfo[]> { this.#deny(); }
+  async removeUnboundGatekeeper(_id: WorkpieceId): Promise<void> { this.#deny(); }
   async enableHook(_id: number): Promise<void> { this.#deny(); }
   async disableHook(_id: number): Promise<void> { this.#deny(); }
   async deleteHook(_id: number): Promise<void> { this.#deny(); }

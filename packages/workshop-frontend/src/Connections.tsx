@@ -8,7 +8,7 @@ import {
   X,
 } from 'lucide-react'
 import { RpcStub } from 'capnweb'
-import { Overseer, GadgetClient, GadgetBindingInfo, BoundHookInfo, AuthenticatedApi, WorkpieceId } from '@gadgets/workshop-shared/api'
+import { Overseer, GadgetClient, GadgetBindingInfo, BoundHookInfo, UnboundGatekeeperInfo, AuthenticatedApi, WorkpieceId } from '@gadgets/workshop-shared/api'
 import GatekeeperModal from './GatekeeperModal'
 import { GatekeeperIcon } from './components/GatekeeperIcon'
 import { HookToggle } from './components/HookToggle'
@@ -44,6 +44,11 @@ export default function Connections({ overseer, gadget, chatId, authenticatedApi
   // Identity of the gadget this tab is showing, needed to offer it to agent spawners.
   const [gadgetInfo, setGadgetInfo] = useState<{ id: WorkpieceId; title: string } | null>(null)
   const [hooks, setHooks] = useState<BoundHookInfo[]>([])
+  // Workspace-wide: connections no app binds (chat capsules, reverted drafts, failed adds). They
+  // are invisible everywhere else yet still gate sharing, so this tab is where they get cleaned up.
+  const [unbound, setUnbound] = useState<UnboundGatekeeperInfo[]>([])
+  const [deleteUnboundTarget, setDeleteUnboundTarget] = useState<UnboundGatekeeperInfo | null>(null)
+  const [removingUnbound, setRemovingUnbound] = useState(false)
   const vendorBranding = useVendorBranding(authenticatedApi)
   const [loading, setLoading] = useState(true)
   const [editingBinding, setEditingBinding] = useState<string | null>(null)
@@ -57,16 +62,19 @@ export default function Connections({ overseer, gadget, chatId, authenticatedApi
 
   const loadGatekeepers = async () => {
     try {
-      const [id, gadgetTitle, bindingList, hookList] = await Promise.all([
+      const [id, gadgetTitle, bindingList, hookList, unboundList] = await Promise.all([
         gadget.getId(),
         gadget.getTitle(),
         // Pass the open chat so bindings this tab added provisionally to it are listed too.
         gadget.listBindings(chatId),
         // Workspace-wide; filtered to this gadget below.
         overseer.listHooks(),
+        // Workspace-wide by nature: nothing binds these, so no app owns them.
+        overseer.listUnboundGatekeepers(),
       ])
       setGadgetInfo({ id, title: gadgetTitle })
       setBindings(bindingList)
+      setUnbound(unboundList)
       // This tab shows one gadget, so drop hooks that wake a different one -- otherwise its
       // toggle/delete controls would operate on another gadget's hooks.
       setHooks(hookList.filter((hook) => hook.gadgetId === id))
@@ -185,6 +193,26 @@ export default function Connections({ overseer, gadget, chatId, authenticatedApi
   const handleEditCancel = () => {
     setEditingBinding(null)
     setEditValue('')
+  }
+
+  const handleDeleteUnboundConfirm = async () => {
+    if (!deleteUnboundTarget || removingUnbound) return
+    setRemovingUnbound(true)
+    try {
+      await overseer.removeUnboundGatekeeper(deleteUnboundTarget.id)
+      toasts.add({ title: `Removed ${deleteUnboundTarget.resourceTitle}`, variant: 'success' })
+      await loadGatekeepers()
+      onConnectionsChange?.()
+    } catch (err) {
+      console.error('Failed to remove unbound connection:', err)
+      toasts.add({
+        title: err instanceof Error && err.message ? err.message : 'Failed to remove connection',
+        variant: 'error',
+      })
+    } finally {
+      setRemovingUnbound(false)
+      setDeleteUnboundTarget(null)
+    }
   }
 
   const handleDeleteConfirm = async () => {
@@ -436,6 +464,88 @@ export default function Connections({ overseer, gadget, chatId, authenticatedApi
                               danger
                               onClick={() => setDeleteHookTarget({ id: hook.id, title: hook.description.title })}
                               aria-label="Delete hook"
+                            >
+                              <Trash2 size={14} />
+                            </WorkshopIconButton>
+                          </Tooltip>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
+        {!loading && unbound.length > 0 && (
+          <section className="mt-8">
+            <div className="mb-3">
+              <h2 className="m-0 text-[17px] leading-6 font-medium tracking-[-0.35px] text-kumo-default">
+                Not used by any app
+              </h2>
+              <p className="mt-1 text-[13px] leading-[18px] font-normal tracking-[-0.25px] text-kumo-subtle">
+                Connections added in chat or left behind by earlier changes. Anyone you share this workspace with must still be allowed to use them, so remove the ones you no longer need.
+              </p>
+            </div>
+
+            <div className="overflow-hidden rounded-xl border border-kumo-line bg-kumo-base">
+              {unbound.map((gk, index) => {
+                const isDeleting = deleteUnboundTarget?.id === gk.id
+
+                return (
+                  <div
+                    key={gk.id}
+                    className={`px-3 py-3 ${index > 0 ? 'border-t border-kumo-line' : ''} ${isDeleting ? 'bg-kumo-danger-tint/40' : ''}`}
+                  >
+                    {isDeleting ? (
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] leading-[18px] font-medium tracking-[-0.25px] text-kumo-danger">
+                            Remove {gk.resourceTitle}?
+                          </p>
+                          <p className="truncate text-[12px] leading-4 font-normal tracking-[-0.2px] text-kumo-subtle">
+                            It is deleted from this workspace, along with any hooks it delivers. Your account stays connected for future use.
+                          </p>
+                        </div>
+                        <WorkshopButton
+                          tone="danger"
+                          className="min-w-[68px]"
+                          onClick={handleDeleteUnboundConfirm}
+                          disabled={removingUnbound}
+                        >
+                          {removingUnbound ? 'Removing...' : 'Remove'}
+                        </WorkshopButton>
+                        <WorkshopButton
+                          onClick={() => setDeleteUnboundTarget(null)}
+                          disabled={removingUnbound}
+                        >
+                          Cancel
+                        </WorkshopButton>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        <GatekeeperIcon
+                          vendorId={gk.vendorId}
+                          fallbackText={gk.resourceTitle}
+                          {...(gk.vendorId ? vendorBranding.get(gk.vendorId) : undefined)}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] leading-[18px] font-medium tracking-[-0.25px] text-kumo-default">
+                            {gk.resourceTitle}
+                          </p>
+                          <p className="mt-0.5 truncate text-[11px] leading-4 tracking-[-0.1px] text-kumo-inactive">
+                            {gk.connectionType === 'legacy'
+                              ? 'Older connection that can no longer be reconnected'
+                              : gk.resourceUrl ?? 'Not referenced by any app in this workspace'}
+                          </p>
+                        </div>
+                        <div className="ml-auto flex shrink-0 items-center gap-1">
+                          <Tooltip content="Remove from workspace" asChild>
+                            <WorkshopIconButton
+                              danger
+                              onClick={() => setDeleteUnboundTarget(gk)}
+                              aria-label="Remove from workspace"
                             >
                               <Trash2 size={14} />
                             </WorkshopIconButton>

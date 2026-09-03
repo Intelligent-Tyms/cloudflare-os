@@ -193,6 +193,11 @@ blocks every action for the rest of the session. See
 To share the work rather than the binding, publish the Gadget as a blueprint and let each person
 connect their own server.
 
+The check covers every MCP gatekeeper in the workspace, not only the ones an app binds. A server
+pasted into a chat becomes a capsule, which creates the gatekeeper without binding it, and nothing
+reaps it afterwards; the Connections tab lists such connections under "Not used by any app" so the
+owner can remove them (`Overseer.removeUnboundGatekeeper`) before sharing.
+
 ## Notes and current limitations
 
 - **No simulation.** MCP describes no way to predict a tool's effect, so a queued call is not

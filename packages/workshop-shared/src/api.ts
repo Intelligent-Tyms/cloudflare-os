@@ -2152,6 +2152,31 @@ export type BoundHookInfo = {
 };
 
 /**
+ * A connection (gatekeeper) that exists in the workspace but is not bound into any app's `env`.
+ * Returned by Overseer.listUnboundGatekeepers().
+ *
+ * Connections get here in a few ways: a link pasted into a chat becomes a capsule (which creates
+ * the gatekeeper without binding it), a binding proposed in a chat was reverted, or an add-connection
+ * flow failed after the gatekeeper was created. Nothing reaps them, and the Connections tab lists
+ * only the selected app's bindings, so they are otherwise invisible -- yet they still count for
+ * sharing checks: a collaborator must pass every gatekeeper's observer check, bound or not.
+ */
+export type UnboundGatekeeperInfo = {
+  id: WorkpieceId;
+
+  /** Denormalized display info about the gatekeeper. */
+  resourceTitle: string;
+  resourceUrl?: string;
+  vendorId?: string;
+
+  /**
+   * How the connection was created. `legacy` means the record predates creation specs and can
+   * only be removed, never reconnected or shared.
+   */
+  connectionType: "gatekeeper" | "aiModel" | "agentSpawner" | "legacy";
+};
+
+/**
  * Configuration for an AI spawner binding. This binding allows the gadget to programmatically
  * create new agents, that is, start new agent chat threads, which appear in the gadget's agent
  * chat UI as new conversations. Agents created this way don't typically edit the gadget code, but
@@ -2342,6 +2367,20 @@ export interface Overseer extends RpcTarget {
    * BoundHookInfo.gadgetId), so a per-gadget view must filter on that.
    */
   listHooks(): Promise<BoundHookInfo[]>;
+
+  /**
+   * List the workspace's connections that no app binds (see UnboundGatekeeperInfo). Ambient
+   * connections are never listed: they mirror the owner's singleton accounts and are reconciled
+   * automatically.
+   */
+  listUnboundGatekeepers(): Promise<UnboundGatekeeperInfo[]>;
+
+  /**
+   * Destroy a connection that no app binds. Rejects if the gatekeeper is bound by any app (use
+   * GadgetClient.unbind() for that, which reaps the gatekeeper once its last binding goes) or is
+   * ambient. Hooks the gatekeeper delivers are deleted with it.
+   */
+  removeUnboundGatekeeper(id: WorkpieceId): Promise<void>;
 
   /** Enable the hook with the given ID. Callbacks will begin flowing. */
   enableHook(id: number): Promise<void>;
