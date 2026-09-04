@@ -34,6 +34,21 @@ afterEach(() => {
 });
 
 describe("guardedFetch", () => {
+  it("routes every hop through a supplied fetchImpl instead of the platform fetch", async () => {
+    const seen: string[] = [];
+    vi.stubGlobal("fetch", async () => { throw new Error("platform fetch must not be used"); });
+    const fetchImpl: typeof fetch = async (input, init) => {
+      seen.push(`${new Headers(init?.headers).get("Authorization")} ${String(input)}`);
+      return String(input).endsWith("/a")
+        ? new Response("", { status: 307, headers: { Location: "https://svc.example.com/b" } })
+        : new Response("ok", { status: 200 });
+    };
+    const response = await guardedFetch("https://svc.example.com/a",
+      { headers: { Authorization: "Bearer k" } }, { fetchImpl });
+    expect(response.status).toBe(200);
+    expect(seen).toEqual(["Bearer k https://svc.example.com/a", "Bearer k https://svc.example.com/b"]);
+  });
+
   it("does not impose a deadline unless the caller requests one", async () => {
     let signal: AbortSignal | null | undefined;
     vi.stubGlobal("fetch", async (_input: string, init: RequestInit) => {

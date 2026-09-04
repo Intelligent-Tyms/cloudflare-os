@@ -30,6 +30,12 @@ export type FetchOptions = {
    * redirect to another. Names are matched case-insensitively, as `Headers` does.
    */
   originBoundHeaders?: string[];
+  /**
+   * Replaces the platform `fetch` for every hop of the operation. Used to reach a Worker on the
+   * caller's own zone through a service binding: Cloudflare routes a same-zone subrequest to the
+   * DNS origin, not to the Worker on that route, so the URL alone cannot get there.
+   */
+  fetchImpl?: typeof fetch;
 };
 
 /** The one environment variable this package reads. Each Worker's own `Env` satisfies it structurally. */
@@ -166,8 +172,9 @@ export async function guardedFetch(
     signal = signal ? AbortSignal.any([signal, timeout]) : timeout;
   }
 
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
   for (let hop = 0; ; hop++) {
-    const response = await fetch(current, {
+    const response = await fetchImpl(current, {
       ...init, method, body, headers, redirect: "manual", signal,
     });
     if (!REDIRECT_STATUSES.has(response.status)) return response;

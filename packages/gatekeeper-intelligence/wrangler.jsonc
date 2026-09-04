@@ -23,6 +23,10 @@
   // Nothing tenant-specific is configured here. The wiki endpoint and the assistant key reach this
   // worker through the per-tenant setup store (Admin → Intelligence writes it after provisioning);
   // unset, the connector advertises nothing and the Workshop hides it.
+  // deploy.mjs also injects, from deployment.jsonc `intelligence`: the var
+  // INTELLIGENCE_BASE_DOMAIN and a service binding INTELLIGENCE_CELL to the cell Worker. Wiki
+  // hosts share this worker's zone, and a same-zone subrequest never reaches a Worker on a route,
+  // so requests to them travel over the binding (src/cell.ts).
   "vars": {
     // Set to "true" to permit http:// and private-network endpoints. Local development only.
     "MCP_ALLOW_INSECURE": "false"

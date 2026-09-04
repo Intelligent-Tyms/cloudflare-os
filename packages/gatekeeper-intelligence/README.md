@@ -23,6 +23,12 @@ Shape, in one line each:
   the citation instruction, and caches the result in the facet for five minutes or until the setup
   store changes. The Workshop snapshots it once per chat, so a refresh reaches new chats only.
 
+- **Same-zone reachability.** Wiki hosts are served by the cell Worker through routes on the
+  zone this worker shares with them, and Cloudflare sends a same-zone subrequest to the DNS
+  origin rather than to a Worker on a route. deploy.mjs binds the cell Worker as
+  `INTELLIGENCE_CELL`, and `src/cell.ts` routes every request to a host under
+  `INTELLIGENCE_BASE_DOMAIN` through it, URL unchanged.
+
 Unconfigured (or after `clearSetup` on deprovision) the vendor advertises nothing, accounts declare
 no singleton, and every call fails closed.
 

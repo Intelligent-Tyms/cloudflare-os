@@ -35,11 +35,13 @@ import type { ServerTrust } from "@gadgets/mcp-shared/tools";
 import { hostOf } from "@gadgets/mcp-shared/util";
 import type { McpLogFields } from "@gadgets/mcp-shared/log";
 import { generateSessionTypes, sessionTypeName } from "@gadgets/mcp-shared/schema-to-ts";
-import type { ConnectionAccount, McpConnection } from "@gadgets/mcp-shared/connection";
+import type { ConnectionAccount, McpConnection, WithClientOptions } from "@gadgets/mcp-shared/connection";
+import type { McpClient } from "@gadgets/mcp-shared/client";
 import { McpSessionBase, type McpSessionContext } from "@gadgets/mcp-shared/session";
 import { McpFacetBase } from "@gadgets/mcp-shared/facet";
 import { endpointTag, formatToolScope, type ToolScope } from "@gadgets/mcp-shared/scope";
 import { DEFAULT_REQUEST_TIMEOUT_MS, fetchOptions } from "@gadgets/mcp-shared/fetch";
+import { cellFetchOptions } from "./cell.js";
 import { escapeHtml, htmlResponse, PAGE_STYLE } from "@gadgets/mcp-shared/html";
 import { MCP_BASE_TYPES } from "@gadgets/mcp-shared/base-types";
 import {
@@ -461,6 +463,14 @@ export class IntelligenceGatekeeper
     }
   }
 
+  /** Every MCP request to a wiki host goes through the cell binding (see cell.ts). */
+  override call<T>(
+    fn: (client: McpClient) => Promise<T>,
+    options?: WithClientOptions,
+  ): Promise<T> {
+    return super.call(fn, { ...cellFetchOptions(this.env, this.endpoint), ...options });
+  }
+
   protected get sessionClass() {
     return IntelligenceSessionImpl;
   }
@@ -537,6 +547,7 @@ export class IntelligenceGatekeeper
       try {
         markdown = await fetchPrecedenceIndex(config, key, {
           ...fetchOptions(this.env), timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+          ...cellFetchOptions(this.env, config.precedenceUrl),
         });
         this.ctx.storage.kv.put<PrecedenceCache>("precedence",
           { markdown, fetchedAt: Date.now(), setupStamp });

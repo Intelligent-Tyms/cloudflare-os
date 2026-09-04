@@ -36,6 +36,8 @@ export type WithClientOptions = {
    * is acting for, where the server verifies such a header itself.
    */
   headers?: Record<string, string>;
+  /** Replaces the platform `fetch` for this operation (see `FetchOptions.fetchImpl`). */
+  fetchImpl?: typeof fetch;
 };
 
 /**
@@ -116,6 +118,7 @@ export async function withClient<T>(
       ...fetchOptions(env),
       deadline: options.deadline,
       originBoundHeaders: Object.keys(options.headers ?? {}),
+      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
     }, options.headers ?? {});
   let persistedSessionId = sessionId;
 

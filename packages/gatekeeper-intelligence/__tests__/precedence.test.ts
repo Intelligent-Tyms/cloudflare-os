@@ -85,6 +85,22 @@ describe("fetchPrecedenceIndex", () => {
     expect(new Headers(calls[0].init?.headers).get("Accept")).toContain("text/markdown");
   });
 
+  it("goes through the cell binding for a wiki host and never touches the platform fetch", async () => {
+    const { cellFetchOptions } = await import("../src/cell.js");
+    vi.stubGlobal("fetch", async () => { throw new Error("platform fetch must not be used"); });
+    const seen: string[] = [];
+    const binding = {
+      fetch: async (input: unknown, init?: RequestInit) => {
+        seen.push(`${new Headers(init?.headers).get("Authorization")} ${String(input)}`);
+        return new Response(INDEX, { status: 200 });
+      },
+    } as unknown as Fetcher;
+    const env = { INTELLIGENCE_CELL: binding, INTELLIGENCE_BASE_DOMAIN: "organization.tyms.ai" };
+    const markdown = await fetchPrecedenceIndex(config, KEY, cellFetchOptions(env, config.precedenceUrl));
+    expect(markdown).toBe(INDEX);
+    expect(seen).toEqual([`Bearer ${KEY} https://acme.organization.tyms.ai/api/w/company/precedence?format=md`]);
+  });
+
   it("reports a refused key distinctly (the cell answers 404 for a bad key)", async () => {
     vi.stubGlobal("fetch", async () => new Response("not found", { status: 404 }));
     await expect(fetchPrecedenceIndex(config, KEY)).rejects.toBeInstanceOf(PrecedenceAuthError);
