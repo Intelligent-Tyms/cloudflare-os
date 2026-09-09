@@ -13,8 +13,8 @@ interface UpgradeModalProps {
 
 // Shown when an agent turn is blocked with a `usage_limit` error on a centrally billed
 // deployment: the free plan's daily allowance ran out, or a paid workspace is out of AI
-// credits. Admins get a straight path to the plan picker; members get a one-click way to
-// ask their admins (throttled per workspace server-side). The legacy Cloudflare-limits
+// credits. Admins get a straight path to where the fix is (Billing & usage for a top-up on
+// a paid plan, the plan picker on free); members get a one-click way to ask their admins (throttled per workspace server-side). The legacy Cloudflare-limits
 // deployments show OutOfCreditsModal instead — ChatInterface picks by server config.
 export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   const auth = useOptionalAuthenticatedApi()
@@ -36,9 +36,12 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
       .catch(() => setGate(null))
   }, [open, auth])
 
-  const openPlans = () => {
+  // A paid workspace that ran dry wants a top-up, and top-ups live on Billing & usage (which
+  // also links to the plan picker). The free plan's only way forward is a plan, so it goes to Plans.
+  const openFix = () => {
     onClose()
-    void navigate({ to: '/admin/$section', params: { section: 'plans' } })
+    const section = gate?.isFreePlan === false ? 'billing' : 'plans'
+    void navigate({ to: '/admin/$section', params: { section } })
   }
 
   const requestUpgrade = async () => {
@@ -130,8 +133,8 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
                 {gate !== null && (isAdmin || requestState === 'idle') ? 'Maybe later' : 'Close'}
               </Button>
               {gate !== null && isAdmin && (
-                <Button variant="primary" onClick={openPlans}>
-                  View plans
+                <Button variant="primary" onClick={openFix}>
+                  {gate.isFreePlan ? 'View plans' : 'Top up'}
                 </Button>
               )}
               {gate !== null && !isAdmin && requestState !== 'sent' && requestState !== 'already' && (

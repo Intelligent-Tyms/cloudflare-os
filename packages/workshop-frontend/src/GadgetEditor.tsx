@@ -166,12 +166,6 @@ type WorkspaceView =
   | { mode: 'app'; appId?: WorkpieceId }
   | { mode: 'activity' }
 
-function formatHeaderCost(cost: number) {
-  if (cost === 0) return '$0'
-  if (cost < 0.01) return '<$0.01'
-  return `$${cost.toFixed(2)}`
-}
-
 // The first tab is named after what the selected workpiece is ("Document" for a gadget built from
 // a document blueprint), falling back to "App" when it declares no format.
 function rightTabs(output?: BlueprintOutput): { value: RightTab; label: string }[] {
@@ -1535,19 +1529,13 @@ export default function GadgetEditor() {
           )}
         </div>
 
-        {/* Right: presence, cost, workspace, share, blueprints */}
+        {/* Right: presence, workspace, share, blueprints */}
         <div className="hidden flex-shrink-0 items-center gap-1 md:flex">
           <GadgetPresence
             overseer={overseer.stub}
             authenticatedApi={authenticatedApi}
             currentUserId={userInfo?.id ?? null}
           />
-
-          {metadata.totalCost != null && (
-            <span className="ml-3 mr-2 text-[12px] leading-4 font-normal tracking-[-0.2px] text-kumo-subtle">
-              {formatHeaderCost(metadata.totalCost)}
-            </span>
-          )}
 
           <ActivityNotifications
             overseer={overseer.stub}

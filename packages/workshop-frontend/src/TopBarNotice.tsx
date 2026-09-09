@@ -4,13 +4,17 @@ import remarkGfm from 'remark-gfm'
 import { Link } from '@tanstack/react-router'
 import { useServerConfig, usePoolMode, usePoolUpgradeUrl } from './ServerConfigContext'
 import { useOptionalAuthenticatedApi } from './AuthContext'
-import type { PendingWorkspaceInfo } from '@gadgets/workshop-shared/api'
+import type { BillingGateInfo, PendingWorkspaceInfo } from '@gadgets/workshop-shared/api'
+import { credits } from './components/billing/billingFormat'
 
 /**
  * Centered text in the top bar. Shows the deployment's admin-configured notice (rendered as inline
  * Markdown, so it can include links) when one is set. When no notice is set and the workspace is
  * on the free plan, falls back to a standing upgrade nudge — admins get a link to the plan picker,
- * members just see the plan. An admin-set announcement always wins over the fallback.
+ * members just see the plan. On a paid plan it instead warns admins when AI credits are running
+ * low (under a fifth of the period's credits, or out), with a link to Billing & usage where the
+ * top-up is, so nobody learns the workspace is dry from a blocked turn. An admin-set announcement
+ * always wins over the fallbacks.
  *
  * On a pool deployment every user is a free user with no admin: the nudge links to the central
  * upgrade page, and once they've bought a workspace it tracks the build ("Setting up acme…",
@@ -42,19 +46,39 @@ const INLINE_MARKDOWN_COMPONENTS: Components = {
 // the ready state is also announced by email, so this needn't be snappy.
 const PENDING_POLL_MS = 60_000
 
+// Below this share of the period's AI credits (allowance plus top-ups) admins get the nudge.
+// Matches the "Running low" threshold on the Billing & usage card.
+const LOW_CREDITS_FRACTION = 0.2
+
+type LowCredits = { balanceMicroUsd: number; out: boolean }
+
+function lowCredits(gate: BillingGateInfo | null): LowCredits | null {
+  if (!gate || gate.isFreePlan) return null
+  const balance = gate.aiBalanceMicroUsd
+  const grant = gate.aiMonthlyGrantMicroUsd
+  if (balance == null || grant == null || grant <= 0) return null
+  if (balance <= 0) return { balanceMicroUsd: 0, out: true }
+  return balance / grant < LOW_CREDITS_FRACTION ? { balanceMicroUsd: balance, out: false } : null
+}
+
 export default function TopBarNotice() {
   const notice = (useServerConfig()?.announcement ?? '').trim()
   const auth = useOptionalAuthenticatedApi()
   const poolMode = usePoolMode()
   const poolUpgradeUrl = usePoolUpgradeUrl()
   const [freePlan, setFreePlan] = useState(false)
+  const [low, setLow] = useState<LowCredits | null>(null)
   const [pending, setPending] = useState<PendingWorkspaceInfo | null>(null)
 
   useEffect(() => {
     if (notice || !auth || poolMode) return
     let cancelled = false
     auth.authenticatedApi.getBillingGate()
-      .then((gate) => { if (!cancelled) setFreePlan(gate?.isFreePlan ?? false) })
+      .then((gate) => {
+        if (cancelled) return
+        setFreePlan(gate?.isFreePlan ?? false)
+        setLow(auth.isAdmin ? lowCredits(gate) : null)
+      })
       .catch(() => {})
     return () => { cancelled = true }
   }, [notice, auth, poolMode])
@@ -73,7 +97,7 @@ export default function TopBarNotice() {
     return () => { cancelled = true; if (timer) clearTimeout(timer) }
   }, [notice, auth, poolMode])
 
-  if (!notice && !freePlan && !poolMode) return null
+  if (!notice && !freePlan && !low && !poolMode) return null
 
   const externalLink = (href: string, label: string) => (
     <a href={href} className="text-kumo-brand hover:underline pointer-events-auto">{label}</a>
@@ -108,6 +132,19 @@ export default function TopBarNotice() {
           </ReactMarkdown>
         ) : poolMode ? (
           poolContent()
+        ) : low ? (
+          <>
+            <span className={low.out ? 'text-kumo-danger' : 'text-kumo-warning'}>
+              {low.out ? 'Out of AI credits.' : `AI credits running low: ${credits(low.balanceMicroUsd)} left.`}
+            </span>{' '}
+            <Link
+              to="/admin/$section"
+              params={{ section: 'billing' }}
+              className="text-kumo-brand hover:underline pointer-events-auto"
+            >
+              Top up
+            </Link>
+          </>
         ) : (
           <>
             You're on the free plan.

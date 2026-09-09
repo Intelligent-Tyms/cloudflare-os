@@ -727,10 +727,14 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     if (!hasBillingDirectory(this.env)) return null;
     let state = await usageCollector(this.ctx).getBillingState().catch(() => null);
     if (!state) return null;
+    let isFreePlan = state.freeDailyLlmCalls != null;
     return {
       planCode: state.planCode,
-      isFreePlan: state.freeDailyLlmCalls != null,
+      isFreePlan,
       freeDailyLlmCalls: state.freeDailyLlmCalls,
+      aiBalanceMicroUsd: isFreePlan ? null : state.aiBalanceMicroUsd,
+      aiMonthlyGrantMicroUsd: isFreePlan ? null : state.aiMonthlyGrantMicroUsd,
+      periodEnd: isFreePlan ? null : state.periodEnd,
     };
   }
 

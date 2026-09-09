@@ -36,6 +36,8 @@ export type BillingState = {
   seatLimit: number | null;
   agentLimit: number | null;
   aiBalanceMicroUsd: number;
+  // The plan's AI allowance per period, so callers can express the balance as a fraction.
+  aiMonthlyGrantMicroUsd: number;
   messagingBalanceMicroUsd: number;
   channelRatesMicroUsd: Record<string, number>;
   // Non-null on the free plan: AI turns are gated by the per-user daily counter instead of
@@ -104,6 +106,7 @@ export class UsageCollectorDurableObject extends DurableObject<Cloudflare.Env> {
       seatLimit: e.seatLimit,
       agentLimit: e.agentLimit,
       aiBalanceMicroUsd: e.ai.balanceMicroUsd - pending.ai,
+      aiMonthlyGrantMicroUsd: e.ai.monthlyGrantMicroUsd,
       messagingBalanceMicroUsd: e.messaging.balanceMicroUsd - pending.messaging,
       channelRatesMicroUsd: e.channelRatesMicroUsd,
       freeDailyLlmCalls: e.freeDailyLlmCalls,

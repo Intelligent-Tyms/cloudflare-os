@@ -839,6 +839,15 @@ export type BillingGateInfo = {
   isFreePlan: boolean;
   /** The daily request allowance on the free plan; null on paid plans. */
   freeDailyLlmCalls: number | null;
+  /**
+   * AI credit position for the low-credits nudge, paid plans only (null on free, where credits
+   * don't apply). Balance is allowance plus rolled-over top-ups; the monthly grant is the plan's
+   * allowance per period.
+   */
+  aiBalanceMicroUsd: number | null;
+  aiMonthlyGrantMicroUsd: number | null;
+  /** When the monthly allowance renews (ms since epoch); null on the free plan. */
+  periodEnd: number | null;
 };
 
 /** A pool member's company workspace on its way (see AuthenticatedApi.getPendingWorkspace). */

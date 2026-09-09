@@ -18,6 +18,7 @@ import {
 // switching plans lives on its own page (Admin → Plans, AdminPlansPanel).
 
 const TOPUP_PRESETS_CENTS = [10_00, 25_00, 50_00]
+const DAY_MS = 24 * 60 * 60 * 1000
 
 type PendingTopup = { creditType: BillingCreditType; topupMicroUsd: number }
 
@@ -220,46 +221,99 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
     </span>
   )
 
+  // Low-credit thresholds as a fraction of what the period started with (allowance plus
+  // top-ups). Same cut-offs as the top bar nudge so the two never disagree.
+  const LOW_FRACTION = 0.2
+  const CRITICAL_FRACTION = 0.05
+
   const creditCard = (
     label: string,
     creditType: BillingCreditType,
     bucket: BillingOverview['ai'],
-    spentMicroUsd: number,
     footnote?: string,
   ) => {
-    const grantUsed = Math.min(1, bucket.monthlyGrantMicroUsd > 0
-      ? (bucket.monthlyGrantMicroUsd - bucket.allowanceMicroUsd) / bucket.monthlyGrantMicroUsd
-      : 0)
+    const grant = bucket.monthlyGrantMicroUsd
+    const total = grant + bucket.topupMicroUsd
+    const balance = Math.max(0, bucket.balanceMicroUsd)
+    const used = Math.max(0, grant - bucket.allowanceMicroUsd)
+    const remainingFraction = total > 0 ? Math.min(1, balance / total) : 0
+    const level: 'ok' | 'low' | 'critical' | 'out' =
+      balance <= 0 ? 'out'
+      : remainingFraction < CRITICAL_FRACTION ? 'critical'
+      : remainingFraction < LOW_FRACTION ? 'low'
+      : 'ok'
+    const barColour =
+      level === 'ok' ? 'bg-kumo-brand' : level === 'low' ? 'bg-kumo-warning' : 'bg-kumo-danger'
+    const daysLeft = Math.max(0, Math.ceil((overview.periodEnd - Date.now()) / DAY_MS))
+
+    // Projected run-out: spend so far in the period, extrapolated. Only worth saying when it
+    // lands before the allowance renews.
+    const elapsedDays = Math.max(1, (Date.now() - overview.periodStart) / DAY_MS)
+    const perDay = used / elapsedDays
+    const runOutAt = perDay > 0 ? Date.now() + (balance / perDay) * DAY_MS : null
+    const runsOutEarly = runOutAt !== null && balance > 0 && runOutAt < overview.periodEnd
+
     return (
       <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6 flex-1 min-w-[260px]">
         <div className="flex items-baseline justify-between gap-3">
           <h2 className="text-lg font-semibold text-kumo-strong">{label}</h2>
-          <span className="text-2xl font-semibold text-kumo-strong tabular-nums">{credits(bucket.balanceMicroUsd)}</span>
+          <span className={`text-2xl font-semibold tabular-nums ${
+            level === 'ok' || isEnterprise ? 'text-kumo-strong'
+            : level === 'low' ? 'text-kumo-warning' : 'text-kumo-danger'}`}
+          >
+            {credits(balance)}
+          </span>
         </div>
-        <p className="text-xs text-kumo-subtle mt-0.5">Credits remaining</p>
+        <p className="text-xs text-kumo-subtle mt-0.5">
+          Credits remaining
+          {!isEnterprise && level !== 'ok' && (
+            <span className={`ml-2 text-[11px] font-medium px-2 py-0.5 rounded-full ${
+              level === 'low' ? 'bg-kumo-warning/10 text-kumo-warning' : 'bg-kumo-danger/10 text-kumo-danger'}`}
+            >
+              {level === 'out' ? 'Out of credits' : level === 'critical' ? 'Almost out' : 'Running low'}
+            </span>
+          )}
+        </p>
 
-        {bucket.monthlyGrantMicroUsd > 0 && (
+        {total > 0 && (
           <div className="mt-4">
-            <div className="h-1.5 rounded-full bg-kumo-tint overflow-hidden">
+            <div
+              className="h-1.5 rounded-full bg-kumo-tint overflow-hidden"
+              role="progressbar"
+              aria-label={`${label} remaining`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(remainingFraction * 100)}
+            >
               <div
-                className="h-full rounded-full bg-kumo-brand transition-all"
-                style={{ width: `${Math.round(grantUsed * 100)}%` }}
+                className={`h-full rounded-full transition-all ${barColour}`}
+                style={{ width: `${Math.round(remainingFraction * 100)}%` }}
               />
             </div>
             <p className="text-xs text-kumo-subtle mt-2">
-              {credits(bucket.monthlyGrantMicroUsd - bucket.allowanceMicroUsd)} of the{' '}
-              {credits(bucket.monthlyGrantMicroUsd)} monthly credits used · resets {shortDate(overview.periodEnd)}
+              {grant > 0 ? (
+                <>
+                  {credits(used)} of {credits(grant)} monthly credits used ·{' '}
+                  {daysLeft === 0 ? 'renews today' : `renews in ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}`}
+                </>
+              ) : (
+                <>Renews {shortDate(overview.periodEnd)}</>
+              )}
             </p>
+            {bucket.topupMicroUsd > 0 && (
+              <p className="text-xs text-kumo-subtle mt-1">
+                Includes {credits(bucket.topupMicroUsd)} top-up credits, which never expire.
+              </p>
+            )}
+            {!isEnterprise && runsOutEarly && runOutAt !== null && (
+              <p className="text-xs text-kumo-warning mt-1">
+                At the current pace these run out around {shortDate(runOutAt)}, before they renew.
+              </p>
+            )}
           </div>
         )}
 
-        <div className="mt-3 space-y-1 text-xs text-kumo-subtle">
-          <p>Spent this period: <span className="text-kumo-default font-medium">{credits(spentMicroUsd)} credits</span></p>
-          {bucket.topupMicroUsd > 0 && (
-            <p>Top-up credits (roll over): <span className="text-kumo-default font-medium">{credits(bucket.topupMicroUsd)}</span></p>
-          )}
-          {footnote && <p>{footnote}</p>}
-        </div>
+        {footnote && <p className="mt-3 text-xs text-kumo-subtle">{footnote}</p>}
 
         {!isEnterprise && (
           <div className="mt-5 pt-4 border-t border-kumo-line">
@@ -338,9 +392,9 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
       {/* Credits */}
       {!isFree && (
         <div className="flex gap-6 flex-wrap">
-          {creditCard('AI credits', 'ai', overview.ai, aiSpent,
+          {creditCard('AI credits', 'ai', overview.ai,
             'Spent as your teammates and assistants do AI work.')}
-          {creditCard('Messaging credits', 'messaging', overview.messaging, messagingSpent,
+          {creditCard('Messaging credits', 'messaging', overview.messaging,
             'An email is 2 credits, WhatsApp 5, SMS 10, and voice 50 per message. Telegram and Slack are free.')}
         </div>
       )}
