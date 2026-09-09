@@ -14,6 +14,7 @@ import { fetchOptions } from "@gadgets/mcp-shared/fetch";
 import { sameEndpoint } from "@gadgets/mcp-shared/scope";
 import { isPortalNativeTool, type PortalServer } from "@gadgets/mcp-shared/portal";
 import { classifyTool, type ServerTrust } from "@gadgets/mcp-shared/tools";
+import { parseSharingPolicy, type McpSharingPolicy } from "@gadgets/mcp-shared/sharing-policy";
 
 /** The configured portal, once the deployment's vars have been read and validated. */
 export type PortalConfig = {
@@ -38,6 +39,15 @@ export const PORTAL_SERVER_ID = "portal";
  */
 export function portalTrust(env: Env): ServerTrust {
   return (env.MCP_PORTAL_TRUST_ANNOTATIONS ?? "").toLowerCase() === "true" ? "vetted" : "byo";
+}
+
+/**
+ * Who may open a Gadget bound to a server behind the portal besides its owner. Deployment
+ * configuration like the trust tier, and `owner-only` unless `MCP_PORTAL_SHARING` names another
+ * policy (see `sharing-policy.ts` in `@gadgets/mcp-shared`).
+ */
+export function portalSharing(env: Env): McpSharingPolicy {
+  return parseSharingPolicy(env.MCP_PORTAL_SHARING);
 }
 
 // The portal setup values from one source. Two sources exist — admin-entered runtime setup

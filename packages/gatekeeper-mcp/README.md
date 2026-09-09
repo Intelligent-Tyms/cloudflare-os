@@ -1,5 +1,5 @@
 | `MCP_ALLOW_INSECURE` | `"true"` to disable the endpoint checks entirely: permits `http://` **and** private, loopback, link-local, and cloud-metadata hosts, on the endpoint and on every OAuth URL discovered from it. Local dev only. |
-| `MCP_CATALOG_URL` | Optional URL of a curated catalog of vetted MCP servers (JSON `{ servers: [{ id, name, description, endpoint, vetted }] }`). Listed servers appear as one-click connect choices, and vetted entries earn the `vetted` trust tier: their own read-only/idempotent annotations may drive auto-approval. Absent means pure bring-your-own. |
+| `MCP_CATALOG_URL` | Optional URL of a curated catalog of vetted MCP servers (JSON `{ servers: [{ id, name, description, endpoint, vetted, sharing }] }`). Listed servers appear as one-click connect choices, and vetted entries earn the `vetted` trust tier: their own read-only/idempotent annotations may drive auto-approval. `sharing` (`owner-only`, `same-account`, `public`) says who besides the owner may open a Gadget bound to the server; see "Approvals and sharing". Absent means pure bring-your-own. |
 
 Per-server configuration is the catalog: listing an endpoint there is a review assertion (see
 `src/vetted-catalog.ts`). Everything else stays bring-your-own — users supply endpoints, and an
@@ -81,7 +81,7 @@ See `src/types.d.ts` in `@gadgets/mcp-shared` for the base session API.
 | `BASE_URL` | Public base URL of this Worker, for OAuth redirects. |
 | `MCP_CLIENT_NAME` | Client name sent in `initialize` and dynamic client registration. |
 | `MCP_ALLOW_INSECURE` | `"true"` to disable the endpoint checks entirely: permits `http://` **and** private, loopback, link-local, and cloud-metadata hosts, on the endpoint and on every OAuth URL discovered from it. Local dev only. |
-| `MCP_CATALOG_URL` | Optional URL of a curated catalog of vetted MCP servers (JSON `{ servers: [{ id, name, description, endpoint, vetted }] }`). Listed servers appear as one-click connect choices, and vetted entries earn the `vetted` trust tier: their own read-only/idempotent annotations may drive auto-approval. Absent means pure bring-your-own. |
+| `MCP_CATALOG_URL` | Optional URL of a curated catalog of vetted MCP servers (JSON `{ servers: [{ id, name, description, endpoint, vetted, sharing }] }`). Listed servers appear as one-click connect choices, and vetted entries earn the `vetted` trust tier: their own read-only/idempotent annotations may drive auto-approval. `sharing` (`owner-only`, `same-account`, `public`) says who besides the owner may open a Gadget bound to the server; see "Approvals and sharing". Absent means pure bring-your-own. |
 
 Per-server configuration is the catalog: listing an endpoint there is a review assertion (see
 `src/vetted-catalog.ts`). Everything else stays bring-your-own — users supply endpoints, and an
@@ -183,20 +183,51 @@ produce. Every call records which side classified it (`McpToolInfo.classifiedBy`
 find each one taken on the server's word. See `tools.ts` in `@gadgets/mcp-shared` for the tier
 rules.
 
-A Gadget bound to an MCP server can only be opened by its owner: `addObserver` refuses
-unconditionally. Being able to authenticate to a server is not evidence of being allowed to see what
-the *owner* read from it, and the Gadget runs on the owner's credentials throughout. Writes still
-work — the alternative, marking every observation `prohibitAllSharing`, would latch a lockdown that
-blocks every action for the rest of the session. See
-[`sharing-policy.ts`](../mcp-shared/src/sharing-policy.ts).
+### Who else may open a Gadget bound to a server
 
-To share the work rather than the binding, publish the Gadget as a blueprint and let each person
-connect their own server.
+MCP has no per-record authorization to consult, so the connector cannot work out on its own whether
+a collaborator may see what a Gadget read. The answer is a second review assertion on the catalog
+entry, `sharing`, independent of `vetted` (trusting a server's annotations says nothing about whose
+data it serves). See [`sharing-policy.ts`](../mcp-shared/src/sharing-policy.ts).
 
-The check covers every MCP gatekeeper in the workspace, not only the ones an app binds. A server
-pasted into a chat becomes a capsule, which creates the gatekeeper without binding it, and nothing
-reaps it afterwards; the Connections tab lists such connections under "Not used by any app" so the
-owner can remove them (`Overseer.removeUnboundGatekeeper`) before sharing.
+| `sharing` | Who may open the Gadget | What is checked |
+| --- | --- | --- |
+| `owner-only` (default, and every unlisted endpoint) | The owner | Nothing: `addObserver` refuses unconditionally. |
+| `same-account` | Collaborators with their own account on the same endpoint | Every read-only call the Gadget has made is replayed on the collaborator's account and must succeed. |
+| `public` | Any collaborator | Nothing: the endpoint serves data anyone may see. |
+
+`owner-only` is the safe reading. Being able to authenticate to a server is not evidence of being
+allowed to see what the *owner* read from it, and the Gadget runs on the owner's credentials
+throughout. Writes still work — the alternative, marking every observation `prohibitAllSharing`,
+would latch a lockdown that blocks every action for the rest of the session. To share the work
+rather than the binding, publish the Gadget as a blueprint and let each person connect their own
+server.
+
+`same-account` is for servers that enforce access per account (a bank, a CRM). When a collaborator
+opens the Gadget, the Workshop asks them to choose or connect their own account for this server —
+a catalog server connects in one click, with the endpoint already filled in — and the facet replays
+its log of distinct read-only calls (tool name and arguments) on that account. A call the server
+refuses, whether with an error status or a tool result flagged `isError`, turns the collaborator
+away with the tool named. Results are not compared, only the fact of success: the data behind most
+servers changes between two calls, and a server that answers everyone the same regardless of
+account should be listed as `public` or `owner-only` instead. A read the Gadget makes later, while
+collaborators are admitted, is replayed on each of their accounts before its result is handed over;
+whoever fails is named in the observation's `excludeObservers`, and the Workshop blocks the
+observation unless it can keep it from them. The full log is replayed again on a collaborator's
+first open after fifteen minutes, so a revoked account stops passing promptly.
+
+The read log is bounded (`MAX_LOGGED_READS` distinct calls, `MAX_READ_ARGUMENT_BYTES` per call).
+Past the bound it latches: no new collaborator can be verified against a log with gaps, and those
+already admitted are excluded from further reads. Reads are logged under every policy, so moving an
+endpoint to `same-account` later checks the whole history. Two things are not replayed: catalog
+reads (`listTools`), since holding an account on the endpoint already covers them, and the results
+of approved writes collected through `getActionResult`, which are receipts for the owner's own
+actions rather than reads of stored data.
+
+Whatever the policy, the check covers every MCP gatekeeper in the workspace, not only the ones an
+app binds. A server pasted into a chat becomes a capsule, which creates the gatekeeper without
+binding it, and nothing reaps it afterwards; the Connections tab lists such connections under "Not
+used by any app" so the owner can remove them (`Overseer.removeUnboundGatekeeper`) before sharing.
 
 ## Notes and current limitations
 
@@ -221,14 +252,19 @@ owner can remove them (`Overseer.removeUnboundGatekeeper`) before sharing.
   resolution on every request and redirect hop. It does not apply under `wrangler dev`, which is
   what keeps `MCP_ALLOW_INSECURE` usable locally.
 - **Sharing UI reports late.** `GadgetMetadata.sharingProhibited` derives only from
-  `prohibitAllSharing`, so creating a share key appears to succeed and fails when the recipient
-  opens it. Fixing this needs a kernel change.
+  `prohibitAllSharing`, so creating a share key for an `owner-only` binding appears to succeed and
+  fails when the recipient opens it. Fixing this needs a kernel change.
+- **Replay is a check on success, not on content.** A `same-account` server whose reads succeed
+  for every account (public data behind a login, a search that quietly filters by caller) admits
+  a collaborator who would see a different answer than the owner did. List such servers as
+  `public` or `owner-only`.
 
 ## Layout
 
 | File | Purpose |
 | --- | --- |
 | `src/mcp.ts` | Vendor, account DO, user, verifier, gatekeeper facet, session |
+| `src/vetted-catalog.ts` | The deployment's catalog: trust tier and sharing policy per endpoint |
 | `src/connect-form.ts` | The endpoint prompt served during connect |
 | `src/server-id.ts` | Endpoint to display slug, for the binding name and session type |
 | `src/configurator/` | The grant UI (compiled into `src/generated/`) |

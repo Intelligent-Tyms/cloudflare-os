@@ -89,6 +89,12 @@ export interface McpSessionHost {
   stageAction(toolName: string, args: Record<string, unknown>): StoredAction;
   discardStagedAction(id: number): void;
   lookupAction(id: number): StoredAction | undefined;
+
+  /**
+   * Records a completed read-only call and names the observers who must not see its result, per
+   * the endpoint's sharing policy. Undefined when everyone admitted may see it.
+   */
+  recordRead(toolName: string, args: Record<string, unknown>): Promise<string[] | undefined>;
 }
 
 /**
@@ -217,8 +223,12 @@ export class McpSessionBase extends RpcTarget {
     if (entry.mode === "read") {
       const result = await host.call(
         client => client.callTool(name, toolArgs), this.#context?.callOptions);
-      // Authorize before the data is handed back, per the gatekeeper contract.
-      await this.#queue.authorizeObservation(described);
+      // Authorize before the data is handed back, per the gatekeeper contract. The host names any
+      // admitted observer whose own account could not repeat this read; the Workshop then blocks
+      // the observation unless it can keep it from them.
+      const excludeObservers = await host.recordRead(name, toolArgs);
+      await this.#queue.authorizeObservation(
+        excludeObservers ? { ...described, excludeObservers } : described);
       return toCallResult(result);
     }
 

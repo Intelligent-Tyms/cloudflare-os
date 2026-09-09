@@ -105,6 +105,7 @@ it("forwards the session context's call options to the host on a read", async ()
     endpoint: "https://acme.organization.tyms.ai/w/company/mcp",
     scope: {},
     findTool: async () => entry,
+    recordRead: async () => undefined,
     call: async (fn: (client: McpClient) => Promise<unknown>, options?: WithClientOptions) => {
       calls.push(options);
       return fn({ callTool: async () => ({ content: [] }) } as unknown as McpClient);
@@ -136,10 +137,12 @@ class ActorFacet extends McpFacetBase<ConnectionEnv, { endpoint: string; scope: 
     RecordingSession> {
   protected get log() { return log; }
   protected get trust(): ServerTrust { return "vetted"; }
+  protected get sharing() { return "owner-only" as const; }
   protected get sessionClass() { return RecordingSession; }
   protected get actionScopeTag() { return "test"; }
   protected get observerName() { return "the wiki"; }
   protected account(): ConnectionAccount { throw new Error("not used"); }
+  protected accountById(): ConnectionAccount { throw new Error("not used"); }
   describe(): Promise<ResourceDescription> { throw new Error("not used"); }
   getTypeScriptTypes(): Promise<string> { throw new Error("not used"); }
   get serverName() { return "Wiki"; }

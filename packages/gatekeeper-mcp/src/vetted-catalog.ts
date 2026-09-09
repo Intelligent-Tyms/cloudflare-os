@@ -17,6 +17,7 @@ import { createLogger } from "@gadgets/backend-utils/logger";
 import type { SupportedResource } from "@gadgets/workshop-shared/gatekeeper";
 import type { McpLogFields } from "@gadgets/mcp-shared/log";
 import { sameEndpoint } from "@gadgets/mcp-shared/scope";
+import { parseSharingPolicy, type McpSharingPolicy } from "@gadgets/mcp-shared/sharing-policy";
 import type { ServerTrust } from "@gadgets/mcp-shared/tools";
 
 const logger = createLogger<McpLogFields>({
@@ -29,6 +30,12 @@ export type CatalogServer = {
   description: string;
   endpoint: string;
   vetted: boolean;
+  /**
+   * Who may open a Gadget bound to this server besides its owner. A second review assertion,
+   * independent of `vetted`: trusting a server's annotations says nothing about whether its data
+   * is one person's or everyone's. Absent or unrecognised means `owner-only`.
+   */
+  sharing: McpSharingPolicy;
 };
 
 type CatalogEnv = { MCP_CATALOG_URL?: string };
@@ -79,6 +86,7 @@ export function parseCatalog(payload: unknown): CatalogServer[] {
         ? record.description.slice(0, MAX_DESCRIPTION) : "",
       endpoint: url.toString(),
       vetted: record.vetted !== false,
+      sharing: parseSharingPolicy(record.sharing),
     });
   }
   return servers;
@@ -146,6 +154,15 @@ export function trustFor(env: CatalogEnv, endpoint: string): ServerTrust {
   refreshCatalogInBackground(env);
   const entry = catalogEntryFor(endpoint);
   return entry?.vetted === true ? "vetted" : "byo";
+}
+
+// The sharing policy for an endpoint: whatever the current catalog says, and `owner-only` for
+// anything it does not list, including every user-supplied endpoint. Conservative on a cold
+// cache in the same way `trustFor` is: a `public` server momentarily refuses observers, never
+// the reverse.
+export function sharingFor(env: CatalogEnv, endpoint: string): McpSharingPolicy {
+  refreshCatalogInBackground(env);
+  return catalogEntryFor(endpoint)?.sharing ?? "owner-only";
 }
 
 // One connectable resource per catalog server. The urlPattern is the exact endpoint URL —
