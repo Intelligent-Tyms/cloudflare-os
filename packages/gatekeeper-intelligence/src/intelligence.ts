@@ -39,6 +39,7 @@ import type { ConnectionAccount, McpConnection, WithClientOptions } from "@gadge
 import type { McpClient } from "@gadgets/mcp-shared/client";
 import { McpSessionBase, type McpSessionContext } from "@gadgets/mcp-shared/session";
 import { McpFacetBase } from "@gadgets/mcp-shared/facet";
+import type { McpSharingPolicy } from "@gadgets/mcp-shared/sharing-policy";
 import { endpointTag, formatToolScope, type ToolScope } from "@gadgets/mcp-shared/scope";
 import { DEFAULT_REQUEST_TIMEOUT_MS, fetchOptions } from "@gadgets/mcp-shared/fetch";
 import { cellFetchOptions } from "./cell.js";
@@ -436,8 +437,21 @@ export class IntelligenceGatekeeper
     };
   }
 
+  /** One tenant-wide key, so an observer's "own account" is the same one the owner used. */
+  protected accountById(): ConnectionAccount {
+    return this.account();
+  }
+
   protected get trust(): ServerTrust {
     return TRUST;
+  }
+
+  /**
+   * The wiki is the tenant's own, readable by every member the Workshop lets in, which is what
+   * the no-op `addObserver` below has always said; reads are never replayed on anyone's account.
+   */
+  protected get sharing(): McpSharingPolicy {
+    return "public";
   }
 
   /**
