@@ -135,7 +135,7 @@ export default function TopBarNotice() {
         ) : low ? (
           <>
             <span className={low.out ? 'text-kumo-danger' : 'text-kumo-warning'}>
-              {low.out ? 'Out of AI credits.' : `AI credits running low: ${credits(low.balanceMicroUsd)} left.`}
+              {low.out ? 'Out of AI credits.' : `AI credits low: ${credits(low.balanceMicroUsd)} left.`}
             </span>{' '}
             <Link
               to="/admin/$section"

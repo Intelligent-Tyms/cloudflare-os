@@ -100,30 +100,28 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
               </p>
             ) : gate.isFreePlan ? (
               <p className="text-sm text-kumo-subtle">
-                You've reached today's free limit. Upgrade for a monthly credit allowance,
-                more teammates, and every AI model.
+                You've reached today's free limit. Upgrade for monthly credits, more
+                teammates, and every AI model.
               </p>
             ) : (
               <p className="text-sm text-kumo-subtle">
-                This workspace is out of AI credits. Your monthly allowance renews
-                automatically, or {isAdmin ? 'you' : 'an admin'} can top up or move to a
-                bigger plan now.
+                This workspace is out of AI credits. {isAdmin ? 'Top up' : 'An admin can top up'} now,
+                or wait for the monthly allowance to renew.
               </p>
             )}
 
             {gate !== null && !isAdmin && (
               requestState === 'sent' ? (
                 <p className="text-sm text-kumo-default">
-                  Your workspace admins have been notified by email.
+                  Admins notified by email.
                 </p>
               ) : requestState === 'already' ? (
                 <p className="text-sm text-kumo-default">
-                  Your workspace admins were already notified recently.
+                  Admins were already notified recently.
                 </p>
               ) : (
                 <p className="text-sm text-kumo-subtle">
-                  Only workspace admins can change the plan, but you can let them know
-                  you're blocked.
+                  Only admins can change the plan. Let them know you're blocked.
                 </p>
               )
             )}

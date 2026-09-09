@@ -226,6 +226,8 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
   const LOW_FRACTION = 0.2
   const CRITICAL_FRACTION = 0.05
 
+  // One card per credit type, two sections: the monthly allowance (resets) and top-ups (roll
+  // over). The hero number is the sum, because that is what the enforcement gate checks.
   const creditCard = (
     label: string,
     creditType: BillingCreditType,
@@ -236,15 +238,21 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
     const total = grant + bucket.topupMicroUsd
     const balance = Math.max(0, bucket.balanceMicroUsd)
     const used = Math.max(0, grant - bucket.allowanceMicroUsd)
+    const allowanceFraction = grant > 0 ? Math.min(1, Math.max(0, bucket.allowanceMicroUsd) / grant) : 0
     const remainingFraction = total > 0 ? Math.min(1, balance / total) : 0
     const level: 'ok' | 'low' | 'critical' | 'out' =
       balance <= 0 ? 'out'
       : remainingFraction < CRITICAL_FRACTION ? 'critical'
       : remainingFraction < LOW_FRACTION ? 'low'
       : 'ok'
-    const barColour =
-      level === 'ok' ? 'bg-kumo-brand' : level === 'low' ? 'bg-kumo-warning' : 'bg-kumo-danger'
+    const warn = !isEnterprise && level !== 'ok'
+    // Literal class strings so Tailwind sees them.
+    const toneText = level === 'low' ? 'text-kumo-warning' : 'text-kumo-danger'
+    const toneChip = level === 'low' ? 'bg-kumo-warning/10 text-kumo-warning' : 'bg-kumo-danger/10 text-kumo-danger'
+    const toneBar = level === 'low' ? 'bg-kumo-warning' : 'bg-kumo-danger'
     const daysLeft = Math.max(0, Math.ceil((overview.periodEnd - Date.now()) / DAY_MS))
+    const renews = daysLeft === 0 ? 'Renews today'
+      : daysLeft === 1 ? 'Renews tomorrow' : `Renews in ${daysLeft} days`
 
     // Projected run-out: spend so far in the period, extrapolated. Only worth saying when it
     // lands before the allowance renews.
@@ -253,72 +261,63 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
     const runOutAt = perDay > 0 ? Date.now() + (balance / perDay) * DAY_MS : null
     const runsOutEarly = runOutAt !== null && balance > 0 && runOutAt < overview.periodEnd
 
+    const sectionTitle = 'text-xs font-medium text-kumo-default'
+    const meta = 'text-xs text-kumo-subtle'
+
     return (
       <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6 flex-1 min-w-[260px]">
         <div className="flex items-baseline justify-between gap-3">
           <h2 className="text-lg font-semibold text-kumo-strong">{label}</h2>
-          <span className={`text-2xl font-semibold tabular-nums ${
-            level === 'ok' || isEnterprise ? 'text-kumo-strong'
-            : level === 'low' ? 'text-kumo-warning' : 'text-kumo-danger'}`}
-          >
+          <span className={`text-2xl font-semibold tabular-nums ${warn ? toneText : 'text-kumo-strong'}`}>
             {credits(balance)}
           </span>
         </div>
-        <p className="text-xs text-kumo-subtle mt-0.5">
-          Credits remaining
-          {!isEnterprise && level !== 'ok' && (
-            <span className={`ml-2 text-[11px] font-medium px-2 py-0.5 rounded-full ${
-              level === 'low' ? 'bg-kumo-warning/10 text-kumo-warning' : 'bg-kumo-danger/10 text-kumo-danger'}`}
-            >
-              {level === 'out' ? 'Out of credits' : level === 'critical' ? 'Almost out' : 'Running low'}
+        <p className={`${meta} mt-0.5 flex items-center gap-2`}>
+          Available now
+          {warn && (
+            <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${toneChip}`}>
+              {level === 'out' ? 'Out' : level === 'critical' ? 'Almost out' : 'Low'}
             </span>
           )}
         </p>
 
-        {total > 0 && (
-          <div className="mt-4">
+        {grant > 0 && (
+          <div className="mt-5">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className={sectionTitle}>Monthly allowance</p>
+              <p className={`${meta} tabular-nums`}>{credits(bucket.allowanceMicroUsd)} of {credits(grant)}</p>
+            </div>
             <div
-              className="h-1.5 rounded-full bg-kumo-tint overflow-hidden"
+              className="mt-2 h-1.5 rounded-full bg-kumo-tint overflow-hidden"
               role="progressbar"
-              aria-label={`${label} remaining`}
+              aria-label={`${label} monthly allowance remaining`}
               aria-valuemin={0}
               aria-valuemax={100}
-              aria-valuenow={Math.round(remainingFraction * 100)}
+              aria-valuenow={Math.round(allowanceFraction * 100)}
             >
               <div
-                className={`h-full rounded-full transition-all ${barColour}`}
-                style={{ width: `${Math.round(remainingFraction * 100)}%` }}
+                className={`h-full rounded-full transition-all ${warn ? toneBar : 'bg-kumo-brand'}`}
+                style={{ width: `${Math.round(allowanceFraction * 100)}%` }}
               />
             </div>
-            <p className="text-xs text-kumo-subtle mt-2">
-              {grant > 0 ? (
-                <>
-                  {credits(used)} of {credits(grant)} monthly credits used ·{' '}
-                  {daysLeft === 0 ? 'renews today' : `renews in ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}`}
-                </>
-              ) : (
-                <>Renews {shortDate(overview.periodEnd)}</>
-              )}
-            </p>
-            {bucket.topupMicroUsd > 0 && (
-              <p className="text-xs text-kumo-subtle mt-1">
-                Includes {credits(bucket.topupMicroUsd)} top-up credits, which never expire.
-              </p>
-            )}
+            <p className={`${meta} mt-2`}>{renews} · {shortDate(overview.periodEnd)}</p>
             {!isEnterprise && runsOutEarly && runOutAt !== null && (
               <p className="text-xs text-kumo-warning mt-1">
-                At the current pace these run out around {shortDate(runOutAt)}, before they renew.
+                At this pace, runs out around {shortDate(runOutAt)}.
               </p>
             )}
           </div>
         )}
 
-        {footnote && <p className="mt-3 text-xs text-kumo-subtle">{footnote}</p>}
-
         {!isEnterprise && (
           <div className="mt-5 pt-4 border-t border-kumo-line">
-            <p className="text-xs font-medium text-kumo-subtle mb-2">Top up</p>
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className={sectionTitle}>Top-ups</p>
+              <p className={`${meta} tabular-nums`}>
+                {bucket.topupMicroUsd > 0 ? `${credits(bucket.topupMicroUsd)} · Never expire` : 'None'}
+              </p>
+            </div>
+            <div className="mt-2 flex gap-2 flex-wrap">
               {TOPUP_PRESETS_CENTS.map((cents) => (
                 <Button
                   key={cents}
@@ -328,15 +327,15 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
                   disabled={topupBusy !== null}
                   onClick={() => void handleTopup(creditType, cents)}
                 >
-                  {creditsFromCents(cents)} · {usdFromCents(cents)}
+                  Add {creditsFromCents(cents)} · {usdFromCents(cents)}
                 </Button>
               ))}
             </div>
-            <p className="text-xs text-kumo-subtle mt-2">
-              One-time credit purchase through our secure checkout (Stripe). Top-ups never expire.
-            </p>
+            <p className={`${meta} mt-2`}>One-time payment through Stripe.</p>
           </div>
         )}
+
+        {footnote && <p className={`${meta} mt-4`}>{footnote}</p>}
       </div>
     )
   }
@@ -392,10 +391,9 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
       {/* Credits */}
       {!isFree && (
         <div className="flex gap-6 flex-wrap">
-          {creditCard('AI credits', 'ai', overview.ai,
-            'Spent as your teammates and assistants do AI work.')}
+          {creditCard('AI credits', 'ai', overview.ai)}
           {creditCard('Messaging credits', 'messaging', overview.messaging,
-            'An email is 2 credits, WhatsApp 5, SMS 10, and voice 50 per message. Telegram and Slack are free.')}
+            'Per message: email 2, WhatsApp 5, SMS 10, voice 50. Telegram and Slack are free.')}
         </div>
       )}
     </div>
