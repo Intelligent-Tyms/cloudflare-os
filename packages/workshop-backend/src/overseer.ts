@@ -39,7 +39,6 @@ import { completeAgentCatalogSnapshot, completeAgentPromptContextSnapshot, compl
 import { refreshCachedBalance } from "./ai-gateway-billing/cloudflare/connection-service";
 import { SharingManager, SharingCaller, CollaboratorRecord, ShareKeyRecord } from "./sharing";
 import { hasShareNotifications, notifyWorkspaceShared } from "./share-notify";
-import { isPoolMode, poolModeRefusal } from "./pool-mode.js";
 import { AutoApprovalDrainer } from "./auto-approval";
 import { collectSlashCommands, invokeSlashCommand } from "./slash-commands";
 import { createWorkshopLogger, obsContext, traced } from "./observability";
@@ -9494,10 +9493,6 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
 
   async addCollaborator(username: string, role: CollaboratorRole, note?: string)
       : Promise<CollaboratorInfo | null> {
-    // A pool's members are unrelated people; nothing is shared between them. Refused before
-    // the lookup so the call can't double as an "is this email a member" probe.
-    if (isPoolMode(this.impl.env)) throw poolModeRefusal("Sharing");
-
     // Look up the user DO to check if the account exists.
     let userDoId = this.impl.users.idFromName(username);
     let userDo = this.impl.users.get(userDoId);
@@ -9583,7 +9578,6 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
 
   async createShareLink(role: CollaboratorRole, note?: string)
       : Promise<{ key: string; linkId: string }> {
-    if (isPoolMode(this.impl.env)) throw poolModeRefusal("Sharing");
     if (this.impl.storage.prohibitAllSharing.get()) {
       throw new Error(
           "This workspace has observed sensitive data. To prevent leaks, the workspace cannot be " +
@@ -9595,7 +9589,6 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
   }
 
   async newShareLinkKey(linkId: string): Promise<{ key: string }> {
-    if (isPoolMode(this.impl.env)) throw poolModeRefusal("Sharing");
     if (this.impl.storage.prohibitAllSharing.get()) {
       throw new Error(
           "This workspace has observed sensitive data. To prevent leaks, the workspace cannot be " +
@@ -10085,8 +10078,6 @@ class GadgetClientImpl extends RpcTarget implements GadgetClient {
                         screenshotUpload?: BlueprintScreenshotUpload)
       : Promise<BlueprintGadgetSummary> {
     if (!this.impl.ownerId) throw new Error("Workspace not initialized.");
-    // The blueprint catalog is deployment-wide; a pool has none (see pool-mode.ts).
-    if (isPoolMode(this.impl.env)) throw poolModeRefusal("Templates");
 
     // NOTE: It is INTENTIONAL that collaborators can publish blueprints on behalf of the owner.
     //   We may in the future create different collaborator permission levels, in which case we'd

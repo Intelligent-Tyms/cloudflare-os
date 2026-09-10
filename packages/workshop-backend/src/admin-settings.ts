@@ -20,7 +20,6 @@ import * as billingDirectory from './billing-directory.js';
 import * as intelligenceDirectory from './intelligence-directory.js';
 import { INTELLIGENCE_SETUP_NAMES } from './intelligence-setup.js';
 import type { UsageCollectorDurableObject } from './usage-collector.js';
-import { isPoolMode, poolModeRefusal } from "./pool-mode.js";
 
 const logger = createWorkshopLogger("workshop.admin.settings");
 
@@ -140,8 +139,6 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
    * the same blueprints, and a duplicated id makes setFormatOrder() reject every reordering.
    */
   ensureFormatBlueprintsInstalled(): Promise<boolean> {
-    // A pool offers no templates, bundled ones included: nothing to install, nothing to retry.
-    if (isPoolMode(this.env)) return Promise.resolve(true);
     return this.#installInFlight ??= this.#installFormatBlueprints()
         .finally(() => { this.#installInFlight = undefined; });
   }
@@ -191,7 +188,6 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
    * for one id share a run.
    */
   installCatalogTemplate(id: string): Promise<BlueprintPublicInfo> {
-    if (isPoolMode(this.env)) throw poolModeRefusal("Templates");
     let inFlight = this.#catalogInstalls.get(id);
     if (inFlight) return inFlight;
     let run = this.#installCatalogTemplate(id)
@@ -1403,7 +1399,6 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
 
   async provisionIntelligence(): Promise<IntelligenceOverview> {
     this.#requireIntelligenceDirectory();
-    if (isPoolMode(this.env)) throw poolModeRefusal("Organization Intelligence");
     let { instance, assistantKey } = await intelligenceDirectory.provisionOrganization(this.env);
     if (assistantKey !== null) await this.#storeAssistantKey(instance, assistantKey);
     return this.#intelligenceOverview(await intelligenceDirectory.fetchIntelligence(this.env));

@@ -12,12 +12,11 @@
 import * as Y from "yjs";
 import { AiChatAuthorInfo, BlueprintMetadata, BlueprintOutput, BlueprintPublicInfo } from "@gadgets/workshop-shared/api";
 import { BlueprintKvEnv, BlueprintKvRecord, buildBlueprintArchiveStream, listFeaturedBlueprintsFromKv, readBlueprintKvRecord, sanitizeBlueprintOutput } from "./blueprint-archive.js";
-import { isPoolMode } from "./pool-mode.js";
 import { createWorkshopLogger } from "./observability";
 
 const logger = createWorkshopLogger("workshop.templates");
 
-export type CatalogEnv = Pick<Cloudflare.Env, "TEMPLATE_CATALOG_URL" | "POOL_MODE">;
+export type CatalogEnv = Pick<Cloudflare.Env, "TEMPLATE_CATALOG_URL">;
 
 /** One catalog entry, as the deployment offers it before (or without) installing it. */
 export type CatalogTemplate = {
@@ -96,7 +95,7 @@ export function parseCatalogTemplate(item: unknown): CatalogTemplate | null {
  * templates). Malformed entries are dropped rather than failing the caller.
  */
 export async function listTemplateCatalog(env: CatalogEnv): Promise<CatalogTemplate[]> {
-  if (!catalogBase(env) || isPoolMode(env)) return [];
+  if (!catalogBase(env)) return [];
   if (catalogCache && Date.now() < catalogCache.expiresAt) return catalogCache.entries;
   try {
     let raw = await fetchCatalogJson(env, "");
@@ -242,7 +241,7 @@ export async function readBlueprintKvRecordViaCatalog(
     env: BlueprintKvEnv & CatalogEnv, installer: CatalogInstaller, id: string)
     : Promise<BlueprintKvRecord | null> {
   let record = await readBlueprintKvRecord(env, id);
-  if (!ID_PATTERN.test(id) || !catalogBase(env) || isPoolMode(env)) return record;
+  if (!ID_PATTERN.test(id) || !catalogBase(env)) return record;
   let entry = (await listTemplateCatalog(env)).find(e => e.id === id);
   if (!entry) return record;
   if (record && record.metadata.version >= entry.revision) return record;

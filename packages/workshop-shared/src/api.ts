@@ -824,10 +824,6 @@ export interface AuthenticatedApi extends RpcTarget {
   // (false when a recent request already notified them).
   requestPlanUpgrade(): Promise<{ notified: boolean }>;
 
-  // Pool deployments only: the company workspace this user is upgrading to, while it builds
-  // and for a few days after it's ready (their pool seat lapses then). Null everywhere else.
-  getPendingWorkspace(): Promise<PendingWorkspaceInfo | null>;
-
   // TODO:
   // - Edit permissions on a connected account.
 }
@@ -850,16 +846,6 @@ export type BillingGateInfo = {
   periodEnd: number | null;
   /** While the subscription is trialing: when the trial ends and billing starts; else null. */
   trialEndsAt: number | null;
-};
-
-/** A pool member's company workspace on its way (see AuthenticatedApi.getPendingWorkspace). */
-export type PendingWorkspaceInfo = {
-  slug: string;
-  name: string;
-  /** provisioning = building; ready = live, go there; delayed = the build stalled, ops have it. */
-  status: "provisioning" | "ready" | "delayed";
-  /** The workspace's own origin. */
-  url: string;
 };
 
 /** Describes a gatekeeper's management app, for the Workshop nav + page. */
@@ -1711,14 +1697,6 @@ export type ServerConfig = {
    * Undefined for standalone deployments.
    */
   centralLoginUrl?: string;
-
-  /**
-   * True on a free pool: a Tyms-owned deployment hosting unrelated free users as plain members,
-   * chat only. The client hides everything cross-user or deployment-wide (Templates, Discover,
-   * sharing, Discuss) and points "upgrade" at the central account instead of the in-app plans
-   * page, since the pool's own plan belongs to Tyms.
-   */
-  poolMode: boolean;
 
   /**
    * Whether the optional Cloudflare free-tier limits + top-up flow is enabled. When false (the
