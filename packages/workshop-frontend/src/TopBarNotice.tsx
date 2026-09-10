@@ -60,6 +60,7 @@ export default function TopBarNotice() {
   const [freePlan, setFreePlan] = useState(false)
   const [trialEndsAt, setTrialEndsAt] = useState<number | null>(null)
   const [low, setLow] = useState<LowCredits | null>(null)
+  const [cardExpiring, setCardExpiring] = useState(false)
 
   useEffect(() => {
     if (notice || !auth) return
@@ -70,12 +71,13 @@ export default function TopBarNotice() {
         setFreePlan(gate?.isFreePlan ?? false)
         setTrialEndsAt(gate?.trialEndsAt ?? null)
         setLow(auth.isAdmin ? lowCredits(gate) : null)
+        setCardExpiring(Boolean(auth.isAdmin && gate?.cardExpiresBeforeNextCharge))
       })
       .catch(() => {})
     return () => { cancelled = true }
   }, [notice, auth])
 
-  if (!notice && !freePlan && !low && trialEndsAt == null) return null
+  if (!notice && !freePlan && !low && !cardExpiring && trialEndsAt == null) return null
 
   // Days until the trial's first charge; the card is already on file, so this is
   // information, not a nudge. Admins get the link to where cancelling lives.
@@ -106,6 +108,17 @@ export default function TopBarNotice() {
               className="text-kumo-brand hover:underline pointer-events-auto"
             >
               Top up
+            </Link>
+          </>
+        ) : cardExpiring ? (
+          <>
+            <span className="text-kumo-warning">Your card on file expires before the next payment.</span>{' '}
+            <Link
+              to="/admin/$section"
+              params={{ section: 'billing' }}
+              className="text-kumo-brand hover:underline pointer-events-auto"
+            >
+              Update card
             </Link>
           </>
         ) : trialEndsAt != null ? (

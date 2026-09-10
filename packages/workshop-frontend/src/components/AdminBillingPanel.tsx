@@ -381,6 +381,17 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
             <p className="text-sm font-medium text-kumo-default mt-0.5">{shortDate(overview.periodEnd)}</p>
           </div>
         </div>
+        {overview.cardExpiresBeforeNextCharge && overview.card && (
+          <p className="text-sm text-kumo-warning mt-4 pt-4 border-t border-kumo-line">
+            Your {cardBrand(overview.card.brand)} ending {overview.card.last4} expires{' '}
+            {String(overview.card.expMonth).padStart(2, '0')}/{overview.card.expYear}, before your next
+            payment{trialing && overview.trialEndsAt ? ` on ${shortDate(overview.trialEndsAt)}` : overview.periodEnd ? ` on ${shortDate(overview.periodEnd)}` : ''}.{' '}
+            <button type="button" onClick={() => setTab('payment')} className="text-kumo-brand underline">
+              Update your card
+            </button>{' '}
+            so the payment goes through.
+          </p>
+        )}
         {overview.cancelAt ? (
           <p className="text-sm text-kumo-warning mt-4 pt-4 border-t border-kumo-line">
             Your plan ends {shortDate(overview.cancelAt)}. Undo this under Plans.
@@ -538,8 +549,9 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
                   : 'None on file'}
               </p>
               {payment.card && (
-                <p className="text-xs text-kumo-subtle mt-0.5">
+                <p className={`text-xs mt-0.5 ${overview.cardExpiresBeforeNextCharge ? 'text-kumo-warning' : 'text-kumo-subtle'}`}>
                   Expires {String(payment.card.expMonth).padStart(2, '0')}/{payment.card.expYear}
+                  {overview.cardExpiresBeforeNextCharge ? ', before your next payment. Update it below.' : ''}
                 </p>
               )}
             </div>

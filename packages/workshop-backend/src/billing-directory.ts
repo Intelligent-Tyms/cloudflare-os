@@ -14,6 +14,10 @@ export type CentralEntitlements = {
   // Absent on snapshots cached before the trial cutover; consumers treat undefined as null.
   trialEndsAt?: number | null;
   cancelAt?: number | null;
+  // The card Stripe charges next, and whether it expires before that charge. Absent on
+  // snapshots cached before the fields existed.
+  card?: { brand: string; last4: string; expMonth: number; expYear: number } | null;
+  cardExpiresBeforeNextCharge?: boolean;
   billingPeriod: string;
   priceCents: number | null;
   seatLimit: number | null;

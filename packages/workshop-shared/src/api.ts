@@ -846,6 +846,8 @@ export type BillingGateInfo = {
   periodEnd: number | null;
   /** While the subscription is trialing: when the trial ends and billing starts; else null. */
   trialEndsAt: number | null;
+  /** The card on file expires before the next charge; admins are nudged to update it. */
+  cardExpiresBeforeNextCharge: boolean;
 };
 
 /** Describes a gatekeeper's management app, for the Workshop nav + page. */
@@ -1567,6 +1569,11 @@ export type BillingOverview = {
   trialEndsAt: number | null;
   // A scheduled cancellation: when the plan ends (ms since epoch); null unless cancelled.
   cancelAt: number | null;
+  // The card Stripe charges next, as mirrored by the control plane; null when none is on file.
+  card: {brand: string; last4: string; expMonth: number; expYear: number} | null;
+  // That card expires before the next charge (trial end or renewal), so the payment will fail
+  // unless it is updated under Payment details.
+  cardExpiresBeforeNextCharge: boolean;
   billingPeriod: string;
   // What the subscription bills (per month or per year, per billingPeriod); cents.
   priceCents: number | null;

@@ -49,6 +49,8 @@ export type BillingState = {
   periodEnd: number;
   // While trialing: when the trial ends and billing starts; null otherwise.
   trialEndsAt: number | null;
+  // The card on file expires before the next charge (admins are nudged to update it).
+  cardExpiresBeforeNextCharge: boolean;
 };
 
 export class UsageCollectorDurableObject extends DurableObject<Cloudflare.Env> {
@@ -115,6 +117,7 @@ export class UsageCollectorDurableObject extends DurableObject<Cloudflare.Env> {
       aiKeyAlias: e.aiKeyAlias ?? null,
       periodEnd: e.periodEnd,
       trialEndsAt: e.subscriptionStatus === "trialing" ? (e.trialEndsAt ?? null) : null,
+      cardExpiresBeforeNextCharge: e.cardExpiresBeforeNextCharge ?? false,
     };
   }
 

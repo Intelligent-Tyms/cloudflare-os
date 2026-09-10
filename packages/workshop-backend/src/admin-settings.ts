@@ -1233,6 +1233,8 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
       ...entitlements,
       trialEndsAt: entitlements.trialEndsAt ?? null,
       cancelAt: entitlements.cancelAt ?? null,
+      card: entitlements.card ?? null,
+      cardExpiresBeforeNextCharge: entitlements.cardExpiresBeforeNextCharge ?? false,
       usage: usage.rows,
     };
   }
