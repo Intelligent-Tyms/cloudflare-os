@@ -11,6 +11,9 @@ export type CentralEntitlements = {
   // 'enterprise' plans are exempt from credit enforcement (custom volumes / BYOK).
   tier: string;
   subscriptionStatus: string;
+  // Absent on snapshots cached before the trial cutover; consumers treat undefined as null.
+  trialEndsAt?: number | null;
+  cancelAt?: number | null;
   billingPeriod: string;
   priceCents: number | null;
   seatLimit: number | null;
@@ -105,6 +108,7 @@ export type CentralPlanOption = {
   code: string;
   name: string;
   description: string | null;
+  trialDays: number;
   priceCents: number;
   annualPriceCents: number | null;
   seatLimit: number | null;
@@ -114,15 +118,15 @@ export type CentralPlanOption = {
   annualAvailable: boolean;
 };
 
-/** The self-serve plan catalog (standard tier, purchasable or free). */
+/** The self-serve plan catalog (standard tier, purchasable). */
 export async function fetchPlans(env: Cloudflare.Env): Promise<CentralPlanOption[]> {
   let {plans} = await call<{plans: CentralPlanOption[]}>(env, "/plans");
   return plans;
 }
 
 /**
- * Change the tenant's plan. Applied immediately for paid↔paid and paid→free; free→paid
- * returns a checkout URL instead, and the change lands when payment completes.
+ * Change the tenant's plan. Applied immediately for paid↔paid; a tenant without a Stripe
+ * subscription gets a checkout URL instead, and the change lands when payment completes.
  */
 export async function changePlan(env: Cloudflare.Env, opts: {
   planCode: string;
@@ -133,6 +137,16 @@ export async function changePlan(env: Cloudflare.Env, opts: {
   let result = await call<{applied: boolean; checkoutUrl?: string | null}>(
       env, "/billing/change-plan", opts);
   return {applied: result.applied, checkoutUrl: result.checkoutUrl ?? null};
+}
+
+/** Cancel at the end of the paid period (or trial); returns when the plan ends. */
+export async function cancelPlan(env: Cloudflare.Env): Promise<{cancelAt: number | null}> {
+  return await call(env, "/billing/cancel", {});
+}
+
+/** Undo a scheduled cancellation. */
+export async function resumePlan(env: Cloudflare.Env): Promise<{cancelAt: number | null}> {
+  return await call(env, "/billing/resume", {});
 }
 
 /**

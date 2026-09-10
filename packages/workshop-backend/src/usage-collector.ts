@@ -47,6 +47,8 @@ export type BillingState = {
   // default alias (free-tier key pool); the fail-safe when anything omits it.
   aiKeyAlias: string | null;
   periodEnd: number;
+  // While trialing: when the trial ends and billing starts; null otherwise.
+  trialEndsAt: number | null;
 };
 
 export class UsageCollectorDurableObject extends DurableObject<Cloudflare.Env> {
@@ -112,6 +114,7 @@ export class UsageCollectorDurableObject extends DurableObject<Cloudflare.Env> {
       freeDailyLlmCalls: e.freeDailyLlmCalls,
       aiKeyAlias: e.aiKeyAlias ?? null,
       periodEnd: e.periodEnd,
+      trialEndsAt: e.subscriptionStatus === "trialing" ? (e.trialEndsAt ?? null) : null,
     };
   }
 

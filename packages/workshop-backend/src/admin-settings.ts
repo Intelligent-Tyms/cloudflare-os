@@ -1233,7 +1233,26 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
     // collector's cache means whatever this page shows (a plan change or top-up that just
     // landed via webhook) is also live at the enforcement gates, not stale for the TTL.
     await this.usageCollector?.acceptEntitlements(entitlements).catch(() => {});
-    return {...entitlements, usage: usage.rows};
+    return {
+      ...entitlements,
+      trialEndsAt: entitlements.trialEndsAt ?? null,
+      cancelAt: entitlements.cancelAt ?? null,
+      usage: usage.rows,
+    };
+  }
+
+  async cancelPlan(): Promise<{cancelAt: number | null}> {
+    if (!billingDirectory.hasBillingDirectory(this.env)) {
+      throw new Error("This deployment has no central billing configured.");
+    }
+    return billingDirectory.cancelPlan(this.env);
+  }
+
+  async resumePlan(): Promise<{cancelAt: number | null}> {
+    if (!billingDirectory.hasBillingDirectory(this.env)) {
+      throw new Error("This deployment has no central billing configured.");
+    }
+    return billingDirectory.resumePlan(this.env);
   }
 
   async createTopupCheckout(creditType: BillingCreditType, amountCents: number,

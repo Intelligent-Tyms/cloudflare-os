@@ -11,7 +11,8 @@ import { credits } from './components/billing/billingFormat'
  * Centered text in the top bar. Shows the deployment's admin-configured notice (rendered as inline
  * Markdown, so it can include links) when one is set. When no notice is set and the workspace is
  * on the free plan, falls back to a standing upgrade nudge — admins get a link to the plan picker,
- * members just see the plan. On a paid plan it instead warns admins when AI credits are running
+ * members just see the plan. While a paid plan is on its free trial it shows the days left
+ * (admins get a link to Plans, where cancelling lives). On a paid plan it warns admins when AI credits are running
  * low (under a fifth of the period's credits, or out), with a link to Billing & usage where the
  * top-up is, so nobody learns the workspace is dry from a blocked turn. An admin-set announcement
  * always wins over the fallbacks.
@@ -67,6 +68,7 @@ export default function TopBarNotice() {
   const poolMode = usePoolMode()
   const poolUpgradeUrl = usePoolUpgradeUrl()
   const [freePlan, setFreePlan] = useState(false)
+  const [trialEndsAt, setTrialEndsAt] = useState<number | null>(null)
   const [low, setLow] = useState<LowCredits | null>(null)
   const [pending, setPending] = useState<PendingWorkspaceInfo | null>(null)
 
@@ -77,6 +79,7 @@ export default function TopBarNotice() {
       .then((gate) => {
         if (cancelled) return
         setFreePlan(gate?.isFreePlan ?? false)
+        setTrialEndsAt(gate?.trialEndsAt ?? null)
         setLow(auth.isAdmin ? lowCredits(gate) : null)
       })
       .catch(() => {})
@@ -97,7 +100,15 @@ export default function TopBarNotice() {
     return () => { cancelled = true; if (timer) clearTimeout(timer) }
   }, [notice, auth, poolMode])
 
-  if (!notice && !freePlan && !low && !poolMode) return null
+  if (!notice && !freePlan && !low && !poolMode && trialEndsAt == null) return null
+
+  // Days until the trial's first charge; the card is already on file, so this is
+  // information, not a nudge. Admins get the link to where cancelling lives.
+  const trialDaysLeft = trialEndsAt == null ? null : Math.max(0, Math.ceil((trialEndsAt - Date.now()) / 86_400_000))
+  const trialLabel = trialDaysLeft == null ? ''
+    : trialDaysLeft === 0 ? 'Free trial ends today.'
+    : trialDaysLeft === 1 ? 'Free trial ends tomorrow.'
+    : `Free trial: ${trialDaysLeft} days left.`
 
   const externalLink = (href: string, label: string) => (
     <a href={href} className="text-kumo-brand hover:underline pointer-events-auto">{label}</a>
@@ -144,6 +155,22 @@ export default function TopBarNotice() {
             >
               Top up
             </Link>
+          </>
+        ) : trialEndsAt != null ? (
+          <>
+            {trialLabel}
+            {auth?.isAdmin && (
+              <>
+                {' '}
+                <Link
+                  to="/admin/$section"
+                  params={{ section: 'plans' }}
+                  className="text-kumo-brand hover:underline pointer-events-auto"
+                >
+                  Manage plan
+                </Link>
+              </>
+            )}
           </>
         ) : (
           <>

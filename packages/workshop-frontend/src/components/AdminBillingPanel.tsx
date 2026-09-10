@@ -215,9 +215,10 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
   const messageCount = messageRows.reduce((sum, r) => sum + r.quantity, 0)
   const messagingSpent = messageRows.reduce((sum, r) => sum + r.costMicroUsd, 0)
 
+  const trialing = overview.subscriptionStatus === 'trialing'
   const statusChip = (
     <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${STATUS_STYLES[overview.subscriptionStatus] ?? 'bg-kumo-tint text-kumo-subtle'}`}>
-      {overview.subscriptionStatus.replace('_', ' ')}
+      {trialing ? 'free trial' : overview.subscriptionStatus.replace('_', ' ')}
     </span>
   )
 
@@ -380,6 +381,16 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
             <p className="text-sm font-medium text-kumo-default mt-0.5">{shortDate(overview.periodEnd)}</p>
           </div>
         </div>
+        {overview.cancelAt ? (
+          <p className="text-sm text-kumo-warning mt-4 pt-4 border-t border-kumo-line">
+            Your plan ends {shortDate(overview.cancelAt)}. Undo this under Plans.
+          </p>
+        ) : trialing && overview.trialEndsAt ? (
+          <p className="text-sm text-kumo-subtle mt-4 pt-4 border-t border-kumo-line">
+            Free trial until {shortDate(overview.trialEndsAt)}. Your card is charged then and
+            your full monthly credits arrive. Trial credits are a smaller allowance.
+          </p>
+        ) : null}
         {isEnterprise && (
           <p className="text-sm text-kumo-subtle mt-4 pt-4 border-t border-kumo-line">
             Your plan has custom AI and messaging volumes; credits are tracked but never

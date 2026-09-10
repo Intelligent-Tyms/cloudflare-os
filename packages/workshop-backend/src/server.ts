@@ -735,6 +735,7 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
       aiBalanceMicroUsd: isFreePlan ? null : state.aiBalanceMicroUsd,
       aiMonthlyGrantMicroUsd: isFreePlan ? null : state.aiMonthlyGrantMicroUsd,
       periodEnd: isFreePlan ? null : state.periodEnd,
+      trialEndsAt: state.trialEndsAt,
     };
   }
 
