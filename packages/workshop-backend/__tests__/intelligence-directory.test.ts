@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  deprovisionOrganization,
+  deprovisionInstance,
   fetchIntelligence,
   hasIntelligenceDirectory,
+  instanceOf,
   intelligenceErrorMessage,
-  organizationInstance,
-  provisionOrganization,
+  provisionInstance,
   rotateAssistantKey,
 } from "../src/intelligence-directory";
 
@@ -53,7 +53,7 @@ describe("intelligence directory", () => {
 
   it("provisions with the tenant bearer and returns the once-only assistant key", async () => {
     const calls = stubFetch(() => Response.json({ instance, assistantKey: "oik_secret" }, { status: 201 }));
-    const outcome = await provisionOrganization(configured);
+    const outcome = await provisionInstance(configured, "organization");
     expect(outcome.assistantKey).toBe("oik_secret");
     expect(outcome.instance.mcpUrl).toBe(instance.mcpUrl);
     expect(calls).toHaveLength(1);
@@ -69,24 +69,36 @@ describe("intelligence directory", () => {
       instances: [{ ...instance, kind: "market", status: "failed" }, instance],
     }));
     const view = await fetchIntelligence(configured);
-    expect(organizationInstance(view)?.status).toBe("active");
-    expect(organizationInstance({ ...view, instances: [] })).toBeNull();
+    expect(instanceOf(view, "organization")?.status).toBe("active");
+    expect(instanceOf(view, "data")).toBeNull();
+    expect(instanceOf({ ...view, instances: [{ ...instance, kind: "data" }] }, "data")?.kind).toBe("data");
+    expect(instanceOf({ ...view, instances: [] }, "organization")).toBeNull();
   });
 
   it("maps the control plane's refusal codes to administrator-ready messages", async () => {
     stubFetch(() => Response.json({ error: "not_entitled" }, { status: 402 }));
-    await expect(provisionOrganization(configured)).rejects.toThrow(/plan does not include/);
+    await expect(provisionInstance(configured, "organization")).rejects.toThrow(/plan does not include Organization Intelligence/);
     stubFetch(() => Response.json({ error: "already_active" }, { status: 409 }));
-    await expect(provisionOrganization(configured)).rejects.toThrow(/already provisioned/);
+    await expect(provisionInstance(configured, "data")).rejects.toThrow(/Data Intelligence is already provisioned/);
     stubFetch(() => new Response("gateway down", { status: 502 }));
-    await expect(deprovisionOrganization(configured)).rejects.toThrow(/unavailable \(502\)/);
+    await expect(deprovisionInstance(configured, "organization")).rejects.toThrow(/unavailable \(502\)/);
     expect(intelligenceErrorMessage("a valid email is required", 400)).toBe("a valid email is required");
+    expect(intelligenceErrorMessage("cell_unreachable", 502, "data")).toMatch(/could not be reached/);
   });
 
   it("rotates the key through the control plane, never the cell", async () => {
     const calls = stubFetch(() => Response.json({ assistantKey: "oik_new" }));
-    expect((await rotateAssistantKey(configured)).assistantKey).toBe("oik_new");
+    expect((await rotateAssistantKey(configured, "organization")).assistantKey).toBe("oik_new");
     expect(calls[0].url).toBe("https://control.example.com/tenant-api/intelligence/organization/rotate-key");
     expect(calls[0].body).toEqual({});
+  });
+
+  it("addresses the Data product by its own path segment", async () => {
+    const calls = stubFetch(() => Response.json({ instance: { ...instance, kind: "data" }, assistantKey: "dik_secret" }, { status: 201 }));
+    const outcome = await provisionInstance(configured, "data");
+    expect(outcome.assistantKey).toBe("dik_secret");
+    expect(calls[0].url).toBe("https://control.example.com/tenant-api/intelligence/data/provision");
+    stubFetch(() => Response.json({ instance: { ...instance, kind: "data", status: "suspended" } }));
+    expect((await deprovisionInstance(configured, "data")).instance.status).toBe("suspended");
   });
 });

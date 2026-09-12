@@ -1439,30 +1439,48 @@ export interface AdminApi {
 
   // --- Intelligence (Admin → Intelligence; see intelligence-directory.ts) ---
   //
-  // Organization Intelligence is a per-tenant wiki on the Tyms Intelligence cell. The control
-  // plane provisions it (never by hand against the cell); the workshop keeps the wiki's MCP
-  // endpoint and preissued assistant key in the intelligence gatekeeper's setup store, which
-  // makes the wiki an ambient capability of every assistant here.
+  // Tyms Intelligence products are per-tenant instances on their cells: Organization (the wiki
+  // on the OI cell) and Data (the data workbench on the DI cell). The control plane provisions
+  // them (never by hand against a cell); the workshop keeps each product's MCP endpoint and
+  // preissued assistant key in its connector's setup store, which makes the product an ambient
+  // capability of every assistant here.
 
-  // Entitlement, credit pool, the Organization instance and the connector state, or null when
-  // this deployment has no central directory configured.
+  /**
+   * Entitlement, credit pool, and each product's instance and connector state, or null when
+   * this deployment has no central directory configured.
+   */
   getIntelligenceOverview(): Promise<IntelligenceOverview | null>;
 
-  // Provision (or resume) Organization Intelligence for this workspace and connect the
-  // assistant. Throws with an actionable message when the plan does not include it or the
-  // cell refused. When the cell hands the assistant key over but storing it fails, the
-  // returned overview reports `connector: "missing-key"` and reconnectIntelligence() fixes it.
-  provisionIntelligence(): Promise<IntelligenceOverview>;
+  /**
+   * Provision (or resume) a product for this workspace and connect the assistant. Throws with
+   * an actionable message when the plan does not include it or the cell refused. When the cell
+   * hands the assistant key over but storing it fails, the returned overview reports
+   * `connector: "missing-key"` for that product and reconnectIntelligence() fixes it.
+   */
+  provisionIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview>;
 
-  // Suspend the wiki (data kept for 30 days, then purged) and disconnect the assistant.
-  deprovisionIntelligence(): Promise<IntelligenceOverview>;
+  /** Suspend the product (data kept for 30 days, then purged) and disconnect the assistant. */
+  deprovisionIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview>;
 
-  // Rotate the assistant key on the cell and store the new one; the old key stops working.
-  reconnectIntelligence(): Promise<IntelligenceOverview>;
+  /** Rotate the product's assistant key on the cell and store the new one; the old key stops working. */
+  reconnectIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview>;
 }
 
-// One Intelligence instance as the control plane reports it (mirrors InstanceView in
-// apps/control-plane/src/intelligence.ts). Timestamps are ms since epoch.
+/** The products that can be provisioned today (each has a cell); Market and Process follow. */
+export type IntelligenceProductKind = "organization" | "data";
+/** Every provisionable product, in display order. */
+export const INTELLIGENCE_PRODUCT_KINDS: readonly IntelligenceProductKind[] = ["organization", "data"];
+/** The product names as administrators see them. */
+export const INTELLIGENCE_PRODUCT_NAMES: Record<IntelligenceProductKind, string> = {
+  organization: "Organization Intelligence",
+  data: "Data Intelligence",
+};
+
+/**
+ * One Intelligence instance as the control plane reports it (mirrors InstanceView in
+ * apps/control-plane/src/intelligence.ts). Timestamps are ms since epoch. `wikiUrl` is where a
+ * person opens the product: the company wiki (organization) or the console (data).
+ */
 export type IntelligenceInstanceView = {
   kind: "organization" | "market" | "data" | "process";
   status: "provisioning" | "active" | "suspended" | "failed" | "decommissioned";
@@ -1474,16 +1492,27 @@ export type IntelligenceInstanceView = {
   lastError: string | null;
 };
 
-// The Admin → Intelligence snapshot: what the plan allows, the Intelligence credit pool, the
-// Organization instance (null until first provisioned) and whether the assistant is connected.
-// `connector` is "connected" when the gatekeeper holds the endpoint and key, "missing-key" when
-// the instance is active but the key is not stored here (reconnect to fix), "off" otherwise.
+/**
+ * One product on the Admin → Intelligence page: its instance (null until first provisioned),
+ * whether the assistant is connected, and where a person opens it while active. `connector` is
+ * "connected" when the product's gatekeeper holds the endpoint and key, "missing-key" when the
+ * instance is active but the key is not stored here (reconnect to fix), "off" otherwise.
+ */
+export type IntelligenceProductOverview = {
+  instance: IntelligenceInstanceView | null;
+  connector: "connected" | "missing-key" | "off";
+  url: string | null;
+};
+
+/**
+ * The Admin → Intelligence snapshot: what the plan allows, the Intelligence credit pool the
+ * products share, and each product's state.
+ */
 export type IntelligenceOverview = {
   entitled: boolean;
   credits: BillingCreditBucket;
-  instance: IntelligenceInstanceView | null;
-  connector: "connected" | "missing-key" | "off";
-  wikiUrl: string | null;
+  organization: IntelligenceProductOverview;
+  data: IntelligenceProductOverview;
 };
 
 // One entry in the self-serve plan picker. Prices are the billed amounts in cents:

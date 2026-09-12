@@ -196,7 +196,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         title: 'Intelligence',
         blurb: 'Provision your organization’s wiki and connect the assistant to it.',
         description:
-          'Tyms Intelligence products for this workspace. Organization Intelligence turns your own documents into a reviewed wiki the assistant answers from and cites; Market, Data and Process follow. Provisioning happens here and takes seconds.',
+          'Tyms Intelligence products for this workspace. Organization Intelligence turns your own documents into a reviewed wiki the assistant answers from and cites; Data Intelligence connects your databases read-only for analysts and the assistant; Market and Process follow. Provisioning happens here and takes seconds.',
         icon: <BookOpenCheck size={18} />,
       },
     ],
