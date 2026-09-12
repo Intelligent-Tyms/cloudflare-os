@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router'
 import { Button, useKumoToastManager } from '@cloudflare/kumo'
 import { AdminApi, BillingOverview, BillingPlanOption } from '@gadgets/workshop-shared/api'
 import {
-  usdFromCents, creditsFromCents, STATUS_STYLES,
+  usdFromCents, creditsFromCents, shortDate, STATUS_STYLES,
   PENDING_PLAN_KEY, CHECKOUT_POLL_MS, CHECKOUT_POLL_ATTEMPTS, takeStash,
 } from './billing/billingFormat'
 
@@ -21,6 +21,7 @@ export default function AdminPlansPanel({ admin }: { admin: RpcStub<AdminApi> })
   const [plans, setPlans] = useState<BillingPlanOption[]>([])
   const [loading, setLoading] = useState(true)
   const [planBusy, setPlanBusy] = useState<string | null>(null)
+  const [cancelBusy, setCancelBusy] = useState(false)
   // Billing period for a plan switch; seeded from the current subscription once loaded.
   const [periodChoice, setPeriodChoice] = useState<'monthly' | 'annual'>('monthly')
   // Plan the user picked on the pricing page before signing up (?intent=<code> deep link,
@@ -108,15 +109,10 @@ export default function AdminPlansPanel({ admin }: { admin: RpcStub<AdminApi> })
     if (!overview) return
     const current = plans.find((p) => p.code === overview.planCode)
     const downgrade = target.priceCents < (current?.priceCents ?? 0)
-    const confirmText =
-      target.priceCents === 0
-        ? `Switch to the ${target.name} plan? Your paid subscription is cancelled immediately, ` +
-          `remaining monthly credit allowances are removed (purchased top-ups stay), and ` +
-          `assistants move to daily limits.`
-        : downgrade
-          ? `Switch to the ${target.name} plan? Your credit allowances are reduced to the ` +
-            `${target.name} plan's limits immediately.`
-          : null
+    const confirmText = downgrade
+      ? `Switch to the ${target.name} plan? Your credit allowances are reduced to the ` +
+        `${target.name} plan's limits immediately.`
+      : null
     if (confirmText && !confirm(confirmText)) return
     setPlanBusy(target.code)
     try {
@@ -155,18 +151,54 @@ export default function AdminPlansPanel({ admin }: { admin: RpcStub<AdminApi> })
   }
 
   const isEnterprise = overview.tier === 'enterprise'
-  // The grid sells the paid ladder only. The free plan never gets a card — it would soak
-  // up the current-plan highlight on free workspaces and describe what free includes;
-  // paid workspaces that want out use the quiet downgrade link under the footnote.
+  // The grid sells the paid ladder; there is no free plan. Workspaces that want out use the
+  // quiet cancel link under the footnote (end of the paid period, or of the trial).
   const paidPlans = plans.filter((p) => p.priceCents > 0)
-  const freePlan = plans.find((p) => p.priceCents === 0)
   const currentPlan = plans.find((p) => p.code === overview.planCode)
+  const trialing = overview.subscriptionStatus === 'trialing'
+  const cancelAt = overview.cancelAt
+  const canCancel = !isEnterprise && !cancelAt &&
+    (overview.subscriptionStatus === 'active' || trialing || overview.subscriptionStatus === 'past_due')
 
   const statusChip = (
     <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${STATUS_STYLES[overview.subscriptionStatus] ?? 'bg-kumo-tint text-kumo-subtle'}`}>
-      {overview.subscriptionStatus.replace('_', ' ')}
+      {trialing ? 'free trial' : overview.subscriptionStatus.replace('_', ' ')}
     </span>
   )
+
+  const handleCancel = async () => {
+    const ends = trialing && overview.trialEndsAt
+      ? `Your trial ends on ${shortDate(overview.trialEndsAt)} and your card is not charged.`
+      : `Your plan runs until the end of the period you have paid for.`
+    if (!confirm(`Cancel your ${overview.planName} plan? ${ends} After that the workspace is ` +
+      `suspended and, two weeks later, its data is deleted. You can undo this any time before then.`)) return
+    setCancelBusy(true)
+    try {
+      const result = await admin.cancelPlan()
+      toasts.add({
+        title: result.cancelAt ? `Plan ends ${shortDate(result.cancelAt)}.` : 'Cancellation scheduled.',
+        variant: 'success',
+      })
+      await reload()
+    } catch (err) {
+      toasts.add({ title: err instanceof Error ? err.message : 'Could not cancel the plan.', variant: 'error' })
+    } finally {
+      setCancelBusy(false)
+    }
+  }
+
+  const handleResume = async () => {
+    setCancelBusy(true)
+    try {
+      await admin.resumePlan()
+      toasts.add({ title: 'Your plan continues.', variant: 'success' })
+      await reload()
+    } catch (err) {
+      toasts.add({ title: err instanceof Error ? err.message : 'Could not resume the plan.', variant: 'error' })
+    } finally {
+      setCancelBusy(false)
+    }
+  }
 
   if (isEnterprise) {
     return (
@@ -195,6 +227,16 @@ export default function AdminPlansPanel({ admin }: { admin: RpcStub<AdminApi> })
               You're on the {overview.planName} plan
             </h2>
             {statusChip}
+            {trialing && overview.trialEndsAt && !cancelAt && (
+              <span className="text-xs text-kumo-subtle">
+                Trial ends {shortDate(overview.trialEndsAt)}. Your card is charged then.
+              </span>
+            )}
+            {cancelAt && (
+              <span className="text-xs text-kumo-warning">
+                Ends {shortDate(cancelAt)}.
+              </span>
+            )}
           </div>
           <div className="flex rounded-lg border border-kumo-line overflow-hidden">
             {(['monthly', 'annual'] as const).map((period) => (
@@ -277,26 +319,41 @@ export default function AdminPlansPanel({ admin }: { admin: RpcStub<AdminApi> })
           </div>
         )}
         <p className="text-xs text-kumo-subtle mt-4">
-          Upgrades take effect immediately with a prorated charge; downgrades apply immediately
-          and reduce your credit allowances. Need more than the Plus plan?{' '}
+          {trialing
+            ? 'Plan changes during the trial take effect immediately and nothing is charged until the trial ends. '
+            : 'Upgrades take effect immediately with a prorated charge; downgrades apply immediately and reduce your credit allowances. '}
+          Need more than the Plus plan?{' '}
           <a href="https://tyms.ai/contact" target="_blank" rel="noreferrer" className="text-kumo-brand underline">
             Talk to us
           </a>{' '}
           about a Custom plan.
         </p>
-        {freePlan && overview.planCode !== freePlan.code && (
+        {cancelAt ? (
           <p className="text-xs text-kumo-subtle mt-2">
-            No longer need a paid plan?{' '}
+            Your plan is set to end on {shortDate(cancelAt)}. The workspace is suspended then and its
+            data deleted two weeks later.{' '}
             <button
               type="button"
-              disabled={planBusy !== null}
-              onClick={() => void handlePlanChange(freePlan)}
+              disabled={cancelBusy}
+              onClick={() => void handleResume()}
               className="text-kumo-brand underline disabled:opacity-50"
             >
-              Downgrade to {freePlan.name}
+              Keep my plan
             </button>
           </p>
-        )}
+        ) : canCancel ? (
+          <p className="text-xs text-kumo-subtle mt-2">
+            No longer need Tyms?{' '}
+            <button
+              type="button"
+              disabled={cancelBusy || planBusy !== null}
+              onClick={() => void handleCancel()}
+              className="text-kumo-brand underline disabled:opacity-50"
+            >
+              Cancel plan
+            </button>
+          </p>
+        ) : null}
       </div>
 
       <p className="text-sm text-kumo-subtle">

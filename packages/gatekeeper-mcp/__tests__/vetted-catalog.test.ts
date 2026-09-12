@@ -17,7 +17,22 @@ describe("parseCatalog", () => {
       description: "Payments",
       endpoint: "https://mcp.stripe.com/v1",
       vetted: true,
+      sharing: "owner-only",
     }]);
+  });
+
+  it("carries the curator's sharing policy through and defaults it to owner-only", () => {
+    const parsed = parseCatalog({
+      servers: [
+        { id: "rates", name: "Rates", endpoint: "https://rates.example/mcp", sharing: "public" },
+        { id: "bank", name: "Bank", endpoint: "https://bank.example/mcp", sharing: "same-account" },
+        { id: "odd", name: "Odd", endpoint: "https://odd.example/mcp", sharing: "everyone" },
+        { id: "unset", name: "Unset", endpoint: "https://unset.example/mcp" },
+      ],
+    });
+    expect(parsed.map(server => [server.id, server.sharing])).toEqual([
+      ["rates", "public"], ["bank", "same-account"], ["odd", "owner-only"], ["unset", "owner-only"],
+    ]);
   });
 
   it("drops malformed rows rather than failing the catalog", () => {

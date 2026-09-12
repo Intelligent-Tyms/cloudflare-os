@@ -36,6 +36,8 @@ import { generateNonce } from "@gadgets/mcp-shared/connect-nonce";
 import { withClient, type ConnectionAccount } from "@gadgets/mcp-shared/connection";
 import { McpSessionBase } from "@gadgets/mcp-shared/session";
 import { McpFacetBase } from "@gadgets/mcp-shared/facet";
+import { McpVerifierBase, mcpVerifierAccount } from "@gadgets/mcp-shared/verifier";
+import type { McpSharingPolicy } from "@gadgets/mcp-shared/sharing-policy";
 import {
   looksLikePortal,
   parsePortalServers,
@@ -74,6 +76,7 @@ import {
   portalCatalogValidationMode,
   portalResource,
   portalServer,
+  portalSharing,
   portalTrust,
   requirePortalServerScope,
   type PortalSetupValues,
@@ -614,21 +617,26 @@ export class GatekeeperUserImpl
 
   @skipRpcValidation()
   async getVerifier(): Promise<Fetcher<GatekeeperUserVerifier>> {
-    return this.ctx.exports.McpPortalVerifier({});
+    const props: McpGatekeeperUserProps = { accountObjectId: this.ctx.props.accountObjectId };
+    return this.ctx.exports.McpPortalVerifier({ props });
   }
 }
 
 // ---------------------------------------------------------------------------
 // Verifier
 
-// Required by the `GatekeeperUser` contract but never interrogated, since `addObserver` refuses
-// everyone.
+// Minted by the *observer's* connected account and carries that account's id, so the facet's
+// `addObserver` can check the observer connected to the same portal and replay the Gadget's reads
+// on the observer's own credentials (see `McpFacetBase.addObserver`).
 @validateRpc()
 export class McpPortalVerifier
-  extends WorkerEntrypoint<Env>
+  extends McpVerifierBase<Env>
   implements GatekeeperUserVerifier
 {
-  verify(): void {}
+  protected [mcpVerifierAccount]() {
+    return this.ctx.exports.McpAccount.get(
+      this.ctx.exports.McpAccount.idFromString(this.ctx.props.accountObjectId));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -722,13 +730,24 @@ export class McpGatekeeperImpl
     });
   }
 
+  /** The owner's account, which every call this facet makes runs on. */
   protected account(): ConnectionAccount {
+    return this.accountById(this.ctx.props.accountObjectId);
+  }
+
+  /** Any account in this Worker's namespace, for replaying reads on an observer's own account. */
+  protected accountById(accountObjectId: string): ConnectionAccount {
     return this.ctx.exports.McpAccount.get(
-      this.ctx.exports.McpAccount.idFromString(this.ctx.props.accountObjectId));
+      this.ctx.exports.McpAccount.idFromString(accountObjectId));
   }
 
   protected get trust(): ServerTrust {
     return portalTrust(this.env);
+  }
+
+  /** Deployment configuration, like `trust`: `MCP_PORTAL_SHARING`, else owner-only. */
+  protected get sharing(): McpSharingPolicy {
+    return portalSharing(this.env);
   }
 
   protected get sessionClass() {

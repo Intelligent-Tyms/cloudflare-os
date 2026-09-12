@@ -8,7 +8,7 @@ import {
   PanelLeft,
   Search,
 } from 'lucide-react'
-import { usePoolMode, useSiteName } from '../../ServerConfigContext'
+import { useSiteName } from '../../ServerConfigContext'
 import SiteLogo from '../SiteLogo'
 import { useGatekeeperApps } from '../../useGatekeeperApps'
 import { openCommandPalette } from './commandPaletteBus'
@@ -39,7 +39,6 @@ export default function Sidebar({
   collapsed: boolean
   onToggleCollapsed: () => void
 }) {
-  const poolMode = usePoolMode()
   const siteName = useSiteName()
   // Gatekeeper-served management apps the user can reach now (one per gatekeeper that provides a UI
   // and is connected / enabled for everyone). Disabled or not-yet-connected ones aren't returned, so
@@ -168,15 +167,12 @@ export default function Sidebar({
               />
               )
             })}
-            {/* Apps (featured catalog + the user's templates) is deployment-wide; a free pool has none. */}
-            {!poolMode && (
-              <SidebarItem
-                to="/apps"
-                label="Apps"
-                icon={<Blocks size={14} />}
-                collapsed={collapsed}
-              />
-            )}
+            <SidebarItem
+              to="/apps"
+              label="Apps"
+              icon={<Blocks size={14} />}
+              collapsed={collapsed}
+            />
           </nav>
 
           {/* Workspace tools: search. Pinned so it's always reachable. */}

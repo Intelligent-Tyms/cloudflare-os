@@ -15,14 +15,17 @@
     "./html": "./src/html.ts",
     "./http": "./src/http.ts",
     "./log": "./src/log.ts",
+    "./observer-store": "./src/observer-store.ts",
     "./portal": "./src/portal.ts",
     "./schema-to-ts": "./src/schema-to-ts.ts",
     "./scope": "./src/scope.ts",
     "./session": "./src/session.ts",
+    "./sharing-policy": "./src/sharing-policy.ts",
     "./tools": "./src/tools.ts",
     "./types": "./src/types.d.ts",
     "./user": "./src/user.ts",
-    "./util": "./src/util.ts"
+    "./util": "./src/util.ts",
+    "./verifier": "./src/verifier.ts"
   },
   "scripts": {
     "build": "tsc && tsc -p tsconfig.test.json",

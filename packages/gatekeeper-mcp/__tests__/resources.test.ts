@@ -9,6 +9,7 @@ const STRIPE: CatalogServer = {
   description: "Payments",
   endpoint: "https://mcp.stripe.com/v1",
   vetted: true,
+  sharing: "owner-only",
 };
 
 describe("mcpResources", () => {

@@ -11,6 +11,13 @@ export type CentralEntitlements = {
   // 'enterprise' plans are exempt from credit enforcement (custom volumes / BYOK).
   tier: string;
   subscriptionStatus: string;
+  // Absent on snapshots cached before the trial cutover; consumers treat undefined as null.
+  trialEndsAt?: number | null;
+  cancelAt?: number | null;
+  // The card Stripe charges next, and whether it expires before that charge. Absent on
+  // snapshots cached before the fields existed.
+  card?: { brand: string; last4: string; expMonth: number; expYear: number } | null;
+  cardExpiresBeforeNextCharge?: boolean;
   billingPeriod: string;
   priceCents: number | null;
   seatLimit: number | null;
@@ -105,6 +112,7 @@ export type CentralPlanOption = {
   code: string;
   name: string;
   description: string | null;
+  trialDays: number;
   priceCents: number;
   annualPriceCents: number | null;
   seatLimit: number | null;
@@ -114,15 +122,15 @@ export type CentralPlanOption = {
   annualAvailable: boolean;
 };
 
-/** The self-serve plan catalog (standard tier, purchasable or free). */
+/** The self-serve plan catalog (standard tier, purchasable). */
 export async function fetchPlans(env: Cloudflare.Env): Promise<CentralPlanOption[]> {
   let {plans} = await call<{plans: CentralPlanOption[]}>(env, "/plans");
   return plans;
 }
 
 /**
- * Change the tenant's plan. Applied immediately for paid↔paid and paid→free; free→paid
- * returns a checkout URL instead, and the change lands when payment completes.
+ * Change the tenant's plan. Applied immediately for paid↔paid; a tenant without a Stripe
+ * subscription gets a checkout URL instead, and the change lands when payment completes.
  */
 export async function changePlan(env: Cloudflare.Env, opts: {
   planCode: string;
@@ -135,6 +143,16 @@ export async function changePlan(env: Cloudflare.Env, opts: {
   return {applied: result.applied, checkoutUrl: result.checkoutUrl ?? null};
 }
 
+/** Cancel at the end of the paid period (or trial); returns when the plan ends. */
+export async function cancelPlan(env: Cloudflare.Env): Promise<{cancelAt: number | null}> {
+  return await call(env, "/billing/cancel", {});
+}
+
+/** Undo a scheduled cancellation. */
+export async function resumePlan(env: Cloudflare.Env): Promise<{cancelAt: number | null}> {
+  return await call(env, "/billing/resume", {});
+}
+
 /**
  * Ask the control plane to email the workspace's owner and admins that a teammate wants a
  * plan upgrade. The caller throttles; this just fires the notification.
@@ -142,22 +160,6 @@ export async function changePlan(env: Cloudflare.Env, opts: {
 export async function requestUpgrade(
     env: Cloudflare.Env, opts: {requestedBy: string}): Promise<void> {
   await call(env, "/billing/upgrade-request", opts);
-}
-
-/** Mirrors the control plane's PendingWorkspace (apps/control-plane/src/pool.ts). */
-export type CentralPendingWorkspace = {
-  slug: string;
-  name: string;
-  status: "provisioning" | "ready" | "delayed";
-  url: string;
-};
-
-/** Pool deployments only: the company workspace this member is upgrading to, if any. */
-export async function fetchPendingWorkspace(
-    env: Cloudflare.Env, email: string): Promise<CentralPendingWorkspace | null> {
-  let result = await call<{pending: CentralPendingWorkspace | null}>(
-      env, `/members/pending-workspace?email=${encodeURIComponent(email)}`);
-  return result.pending;
 }
 
 /** One invoice from the tenant's Stripe history (Admin → Billing and usage). */

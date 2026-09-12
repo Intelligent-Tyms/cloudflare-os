@@ -4,7 +4,6 @@ import { Dialog, Button, Loader } from '@cloudflare/kumo'
 import { Zap } from 'lucide-react'
 import { BillingGateInfo } from '@gadgets/workshop-shared/api'
 import { useOptionalAuthenticatedApi } from '../../AuthContext'
-import { usePoolUpgradeUrl } from '../../ServerConfigContext'
 
 interface UpgradeModalProps {
   open: boolean
@@ -13,15 +12,12 @@ interface UpgradeModalProps {
 
 // Shown when an agent turn is blocked with a `usage_limit` error on a centrally billed
 // deployment: the free plan's daily allowance ran out, or a paid workspace is out of AI
-// credits. Admins get a straight path to the plan picker; members get a one-click way to
-// ask their admins (throttled per workspace server-side). The legacy Cloudflare-limits
+// credits. Admins get a straight path to where the fix is (Billing & usage for a top-up on
+// a paid plan, the plan picker on free); members get a one-click way to ask their admins (throttled per workspace server-side). The legacy Cloudflare-limits
 // deployments show OutOfCreditsModal instead — ChatInterface picks by server config.
 export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   const auth = useOptionalAuthenticatedApi()
   const navigate = useNavigate()
-  // On a free pool the plan belongs to Tyms, not the member: upgrading means getting a workspace
-  // of their own, which starts at the central account rather than this deployment's plans page.
-  const poolUpgradeUrl = usePoolUpgradeUrl()
   // undefined = loading; null = no central billing configured.
   const [gate, setGate] = useState<BillingGateInfo | null | undefined>(undefined)
   const [requestState, setRequestState] =
@@ -36,9 +32,12 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
       .catch(() => setGate(null))
   }, [open, auth])
 
-  const openPlans = () => {
+  // A paid workspace that ran dry wants a top-up, and top-ups live on Billing & usage (which
+  // also links to the plan picker). The free plan's only way forward is a plan, so it goes to Plans.
+  const openFix = () => {
     onClose()
-    void navigate({ to: '/admin/$section', params: { section: 'plans' } })
+    const section = gate?.isFreePlan === false ? 'billing' : 'plans'
+    void navigate({ to: '/admin/$section', params: { section } })
   }
 
   const requestUpgrade = async () => {
@@ -53,30 +52,6 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   }
 
   const isAdmin = auth?.isAdmin ?? false
-
-  if (poolUpgradeUrl) {
-    return (
-      <Dialog.Root open={open} onOpenChange={(o) => { if (!o) onClose() }}>
-        <Dialog className="p-6 sm:w-[520px]" size="base">
-          <Dialog.Title className="text-lg font-semibold mb-2 flex items-center gap-2">
-            <Zap size={22} strokeWidth={2.5} className="text-kumo-warning" />
-            You've hit today's free limit
-          </Dialog.Title>
-          <div className="space-y-4">
-            <p className="text-sm text-kumo-subtle">
-              Upgrade for unlimited chat, teammates, and apps.
-            </p>
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <Button variant="secondary" onClick={onClose}>Maybe later</Button>
-              <Button variant="primary" onClick={() => window.location.assign(poolUpgradeUrl)}>
-                Upgrade
-              </Button>
-            </div>
-          </div>
-        </Dialog>
-      </Dialog.Root>
-    )
-  }
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => { if (!o) onClose() }}>
@@ -97,30 +72,28 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
               </p>
             ) : gate.isFreePlan ? (
               <p className="text-sm text-kumo-subtle">
-                You've reached today's free limit. Upgrade for a monthly credit allowance,
-                more teammates, and every AI model.
+                You've reached today's free limit. Upgrade for monthly credits, more
+                teammates, and every AI model.
               </p>
             ) : (
               <p className="text-sm text-kumo-subtle">
-                This workspace is out of AI credits. Your monthly allowance renews
-                automatically, or {isAdmin ? 'you' : 'an admin'} can top up or move to a
-                bigger plan now.
+                This workspace is out of AI credits. {isAdmin ? 'Top up' : 'An admin can top up'} now,
+                or wait for the monthly allowance to renew.
               </p>
             )}
 
             {gate !== null && !isAdmin && (
               requestState === 'sent' ? (
                 <p className="text-sm text-kumo-default">
-                  Your workspace admins have been notified by email.
+                  Admins notified by email.
                 </p>
               ) : requestState === 'already' ? (
                 <p className="text-sm text-kumo-default">
-                  Your workspace admins were already notified recently.
+                  Admins were already notified recently.
                 </p>
               ) : (
                 <p className="text-sm text-kumo-subtle">
-                  Only workspace admins can change the plan, but you can let them know
-                  you're blocked.
+                  Only admins can change the plan. Let them know you're blocked.
                 </p>
               )
             )}
@@ -130,8 +103,8 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
                 {gate !== null && (isAdmin || requestState === 'idle') ? 'Maybe later' : 'Close'}
               </Button>
               {gate !== null && isAdmin && (
-                <Button variant="primary" onClick={openPlans}>
-                  View plans
+                <Button variant="primary" onClick={openFix}>
+                  {gate.isFreePlan ? 'View plans' : 'Top up'}
                 </Button>
               )}
               {gate !== null && !isAdmin && requestState !== 'sent' && requestState !== 'already' && (

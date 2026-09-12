@@ -20,7 +20,6 @@ import * as billingDirectory from './billing-directory.js';
 import * as intelligenceDirectory from './intelligence-directory.js';
 import { INTELLIGENCE_CONNECTORS, type IntelligenceConnectorSetup } from './intelligence-setup.js';
 import type { UsageCollectorDurableObject } from './usage-collector.js';
-import { isPoolMode, poolModeRefusal } from "./pool-mode.js";
 
 const logger = createWorkshopLogger("workshop.admin.settings");
 
@@ -138,8 +137,6 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
    * the same blueprints, and a duplicated id makes setFormatOrder() reject every reordering.
    */
   ensureFormatBlueprintsInstalled(): Promise<boolean> {
-    // A pool offers no templates, bundled ones included: nothing to install, nothing to retry.
-    if (isPoolMode(this.env)) return Promise.resolve(true);
     return this.#installInFlight ??= this.#installFormatBlueprints()
         .finally(() => { this.#installInFlight = undefined; });
   }
@@ -189,7 +186,6 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
    * for one id share a run.
    */
   installCatalogTemplate(id: string): Promise<BlueprintPublicInfo> {
-    if (isPoolMode(this.env)) throw poolModeRefusal("Templates");
     let inFlight = this.#catalogInstalls.get(id);
     if (inFlight) return inFlight;
     let run = this.#installCatalogTemplate(id)
@@ -1231,7 +1227,28 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
     // collector's cache means whatever this page shows (a plan change or top-up that just
     // landed via webhook) is also live at the enforcement gates, not stale for the TTL.
     await this.usageCollector?.acceptEntitlements(entitlements).catch(() => {});
-    return {...entitlements, usage: usage.rows};
+    return {
+      ...entitlements,
+      trialEndsAt: entitlements.trialEndsAt ?? null,
+      cancelAt: entitlements.cancelAt ?? null,
+      card: entitlements.card ?? null,
+      cardExpiresBeforeNextCharge: entitlements.cardExpiresBeforeNextCharge ?? false,
+      usage: usage.rows,
+    };
+  }
+
+  async cancelPlan(): Promise<{cancelAt: number | null}> {
+    if (!billingDirectory.hasBillingDirectory(this.env)) {
+      throw new Error("This deployment has no central billing configured.");
+    }
+    return billingDirectory.cancelPlan(this.env);
+  }
+
+  async resumePlan(): Promise<{cancelAt: number | null}> {
+    if (!billingDirectory.hasBillingDirectory(this.env)) {
+      throw new Error("This deployment has no central billing configured.");
+    }
+    return billingDirectory.resumePlan(this.env);
   }
 
   async createTopupCheckout(creditType: BillingCreditType, amountCents: number,
@@ -1405,7 +1422,6 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
   async provisionIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview> {
     let product = this.#productKind(kind);
     this.#requireIntelligenceDirectory();
-    if (isPoolMode(this.env)) throw poolModeRefusal(INTELLIGENCE_PRODUCT_NAMES[product]);
     let { instance, assistantKey } = await intelligenceDirectory.provisionInstance(this.env, product);
     if (assistantKey !== null) await this.#storeAssistantKey(product, instance, assistantKey);
     return this.#intelligenceOverview(await intelligenceDirectory.fetchIntelligence(this.env));

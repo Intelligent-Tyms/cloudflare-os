@@ -824,10 +824,6 @@ export interface AuthenticatedApi extends RpcTarget {
   // (false when a recent request already notified them).
   requestPlanUpgrade(): Promise<{ notified: boolean }>;
 
-  // Pool deployments only: the company workspace this user is upgrading to, while it builds
-  // and for a few days after it's ready (their pool seat lapses then). Null everywhere else.
-  getPendingWorkspace(): Promise<PendingWorkspaceInfo | null>;
-
   // TODO:
   // - Edit permissions on a connected account.
 }
@@ -839,16 +835,19 @@ export type BillingGateInfo = {
   isFreePlan: boolean;
   /** The daily request allowance on the free plan; null on paid plans. */
   freeDailyLlmCalls: number | null;
-};
-
-/** A pool member's company workspace on its way (see AuthenticatedApi.getPendingWorkspace). */
-export type PendingWorkspaceInfo = {
-  slug: string;
-  name: string;
-  /** provisioning = building; ready = live, go there; delayed = the build stalled, ops have it. */
-  status: "provisioning" | "ready" | "delayed";
-  /** The workspace's own origin. */
-  url: string;
+  /**
+   * AI credit position for the low-credits nudge, paid plans only (null on free, where credits
+   * don't apply). Balance is allowance plus rolled-over top-ups; the monthly grant is the plan's
+   * allowance per period.
+   */
+  aiBalanceMicroUsd: number | null;
+  aiMonthlyGrantMicroUsd: number | null;
+  /** When the monthly allowance renews (ms since epoch); null on the free plan. */
+  periodEnd: number | null;
+  /** While the subscription is trialing: when the trial ends and billing starts; else null. */
+  trialEndsAt: number | null;
+  /** The card on file expires before the next charge; admins are nudged to update it. */
+  cardExpiresBeforeNextCharge: boolean;
 };
 
 /** Describes a gatekeeper's management app, for the Workshop nav + page. */
@@ -1415,15 +1414,23 @@ export interface AdminApi {
   createTopupCheckout(creditType: BillingCreditType, amountCents: number,
                       successUrl: string, cancelUrl: string): Promise<string>;
 
-  // The self-serve plan catalog for the plan picker (standard tier, purchasable or free).
+  // The self-serve plan catalog for the plan picker (standard tier, purchasable).
   listBillingPlans(): Promise<BillingPlanOption[]>;
 
-  // Change this workspace's plan. Paid↔paid and paid→free apply immediately
-  // (applied: true); free→paid returns a Stripe Checkout URL and applies once payment
-  // completes. Throws with an actionable message when refused (e.g. too many teammates
-  // for the target plan's seats).
+  // Change this workspace's plan. Paid↔paid applies immediately (applied: true); a
+  // workspace without a Stripe subscription gets a Stripe Checkout URL and the change
+  // applies once payment completes. Throws with an actionable message when refused (e.g.
+  // too many teammates for the target plan's seats).
   changePlan(planCode: string, billingPeriod: "monthly" | "annual",
              successUrl: string, cancelUrl: string): Promise<BillingPlanChangeResult>;
+
+  // Cancel the plan at the end of the paid period (or of the trial, which then never
+  // charges). Returns when the plan ends. There is no free plan to fall back to: the
+  // workspace is suspended at that date and removed after a retention window.
+  cancelPlan(): Promise<{cancelAt: number | null}>;
+
+  // Undo a scheduled cancellation while the plan is still running.
+  resumePlan(): Promise<{cancelAt: number | null}>;
 
   // Invoice history from the billing provider, newest first. Empty when this deployment
   // has no central billing configured or the workspace has never paid.
@@ -1521,6 +1528,8 @@ export type BillingPlanOption = {
   code: string;
   name: string;
   description: string | null;
+  // Free-trial length new subscriptions to this plan get (0 = none).
+  trialDays: number;
   priceCents: number;
   annualPriceCents: number | null;
   seatLimit: number | null;
@@ -1532,7 +1541,7 @@ export type BillingPlanOption = {
 
 export type BillingPlanChangeResult = {
   applied: boolean;
-  // Set when payment is needed first (free → paid): send the browser here.
+  // Set when payment is needed first (no Stripe subscription yet): send the browser here.
   checkoutUrl: string | null;
 };
 
@@ -1585,6 +1594,15 @@ export type BillingOverview = {
   // 'enterprise' plans have custom volumes and are exempt from credit enforcement.
   tier: string;
   subscriptionStatus: string;
+  // While trialing: when the trial ends and the card is charged (ms since epoch); else null.
+  trialEndsAt: number | null;
+  // A scheduled cancellation: when the plan ends (ms since epoch); null unless cancelled.
+  cancelAt: number | null;
+  // The card Stripe charges next, as mirrored by the control plane; null when none is on file.
+  card: {brand: string; last4: string; expMonth: number; expYear: number} | null;
+  // That card expires before the next charge (trial end or renewal), so the payment will fail
+  // unless it is updated under Payment details.
+  cardExpiresBeforeNextCharge: boolean;
   billingPeriod: string;
   // What the subscription bills (per month or per year, per billingPeriod); cents.
   priceCents: number | null;
@@ -1715,14 +1733,6 @@ export type ServerConfig = {
    * Undefined for standalone deployments.
    */
   centralLoginUrl?: string;
-
-  /**
-   * True on a free pool: a Tyms-owned deployment hosting unrelated free users as plain members,
-   * chat only. The client hides everything cross-user or deployment-wide (Templates, Discover,
-   * sharing, Discuss) and points "upgrade" at the central account instead of the in-app plans
-   * page, since the pool's own plan belongs to Tyms.
-   */
-  poolMode: boolean;
 
   /**
    * Whether the optional Cloudflare free-tier limits + top-up flow is enabled. When false (the

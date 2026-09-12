@@ -5,7 +5,8 @@
 // server's schemas so Gadget code gets typed methods.
 //
 // The endpoint is whatever a user typed, so annotations never earn auto-approval here and a Gadget
-// bound to it is owner-only. See `sharing-policy.ts` and the README.
+// bound to it is owner-only, unless the deployment's vetted catalog says otherwise for that
+// endpoint. See `sharing-policy.ts` and the README.
 import { RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 import { validateRpc, skipRpcValidation } from "capnweb-validate";
 import { createLogger } from "@gadgets/backend-utils/logger";
@@ -38,6 +39,8 @@ import { generateNonce } from "@gadgets/mcp-shared/connect-nonce";
 import { fetchTools, withClient, type ConnectionAccount } from "@gadgets/mcp-shared/connection";
 import { McpSessionBase } from "@gadgets/mcp-shared/session";
 import { McpFacetBase } from "@gadgets/mcp-shared/facet";
+import { McpVerifierBase, mcpVerifierAccount } from "@gadgets/mcp-shared/verifier";
+import type { McpSharingPolicy } from "@gadgets/mcp-shared/sharing-policy";
 import { looksLikePortal } from "@gadgets/mcp-shared/portal";
 import {
   endpointOfResourceUrl,
@@ -65,7 +68,7 @@ import {
 import { connectFormHtml } from "./connect-form.js";
 import { serverIdFromEndpoint } from "./server-id.js";
 import { mcpResourceFor, mcpResources } from "./resources.js";
-import { catalogEntryFor, ensureCatalog, trustFor } from "./vetted-catalog.js";
+import { catalogEntryFor, ensureCatalog, sharingFor, trustFor } from "./vetted-catalog.js";
 import type { ConfiguratorUIOption } from "@gadgets/configurator-ui";
 import { MCP_BASE_TYPES } from "@gadgets/mcp-shared/base-types";
 import MCP_LOGO_SVG from "./mcp-logo.svg";
@@ -76,8 +79,9 @@ const VENDOR_ID = "mcp";
 
 // The trust tier is per endpoint now: an endpoint on the deployment's vetted catalog (see
 // vetted-catalog.ts) may have its annotations drive auto-approval; anything user-supplied
-// stays "byo" — it vouches only for itself. The tier says nothing about sharing; a Gadget
-// bound to either tier is owner-only.
+// stays "byo" — it vouches only for itself. The tier says nothing about sharing: that is the
+// catalog entry's separate `sharing` policy, and a Gadget bound to an unlisted endpoint is
+// owner-only.
 
 const logger = createLogger<McpLogFields>({ component: "gatekeeper.mcp", vendorId: VENDOR_ID });
 
@@ -378,18 +382,23 @@ export class GatekeeperUserImpl
 
   @skipRpcValidation()
   async getVerifier(): Promise<Fetcher<GatekeeperUserVerifier>> {
-    return this.ctx.exports.McpVerifier({});
+    const props: McpGatekeeperUserProps = { accountObjectId: this.ctx.props.accountObjectId };
+    return this.ctx.exports.McpVerifier({ props });
   }
 }
 
 // ---------------------------------------------------------------------------
 // Verifier
 
-// Required by the `GatekeeperUser` contract but never interrogated, since `addObserver` refuses
-// everyone. Carries no props for the same reason.
+// Minted by the *observer's* connected account and carries that account's id, so the facet's
+// `addObserver` can learn which endpoint the observer connected to and replay the Gadget's reads
+// on the observer's own credentials (see `McpFacetBase.addObserver`).
 @validateRpc()
-export class McpVerifier extends WorkerEntrypoint<Env> implements GatekeeperUserVerifier {
-  verify(): void {}
+export class McpVerifier extends McpVerifierBase<Env> implements GatekeeperUserVerifier {
+  protected [mcpVerifierAccount]() {
+    return this.ctx.exports.McpAccount.get(
+      this.ctx.exports.McpAccount.idFromString(this.ctx.props.accountObjectId));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -483,16 +492,32 @@ export class McpGatekeeperImpl
     return `mcp:${endpointTag(this.ctx.props.endpoint)}`;
   }
 
+  /** The owner's account, which every call this facet makes runs on. */
   protected account(): ConnectionAccount {
-    return this.ctx.exports.McpAccount.get(
-      this.ctx.exports.McpAccount.idFromString(this.ctx.props.accountObjectId));
+    return this.accountById(this.ctx.props.accountObjectId);
   }
 
-  // Sync by contract, so it answers from the last-known catalog and kicks a background refresh
-  // when stale. A cold isolate answers "byo" — the conservative tier — and converges within one
-  // call; the tool-catalog cache is keyed on the tier and refetches when it flips.
+  /** Any account in this Worker's namespace, for replaying reads on an observer's own account. */
+  protected accountById(accountObjectId: string): ConnectionAccount {
+    return this.ctx.exports.McpAccount.get(
+      this.ctx.exports.McpAccount.idFromString(accountObjectId));
+  }
+
+  /**
+   * Sync by contract, so it answers from the last-known catalog and kicks a background refresh
+   * when stale. A cold isolate answers "byo" — the conservative tier — and converges within one
+   * call; the tool-catalog cache is keyed on the tier and refetches when it flips.
+   */
   protected get trust(): ServerTrust {
     return trustFor(this.env, this.ctx.props.endpoint);
+  }
+
+  /**
+   * Same shape as `trust`: the catalog's word on who may observe this endpoint, `owner-only`
+   * until the catalog says otherwise.
+   */
+  protected get sharing(): McpSharingPolicy {
+    return sharingFor(this.env, this.ctx.props.endpoint);
   }
 
   protected get sessionClass() {
