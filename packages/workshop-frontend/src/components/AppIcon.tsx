@@ -31,6 +31,20 @@ export function appIconFor(blueprintId: string): AppIcon | undefined {
   return APP_ICONS[blueprintId]
 }
 
+// The same icons keyed by the `output.id` each template declares (see packages/app-templates
+// `output.id`), for outputs, which carry their format but not the blueprint they came from.
+const OUTPUT_APP_ICONS: Record<string, AppIcon> = {
+  tasks: APP_ICONS['tyms.tasks'],
+  crm: APP_ICONS['tyms.crm'],
+  recon: APP_ICONS['tyms.recon'],
+  services: APP_ICONS['tyms.services'],
+  goaml: APP_ICONS['tyms.goaml'],
+}
+
+export function appIconForOutput(outputId: string | undefined): AppIcon | undefined {
+  return outputId === undefined ? undefined : OUTPUT_APP_ICONS[outputId]
+}
+
 // Tile dimensions and the glyph size that suits each, keyed together so they can't drift.
 const TILE_SIZES = {
   sm: { box: 'h-8 w-8 rounded-lg', glyph: 'h-[18px] w-[18px]' },
@@ -41,22 +55,25 @@ const TILE_SIZES = {
 } as const
 
 /**
- * The tile shown beside a blueprint's title: the suite icon on a soft tint of its colour when
- * the blueprint is a Tyms app, otherwise `fallback` (a lucide glyph) on the neutral fill.
+ * The tile shown beside a blueprint's or output's title: the suite icon on a soft tint of its
+ * colour when it is a Tyms app, otherwise `fallback` (a lucide glyph) on the neutral fill.
+ * Pass `blueprintId` for a blueprint, `outputId` (its declared `output.id`) for an output.
  */
 export function AppIconTile({
   blueprintId,
+  outputId,
   size = 'md',
   fallback,
   className = '',
 }: {
-  blueprintId: string
+  blueprintId?: string
+  outputId?: string
   size?: keyof typeof TILE_SIZES
   fallback: ReactNode
   className?: string
 }) {
   const { box, glyph } = TILE_SIZES[size]
-  const icon = appIconFor(blueprintId)
+  const icon = blueprintId !== undefined ? appIconFor(blueprintId) : appIconForOutput(outputId)
   if (!icon) {
     return (
       <div className={`grid ${box} shrink-0 place-items-center bg-kumo-fill text-kumo-subtle ${className}`}>

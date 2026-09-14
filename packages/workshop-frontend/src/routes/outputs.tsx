@@ -24,7 +24,8 @@ import { useDocumentTitle } from '../useDocumentTitle'
 import ViewToggle from '../components/ViewToggle'
 import { MENU_CONTENT, MENU_ITEM, MENU_POSITIONER_STYLE } from '../components/menuStyles'
 import { formatOf } from '../components/format/formats'
-import { FormatThumbnail, FormatTile } from '../components/format/FormatVisuals'
+import { FormatGlyph } from '../components/format/FormatVisuals'
+import { AppIconTile } from '../components/AppIcon'
 import { useOutputFormats } from '../components/format/useOutputFormats'
 import NewFormatRow from '../components/format/NewFormatRow'
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog'
@@ -168,23 +169,25 @@ function OutputCard({
       tabIndex={0}
       onClick={onOpen}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen() } }}
-      className="themed-card-hover-shadow press group flex cursor-pointer flex-col overflow-hidden rounded-xl border border-kumo-line bg-kumo-base text-left transition-[border-color,box-shadow] duration-150 ease-out hover:border-kumo-fill"
+      className="themed-card-hover-shadow press group flex cursor-pointer flex-col gap-3 rounded-xl border border-kumo-line bg-kumo-base p-4 text-left transition-[border-color,box-shadow] duration-150 ease-out hover:border-kumo-fill"
     >
-      <div className="relative aspect-[4/3] w-full border-b border-kumo-line">
-        <FormatThumbnail output={output.output} />
-      </div>
-      <div className="flex items-center gap-2.5 px-3 py-2.5">
-        <FormatTile output={output.output} size="sm" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-medium leading-[18px] tracking-[-0.25px] text-kumo-default">
-            {output.title || 'Untitled'}
-          </p>
-          <p className="mt-0.5 truncate text-[12px] leading-4 tracking-[-0.2px] text-kumo-subtle">
-            {subtitle(output)}
-          </p>
-        </div>
+      {/* Store-style card, matching the Apps page: the format's icon is the card. */}
+      <div className="flex items-start justify-between gap-2">
+        <AppIconTile
+          outputId={output.output?.id}
+          size="xl"
+          fallback={<FormatGlyph output={output.output} size="xl" />}
+        />
         <OutputMenu hidden={!!output.hidden} onOpen={onOpen} onOpenWorkspace={onOpenWorkspace}
                     onRename={onRename} onToggleHidden={onToggleHidden} onRemove={onRemove} />
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-[14px] font-medium leading-5 tracking-[-0.25px] text-kumo-default">
+          {output.title || 'Untitled'}
+        </p>
+        <p className="mt-0.5 truncate text-[12px] leading-4 tracking-[-0.2px] text-kumo-subtle">
+          {subtitle(output)}
+        </p>
       </div>
     </div>
   )
@@ -201,7 +204,11 @@ function OutputRow({
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen() } }}
       className="group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 transition-colors duration-150 ease-out hover:bg-kumo-tint"
     >
-      <FormatTile output={output.output} />
+      <AppIconTile
+        outputId={output.output?.id}
+        size="md"
+        fallback={<FormatGlyph output={output.output} size="md" />}
+      />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium tracking-[-0.25px] text-kumo-default">
           {output.title || 'Untitled'}
@@ -694,7 +701,13 @@ function OutputsPage() {
         {loading ? (
           <div className="grid grid-cols-1 gap-4 px-3 min-[400px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
             {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="aspect-[4/3] animate-pulse rounded-xl bg-kumo-elevated" />
+              <div key={i} className="flex flex-col gap-3 rounded-xl border border-kumo-line bg-kumo-base p-4">
+                <div className="h-16 w-16 animate-pulse rounded-2xl bg-kumo-elevated" />
+                <div className="space-y-2 py-1">
+                  <div className="h-2.5 w-2/3 animate-pulse rounded bg-kumo-elevated" />
+                  <div className="h-2 w-full animate-pulse rounded bg-kumo-elevated" />
+                </div>
+              </div>
             ))}
           </div>
         ) : loadError ? (
