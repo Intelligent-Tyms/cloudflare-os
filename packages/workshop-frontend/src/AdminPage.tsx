@@ -9,6 +9,7 @@ import {
   Building2,
   ChevronRight,
   CreditCard,
+  Database,
   FileText,
   Hexagon,
   Layers,
@@ -18,14 +19,17 @@ import {
   Plug,
   ShieldAlert,
   Sparkles,
+  TrendingUp,
   UserPlus,
   Users,
+  Workflow,
   Zap,
 } from 'lucide-react'
 import { useAuthenticatedApi } from './AuthContext'
 import { useServerConfig } from './ServerConfigContext'
 import { AdminApi, AdminFormat, AdminModel, AdminResourceVendor, AdminSkill, ChannelsDescription, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
 import { INTEGRATION_DEPARTMENTS } from '@gadgets/workshop-shared/gatekeeper'
+import type { IntelligenceProductKind } from '@gadgets/workshop-shared/api'
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from './theme'
 import { cacheBustSiteLogoUrl, prepareSiteLogo } from './siteLogoUtils'
 import SiteLogo from './components/SiteLogo'
@@ -34,7 +38,7 @@ import AdminBillingPanel from './components/AdminBillingPanel'
 import AdminChannelsPanel from './components/AdminChannelsPanel'
 import AdminPlansPanel from './components/AdminPlansPanel'
 import AdminFormatsPanel from './components/format/AdminFormatsPanel'
-import AdminIntelligencePanel from './components/AdminIntelligencePanel'
+import AdminIntelligencePanel, { AdminIntelligenceComingSoon } from './components/AdminIntelligencePanel'
 import AdminProvidersPanel from './components/AdminProvidersPanel'
 import AdminSkillsPanel from './components/AdminSkillsPanel'
 import AdminTeamPanel from './components/AdminTeamPanel'
@@ -67,7 +71,10 @@ export type AdminSectionId =
   | 'channels'
   | 'integrations'
   | 'providers'
-  | 'intelligence'
+  | 'organization-intelligence'
+  | 'data-intelligence'
+  | 'market-intelligence'
+  | 'process-intelligence'
 
 type AdminSection = {
   id: AdminSectionId
@@ -75,6 +82,8 @@ type AdminSection = {
   blurb: string
   description: string
   icon: ReactNode
+  /** Not built yet: the hub card says so, and the detail page is a placeholder. */
+  comingSoon?: boolean
 }
 
 const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
@@ -192,15 +201,54 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
     label: 'Intelligence',
     sections: [
       {
-        id: 'intelligence',
-        title: 'Intelligence',
-        blurb: 'Provision your organization’s wiki and connect the assistant to it.',
+        id: 'organization-intelligence',
+        title: 'Organization intelligence',
+        blurb: 'Your own documents, synthesized into a reviewed wiki the assistant answers from and cites.',
         description:
-          'Tyms Intelligence products for this workspace. Organization Intelligence turns your own documents into a reviewed wiki the assistant answers from and cites; Data Intelligence connects your databases read-only for analysts and the assistant; Market and Process follow. Provisioning happens here and takes seconds.',
+          'Organization Intelligence turns your own documents into a reviewed wiki of your organization’s knowledge. Verified pages become precedents the assistant answers from and cites. Provision the wiki here; it takes seconds and connects the assistant automatically.',
         icon: <BookOpenCheck size={18} />,
+      },
+      {
+        id: 'data-intelligence',
+        title: 'Data intelligence',
+        blurb: 'Connect your databases read-only for analysts and the assistant.',
+        description:
+          'Data Intelligence connects your own databases and warehouses, read-only. Analysts work in the data workbench; the assistant answers from the same connections and cites every query it ran. Provision the workbench here; it takes seconds and connects the assistant automatically.',
+        icon: <Database size={18} />,
+      },
+      {
+        id: 'market-intelligence',
+        title: 'Market intelligence',
+        blurb: 'Competitive insight and industry trends for the market you operate in.',
+        description:
+          'Market Intelligence keeps your assistants informed about the market you operate in: competitors, industry trends, and the outward-looking context that pairs with your organization’s own knowledge.',
+        icon: <TrendingUp size={18} />,
+        comingSoon: true,
+      },
+      {
+        id: 'process-intelligence',
+        title: 'Process intelligence',
+        blurb: 'Process metrics, workflows, and performance across the business.',
+        description:
+          'Process Intelligence gives your assistants a view of how work actually flows: process metrics, workflows, and performance, so they can answer about what is happening and where it stalls.',
+        icon: <Workflow size={18} />,
+        comingSoon: true,
       },
     ],
   },
+]
+
+// The Intelligence cards, keyed by section: which product each one manages. Market and Process
+// have no cell yet, so their pages are placeholders (no product to provision).
+const INTELLIGENCE_SECTION_PRODUCT: Partial<Record<AdminSectionId, IntelligenceProductKind>> = {
+  'organization-intelligence': 'organization',
+  'data-intelligence': 'data',
+}
+const INTELLIGENCE_SECTION_IDS: readonly AdminSectionId[] = [
+  'organization-intelligence',
+  'data-intelligence',
+  'market-intelligence',
+  'process-intelligence',
 ]
 
 const ADMIN_SECTIONS = ADMIN_GROUPS.flatMap((g) => g.sections)
@@ -552,7 +600,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
             // Teammates and Intelligence live in the central directory; without central login
             // there is nothing behind them, so their cards (and an emptied group) are hidden.
             sections: group.sections.filter(
-              (s) => (s.id !== 'teammates' && s.id !== 'intelligence') || Boolean(centralLoginUrl),
+              (s) => (s.id !== 'teammates' && !INTELLIGENCE_SECTION_IDS.includes(s.id)) || Boolean(centralLoginUrl),
             ),
           })).filter((group) => group.sections.length > 0).map((group) => (
             <section key={group.label} className="flex flex-col gap-3">
@@ -572,8 +620,13 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
                       {s.icon}
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-[15px] font-semibold tracking-[-0.25px] text-kumo-strong">
+                      <span className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.25px] text-kumo-strong">
                         {s.title}
+                        {s.comingSoon && (
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-kumo-tint text-kumo-subtle border border-kumo-line">
+                            Coming later
+                          </span>
+                        )}
                       </span>
                       <span className="mt-1 block text-[13px] leading-[18px] tracking-[-0.2px] text-kumo-subtle">
                         {s.blurb}
@@ -1069,8 +1122,13 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
       {/* Teammates: full management, proxied to the central team directory. */}
       {section === 'teammates' && admin && <AdminTeamPanel admin={admin.api} />}
 
-      {/* Intelligence: provisioning and the assistant connection, proxied to the control plane. */}
-      {section === 'intelligence' && admin && <AdminIntelligencePanel admin={admin.api} />}
+      {/* Intelligence: one page per product. Organization and Data provision here (proxied to
+          the control plane); Market and Process are placeholders until their cells exist. */}
+      {INTELLIGENCE_SECTION_PRODUCT[section] && admin && (
+        <AdminIntelligencePanel admin={admin.api} kind={INTELLIGENCE_SECTION_PRODUCT[section]} />
+      )}
+      {section === 'market-intelligence' && <AdminIntelligenceComingSoon kind="market" />}
+      {section === 'process-intelligence' && <AdminIntelligenceComingSoon kind="process" />}
 
       {/* Integrations: a department-grouped index. Everything per-integration (on/off, resource
           toggles, setup) lives on /admin/integrations/$vendorId. */}
