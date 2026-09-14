@@ -1471,6 +1471,15 @@ export interface AdminApi {
 
   /** Rotate the product's assistant key on the cell and store the new one; the old key stops working. */
   reconnectIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview>;
+
+  /**
+   * A signed-in URL into the product's own console (the wiki or the workbench) for the
+   * requesting admin, landing on `next` (a path on the product host; the product's home when
+   * omitted or unsafe). The URL carries a single-use token that expires within a minute, so
+   * request it on the click that opens it, never ahead of time. Throws when the product is
+   * not active.
+   */
+  openIntelligence(kind: IntelligenceProductKind, next?: string): Promise<{ url: string }>;
 }
 
 /** The products that can be provisioned today (each has a cell); Market and Process follow. */
@@ -1512,11 +1521,10 @@ export type IntelligenceProductOverview = {
 };
 
 /**
- * The Admin → Intelligence snapshot: what the plan allows, the Intelligence credit pool the
- * products share, and each product's state.
+ * The Admin → Intelligence snapshot: the Intelligence credit pool the products share and each
+ * product's state. Every plan may use the products; the pool is the only budget.
  */
 export type IntelligenceOverview = {
-  entitled: boolean;
   credits: BillingCreditBucket;
   organization: IntelligenceProductOverview;
   data: IntelligenceProductOverview;

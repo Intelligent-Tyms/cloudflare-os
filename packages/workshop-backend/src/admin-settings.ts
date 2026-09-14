@@ -1388,7 +1388,7 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
       this.#productOverview(view, "organization"),
       this.#productOverview(view, "data"),
     ]);
-    return { entitled: view.entitled, credits: view.credits, organization, data };
+    return { credits: view.credits, organization, data };
   }
 
   async #storeAssistantKey(
@@ -1458,5 +1458,24 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
       throw new Error("The new assistant key could not be stored. Check that the connector is installed, then reconnect again.");
     }
     return this.#intelligenceOverview(view);
+  }
+
+  /**
+   * The admin's identity here is the one the central handoff signed them in with (their
+   * email), which is what the product's cell keys its sessions on. Admins of this deployment
+   * enter their products as admins there too.
+   */
+  async openIntelligence(kind: IntelligenceProductKind, next?: string): Promise<{ url: string }> {
+    let product = this.#productKind(kind);
+    this.#requireIntelligenceDirectory();
+    let email = this.adminUserId.trim().toLowerCase();
+    if (!email.includes("@")) {
+      throw new Error("Your account has no email address to sign you into the product with.");
+    }
+    if (next !== undefined && (typeof next !== "string" || next.length > 512)) {
+      throw new Error("Invalid destination.");
+    }
+    let url = await intelligenceDirectory.handoffUrl(this.env, product, { email, role: "admin" }, next);
+    return { url };
   }
 }
