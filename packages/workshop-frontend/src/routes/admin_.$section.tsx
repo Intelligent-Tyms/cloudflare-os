@@ -14,6 +14,11 @@ function AdminSectionRoute() {
   if (section === 'connectors') {
     return <Navigate to="/admin/$section" params={{ section: 'integrations' }} replace />
   }
+  // Intelligence was one page with every product on it before the split into one card per
+  // product; its old link lands on the first product.
+  if (section === 'intelligence') {
+    return <Navigate to="/admin/$section" params={{ section: 'organization-intelligence' }} replace />
+  }
   // The plan picker lived on the billing page before the Plans split; forward its deep
   // links (pricing-page ?intent=, in-flight ?plan= checkout returns) with the query intact.
   if (section === 'billing' && /[?&](intent|plan)=/.test(window.location.search)) {

@@ -12,10 +12,11 @@ import {
 } from '@gadgets/workshop-shared/api'
 import { credits } from './billing/billingFormat'
 
-// Admin → Intelligence: the Tyms Intelligence products for this workspace. Each is provisioned
-// here and only here — the control plane creates it on its cell and hands the assistant key
-// back once, which this panel's backend stores in the product's connector. A null overview
-// means the deployment has no central directory (self-hosted), so there is nothing to provision.
+// Admin → <product> intelligence: one Tyms Intelligence product for this workspace, each on its
+// own admin page. A product is provisioned here and only here — the control plane creates it on
+// its cell and hands the assistant key back once, which this panel's backend stores in the
+// product's connector. A null overview means the deployment has no central directory
+// (self-hosted), so there is nothing to provision.
 
 type ProductCopy = {
   kind: IntelligenceProductKind
@@ -29,8 +30,8 @@ type ProductCopy = {
   note?: { label: string; text: string }
 }
 
-const PRODUCTS: ProductCopy[] = [
-  {
+const PRODUCTS: Record<IntelligenceProductKind, ProductCopy> = {
+  organization: {
     kind: 'organization',
     title: 'Organization',
     blurb: 'Your organization’s reviewed knowledge, synthesized from its own documents into a wiki the assistant answers from and cites.',
@@ -38,7 +39,7 @@ const PRODUCTS: ProductCopy[] = [
     deprovisionNote: 'The wiki is suspended now and purged after 30 days; the assistant disconnects immediately.',
     note: { label: 'Precedence', text: 'Verified wiki pages are injected into every new chat. Changes reach new chats only.' },
   },
-  {
+  data: {
     kind: 'data',
     title: 'Data',
     blurb: 'Your own databases and warehouses, connected read-only. Analysts work in the data workbench; the assistant answers from the same connections and cites every query it ran.',
@@ -46,13 +47,13 @@ const PRODUCTS: ProductCopy[] = [
     deprovisionNote: 'Every database connection is disconnected and the workbench is suspended now and purged after 30 days; the assistant disconnects immediately.',
     note: { label: 'Access', text: 'Read-only, enforced at the database role, on every statement and by row and time limits. Data stays at its source.' },
   },
-]
+}
 
-export default function AdminIntelligencePanel({ admin }: { admin: RpcStub<AdminApi> }) {
+export default function AdminIntelligencePanel({ admin, kind }: { admin: RpcStub<AdminApi>; kind: IntelligenceProductKind }) {
   const toasts = useKumoToastManager()
   const [overview, setOverview] = useState<IntelligenceOverview | null>(null)
   const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState<IntelligenceProductKind | null>(null)
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -63,8 +64,8 @@ export default function AdminIntelligencePanel({ admin }: { admin: RpcStub<Admin
     return () => { cancelled = true }
   }, [admin])
 
-  const run = async (kind: IntelligenceProductKind, op: () => Promise<IntelligenceOverview>, successTitle: string): Promise<boolean> => {
-    setBusy(kind)
+  const run = async (op: () => Promise<IntelligenceOverview>, successTitle: string): Promise<boolean> => {
+    setBusy(true)
     try {
       setOverview(await op())
       toasts.add({ title: successTitle, variant: 'success' })
@@ -73,7 +74,7 @@ export default function AdminIntelligencePanel({ admin }: { admin: RpcStub<Admin
       toasts.add({ title: err instanceof Error ? err.message : 'Something went wrong', variant: 'error' })
       return false
     } finally {
-      setBusy(null)
+      setBusy(false)
     }
   }
 
@@ -95,24 +96,24 @@ export default function AdminIntelligencePanel({ admin }: { admin: RpcStub<Admin
   const used = Math.max(0, overview.credits.monthlyGrantMicroUsd + overview.credits.topupMicroUsd
       - overview.credits.balanceMicroUsd)
 
+  const copy = PRODUCTS[kind]
+  const name = INTELLIGENCE_PRODUCT_NAMES[kind]
+
   return (
     <div className="space-y-6">
-      {PRODUCTS.map((copy) => (
-        <ProductCard
-          key={copy.kind}
-          copy={copy}
-          product={overview[copy.kind]}
-          entitled={overview.entitled}
-          busy={busy !== null}
-          running={busy === copy.kind}
-          onProvision={() => run(copy.kind, () => admin.provisionIntelligence(copy.kind), `${INTELLIGENCE_PRODUCT_NAMES[copy.kind]} is ready`)}
-          onDeprovision={async () => {
-            if (!confirm(`Deprovision ${INTELLIGENCE_PRODUCT_NAMES[copy.kind]}? ${copy.deprovisionNote}`)) return
-            await run(copy.kind, () => admin.deprovisionIntelligence(copy.kind), `${INTELLIGENCE_PRODUCT_NAMES[copy.kind]} suspended`)
-          }}
-          onReconnect={() => run(copy.kind, () => admin.reconnectIntelligence(copy.kind), 'Assistant reconnected with a new key')}
-        />
-      ))}
+      <ProductCard
+        copy={copy}
+        product={overview[kind]}
+        entitled={overview.entitled}
+        busy={busy}
+        running={busy}
+        onProvision={() => run(() => admin.provisionIntelligence(kind), `${name} is ready`)}
+        onDeprovision={async () => {
+          if (!confirm(`Deprovision ${name}? ${copy.deprovisionNote}`)) return
+          await run(() => admin.deprovisionIntelligence(kind), `${name} suspended`)
+        }}
+        onReconnect={() => run(() => admin.reconnectIntelligence(kind), 'Assistant reconnected with a new key')}
+      />
 
       <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
         <dl className="text-sm">
@@ -126,18 +127,35 @@ export default function AdminIntelligencePanel({ admin }: { admin: RpcStub<Admin
           </dd>
         </dl>
       </div>
+    </div>
+  )
+}
 
-      {/* The other intelligences, not yet available. */}
-      <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
-        <div className="space-y-3">
-          {['Market', 'Process'].map((name) => (
-            <div key={name} className="flex items-center gap-3">
-              <p className="flex-1 text-sm font-semibold text-kumo-subtle">{name}</p>
-              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-kumo-tint text-kumo-subtle border border-kumo-line">
-                Coming later
-              </span>
-            </div>
-          ))}
+// The products without a cell yet. Their admin pages exist so the hub reads as the full set,
+// but there is nothing to provision.
+const COMING_SOON_COPY: Record<'market' | 'process', string> = {
+  market: 'Competitive insight and industry trends: the outward-looking counterpart to Organization Intelligence.',
+  process: 'Process metrics, workflows, and performance, so assistants can answer about how work actually flows.',
+}
+
+export function AdminIntelligenceComingSoon({ kind }: { kind: 'market' | 'process' }) {
+  return (
+    <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
+      <div className="flex items-start gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-kumo-strong">
+              {kind === 'market' ? 'Market' : 'Process'}
+            </h2>
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-kumo-tint text-kumo-subtle border border-kumo-line">
+              Coming later
+            </span>
+          </div>
+          <p className="text-sm text-kumo-subtle mt-0.5">{COMING_SOON_COPY[kind]}</p>
+          <p className="text-sm text-kumo-subtle mt-3">
+            Not available yet. It will be provisioned from this page, the same way as Organization
+            and Data, and draw on the same Intelligence credit pool.
+          </p>
         </div>
       </div>
     </div>
