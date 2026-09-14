@@ -20,6 +20,7 @@ import ResourceConfiguratorHost from './ResourceConfiguratorHost'
 import { WorkshopButton, WorkshopIconButton } from './components/WorkshopControls'
 import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER } from './components/menuStyles'
 import { useDocumentTitle } from './useDocumentTitle'
+import { AppIconTile, appIconFor } from './components/AppIcon'
 import { AccountsSubscriberAdapter } from './accountsSubscriber'
 
 interface Props {
@@ -798,6 +799,9 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
                 <Star size={12} fill="currentColor" strokeWidth={0} />
                 Featured
               </span>
+            )}
+            {appIconFor(blueprint.id) && (
+              <AppIconTile blueprintId={blueprint.id} size="lg" fallback={null} className="mb-4" />
             )}
             <h1 className="m-0 text-3xl font-semibold leading-tight tracking-tight text-kumo-default">
               {meta.title}

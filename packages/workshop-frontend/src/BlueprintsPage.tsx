@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { BlueprintPublicInfo } from "@gadgets/workshop-shared/api";
 import { VendorDescription } from "@gadgets/workshop-shared/gatekeeper";
 import { useAuthenticatedApi } from "./AuthContext";
+import { AppIconTile } from "./components/AppIcon";
 import { BindingBadge, uniqueBindingBadges } from "./components/BlueprintCard";
 import BlueprintList from "./components/BlueprintList";
 import { BlueprintPreviewPlaceholder } from "./components/BlueprintPreviewImage";
@@ -244,9 +245,7 @@ function FeaturedBlueprintCard({
       <BlueprintThumbnail blueprint={blueprint} />
 
       <div className="flex flex-1 items-start gap-2.5 px-3 py-2.5">
-        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-kumo-fill text-kumo-subtle">
-          <BlueprintIcon size={15} />
-        </div>
+        <AppIconTile blueprintId={blueprint.id} size="sm" fallback={<BlueprintIcon size={15} />} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13px] font-medium leading-[18px] tracking-[-0.25px] text-kumo-default">
             {blueprint.metadata.title}
@@ -290,9 +289,7 @@ function FeaturedBlueprintRow({
       params={{ id: blueprint.id }}
       className="group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 transition-colors duration-150 ease-out hover:bg-kumo-tint"
     >
-      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-kumo-fill text-kumo-subtle">
-        <BlueprintIcon size={16} />
-      </div>
+      <AppIconTile blueprintId={blueprint.id} size="md" fallback={<BlueprintIcon size={16} />} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium tracking-[-0.25px] text-kumo-default">
           {blueprint.metadata.title}
