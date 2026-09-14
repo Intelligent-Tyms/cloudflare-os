@@ -14,7 +14,7 @@ import { FORMAT_ICONS, formatOf, wireframeOf, type FormatWireframe } from './for
 
 // ─── glyph ───────────────────────────────────────────────────────────────────
 
-const GLYPH_SIZES = { sm: 11, md: 15, lg: 17 } as const
+const GLYPH_SIZES = { sm: 11, md: 15, lg: 17, xl: 28 } as const
 
 export function FormatGlyph({
   output,
