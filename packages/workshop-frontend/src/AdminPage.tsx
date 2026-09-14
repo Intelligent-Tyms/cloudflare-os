@@ -205,7 +205,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         title: 'Organization intelligence',
         blurb: 'Your own documents, synthesized into a reviewed wiki the assistant answers from and cites.',
         description:
-          'Organization Intelligence turns your own documents into a reviewed wiki of your organization’s knowledge. Verified pages become precedents the assistant answers from and cites. Provision the wiki here; it takes seconds and connects the assistant automatically.',
+          'Organization Intelligence turns your own documents into a reviewed wiki of your organization’s knowledge. Verified pages become precedents the assistant answers from and cites. The wiki is set up the first time you open this page and connects the assistant automatically; from here you open it signed in and manage it.',
         icon: <BookOpenCheck size={18} />,
       },
       {
@@ -213,7 +213,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         title: 'Data intelligence',
         blurb: 'Connect your databases read-only for analysts and the assistant.',
         description:
-          'Data Intelligence connects your own databases and warehouses, read-only. Analysts work in the data workbench; the assistant answers from the same connections and cites every query it ran. Provision the workbench here; it takes seconds and connects the assistant automatically.',
+          'Data Intelligence connects your own databases and warehouses, read-only. Analysts work in the data workbench; the assistant answers from the same connections and cites every query it ran. The workbench is set up the first time you open this page and connects the assistant automatically; from here you open it signed in and manage connections.',
         icon: <Database size={18} />,
       },
       {

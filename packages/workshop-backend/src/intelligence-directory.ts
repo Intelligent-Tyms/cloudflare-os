@@ -14,7 +14,6 @@ import {
 
 /** Mirrors the control plane's IntelligenceView (apps/control-plane/src/intelligence.ts). */
 export type CentralIntelligence = {
-  entitled: boolean;
   credits: BillingCreditBucket;
   instances: IntelligenceInstanceView[];
 };
@@ -35,7 +34,6 @@ export function hasIntelligenceDirectory(env: Cloudflare.Env): boolean {
 // verbatim (its messages are already end-user-ready for validation failures).
 function errorMessages(product: string): Record<string, string> {
   return {
-    not_entitled: `Your plan does not include ${product}. Upgrade under Admin → Plans.`,
     in_progress: `${product} is already being provisioned.`,
     already_active: `${product} is already provisioned for this workspace.`,
     decommissioned: `This workspace's ${product} instance was purged; contact Tyms support to provision a new one.`,
@@ -75,7 +73,7 @@ async function call<T>(
   return data;
 }
 
-/** Entitlement, the Intelligence credit pool and every instance the tenant has. */
+/** The Intelligence credit pool and every instance the tenant has. */
 export async function fetchIntelligence(env: Cloudflare.Env): Promise<CentralIntelligence> {
   return await call(env, "/intelligence");
 }
@@ -97,6 +95,20 @@ export async function rotateAssistantKey(
   env: Cloudflare.Env, kind: IntelligenceProductKind,
 ): Promise<{assistantKey: string}> {
   return await call(env, `/intelligence/${kind}/rotate-key`, {}, kind);
+}
+
+/**
+ * A signed-in URL into the product's console for `actor`, landing on `next` (a path on the
+ * product host). The control plane mints a single-use, short-lived handoff token into it, so
+ * this is called on the click that opens the console. Throws `not_provisioned` (as the
+ * product's message) when the instance is not active.
+ */
+export async function handoffUrl(
+  env: Cloudflare.Env, kind: IntelligenceProductKind,
+  actor: { email: string; role: "owner" | "admin" | "member" }, next?: string,
+): Promise<string> {
+  let { url } = await call<{ url: string }>(env, `/intelligence/${kind}/handoff`, { ...actor, next }, kind);
+  return url;
 }
 
 /** One product's instance out of a directory snapshot, or null when never provisioned. */
