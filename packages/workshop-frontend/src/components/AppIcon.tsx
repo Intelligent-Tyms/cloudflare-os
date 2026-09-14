@@ -36,6 +36,8 @@ const TILE_SIZES = {
   sm: { box: 'h-8 w-8 rounded-lg', glyph: 'h-[18px] w-[18px]' },
   md: { box: 'h-9 w-9 rounded-lg', glyph: 'h-5 w-5' },
   lg: { box: 'h-12 w-12 rounded-xl', glyph: 'h-7 w-7' },
+  // Store-style grid cards: the icon is the card.
+  xl: { box: 'h-16 w-16 rounded-2xl', glyph: 'h-9 w-9' },
 } as const
 
 /**
