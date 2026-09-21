@@ -4,9 +4,8 @@
 // service binding; the names are the contract.
 //
 // organization: mirror of packages/gatekeeper-intelligence/src/config.ts.
-// data: no connector is bound yet (the Data Intelligence gatekeeper is pending); until it
-// ships, an active Data instance reports "missing-key" and Reconnect rotates the key into the
-// connector once it exists.
+// data: mirror of packages/gatekeeper-data-intelligence/src/config.ts. Its vendor id has an
+// underscore because the binding is GATEKEEPER_DATA_INTELLIGENCE.
 import type { IntelligenceProductKind } from "@gadgets/workshop-shared/api";
 
 export type IntelligenceConnectorSetup = {
@@ -26,5 +25,11 @@ export const INTELLIGENCE_CONNECTORS: Record<IntelligenceProductKind, Intelligen
     assistantKey: "INTELLIGENCE_ASSISTANT_KEY",
     required: ["INTELLIGENCE_MCP_URL", "INTELLIGENCE_ASSISTANT_KEY"],
   },
-  data: null,
+  data: {
+    vendorId: "data_intelligence",
+    mcpUrl: "DATA_INTELLIGENCE_MCP_URL",
+    url: "DATA_INTELLIGENCE_CONSOLE_URL",
+    assistantKey: "DATA_INTELLIGENCE_ASSISTANT_KEY",
+    required: ["DATA_INTELLIGENCE_MCP_URL", "DATA_INTELLIGENCE_ASSISTANT_KEY"],
+  },
 };

@@ -260,6 +260,7 @@ const NO_DEFAULT_CRED_INPUTS = new Set([
   "gatekeeper-mcp",           // MCP OAuth uses dynamic client registration, not a static app
   "gatekeeper-mcp-portal",    // same MCP OAuth chain as gatekeeper-mcp
   "gatekeeper-intelligence",  // per-tenant wiki endpoint + preissued key via admin setup; no OAuth app
+  "gatekeeper-data-intelligence", // same: per-tenant endpoint + preissued key via admin setup
 ]);
 
 // Not installable on customer instances: Email Routing needs a zone, which workers.dev-hosted

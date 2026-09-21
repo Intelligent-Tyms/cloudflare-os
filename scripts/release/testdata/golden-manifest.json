@@ -205,6 +205,48 @@
         "BASE_URL": "$PUBLIC_BASE_URL/gatekeeper/context"
       }
     },
+    "gatekeeper-data-intelligence": {
+      "bindings": [],
+      "compatibilityDate": "2026-02-02",
+      "compatibilityFlags": [
+        "allow_irrevocable_stub_storage",
+        "global_fetch_strictly_public"
+      ],
+      "inputs": [],
+      "installable": true,
+      "kind": "gatekeeper",
+      "mainModule": "data-intelligence.js",
+      "migrations": [
+        {
+          "new_sqlite_classes": [
+            "VendorSetupStore",
+            "DataIntelligenceGatekeeper"
+          ],
+          "tag": "v1"
+        }
+      ],
+      "modules": [
+        {
+          "name": "data-intelligence.js",
+          "r2Key": "blobs/modules/0c99d100d21c5344d2a981faecf09e104f742394a53cbebe6b8d9099d77ebd77",
+          "sha256": "0c99d100d21c5344d2a981faecf09e104f742394a53cbebe6b8d9099d77ebd77",
+          "size": 70,
+          "type": "esm"
+        }
+      ],
+      "observability": {
+        "enabled": true,
+        "head_sampling_rate": 1,
+        "logs": {
+          "invocation_logs": false
+        }
+      },
+      "shortName": "data-intelligence",
+      "vars": {
+        "BASE_URL": "$PUBLIC_BASE_URL/gatekeeper/data-intelligence",
+        "MCP_ALLOW_INSECURE": "false"
+      }
+    },
     "gatekeeper-email": {
       "bindings": [],
       "compatibilityDate": "2026-02-02",
