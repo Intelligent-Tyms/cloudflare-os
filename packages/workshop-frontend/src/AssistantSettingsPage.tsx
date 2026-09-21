@@ -1,6 +1,6 @@
 import { useKumoToastManager } from '@cloudflare/kumo'
 import { useAuthenticatedApi } from './AuthContext'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { AssistantProfile, MAX_ASSISTANT_FIELD_LENGTH, MAX_ASSISTANT_NAME_LENGTH, MAX_ASSISTANT_PERSONA_LENGTH } from '@gadgets/workshop-shared/api'
 import { useAssistantProfile } from './AssistantProfileContext'
 import { Check } from 'lucide-react'
@@ -69,6 +69,8 @@ export default function AssistantSettingsPage() {
   const [profileDraft, setProfileDraft] = useState<AssistantProfile>(EMPTY_ASSISTANT_PROFILE)
   const [profileLoaded, setProfileLoaded] = useState(false)
   const [savingProfile, setSavingProfile] = useState(false)
+  // The draft as the last load left it, to tell an edited draft from an untouched one.
+  const loadedDraftRef = useRef<AssistantProfile | null>(null)
 
   // Fetch the assistant profile. On a first visit (nothing saved yet) the draft's time zone is
   // defaulted from the browser, so most users never have to pick it — saving then persists it.
@@ -76,8 +78,14 @@ export default function AssistantSettingsPage() {
     let cancelled = false
     authenticatedApi.getAssistantProfile().then((p) => {
       if (cancelled) return
+      const initial = p ?? { ...EMPTY_ASSISTANT_PROFILE, timeZone: browserTimeZone() }
+      // This re-runs when the API session reconnects, possibly mid-edit: keep a draft the user has
+      // changed since the last load, and let an untouched one follow the server.
+      const loadedDraft = loadedDraftRef.current
+      loadedDraftRef.current = initial
       setSavedProfile(p ?? EMPTY_ASSISTANT_PROFILE)
-      setProfileDraft(p ?? { ...EMPTY_ASSISTANT_PROFILE, timeZone: browserTimeZone() })
+      setProfileDraft((draft) =>
+        loadedDraft && JSON.stringify(draft) !== JSON.stringify(loadedDraft) ? draft : initial)
       setProfileLoaded(true)
     }).catch((err) => {
       console.error('Failed to load assistant profile:', err)

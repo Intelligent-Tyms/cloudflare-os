@@ -363,23 +363,30 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
   const [channels, setChannels] = useState<ChannelsDescription | null>(null)
 
   // Populate all editor state from a freshly-fetched settings view.
+  // Settings are re-fetched whenever the API session reconnects, which can happen mid-edit. A draft
+  // the admin has changed since the last load is kept; an untouched one follows the server.
+  const lastSettingsRef = useRef<Awaited<ReturnType<RpcStub<AdminApi>['getSettings']>> | null>(null)
   const applySettings = (view: Awaited<ReturnType<RpcStub<AdminApi>['getSettings']>>) => {
+    const prev = lastSettingsRef.current
+    lastSettingsRef.current = view
+    const draftOf = <T,>(prevSaved: T | undefined, next: T) => (draft: T): T =>
+      prev && draft !== prevSaved ? draft : next
     setSignupsEnabled(view.signupsEnabled)
     setSavedSiteName(view.siteName)
-    setSiteNameDraft(view.siteName)
+    setSiteNameDraft(draftOf(prev?.siteName, view.siteName))
     setSiteLogoUrl(view.siteLogo?.url ?? null)
     setResourceVendors(view.resourceVendors)
     setSavedInstructions(view.instanceInstructions)
-    setInstructionsDraft(view.instanceInstructions)
+    setInstructionsDraft(draftOf(prev?.instanceInstructions, view.instanceInstructions))
     setSavedOrgProfile(view.organizationProfile)
-    setOrgProfileDraft(view.organizationProfile)
+    setOrgProfileDraft(draftOf(prev?.organizationProfile, view.organizationProfile))
     setSavedAnnouncement(view.announcement)
-    setAnnouncementDraft(view.announcement)
+    setAnnouncementDraft(draftOf(prev?.announcement, view.announcement))
     setSavedBanner(view.banner)
-    setBannerTextDraft(view.banner.text)
-    setBannerColorDraft(view.banner.color)
+    setBannerTextDraft(draftOf(prev?.banner.text, view.banner.text))
+    setBannerColorDraft(draftOf(prev?.banner.color, view.banner.color))
     setSavedAccent(view.accentColor)
-    setAccentDraft(view.accentColor)
+    setAccentDraft(draftOf(prev?.accentColor, view.accentColor))
     setFormats(view.formats)
     setSkills(view.skills)
     setCuratedModels(view.models)
