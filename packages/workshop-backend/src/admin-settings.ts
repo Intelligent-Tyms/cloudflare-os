@@ -854,7 +854,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
   async #listResourceConfig(config: AdminConfig, adminUserId: string): Promise<AdminResourceVendor[]> {
     let disabledGatekeeperSet = new Set(config.disabledGatekeepers);
 
-    let promises: Promise<AdminResourceVendor | null>[] = [];
+    let promises: Promise<AdminResourceVendor | AdminResourceVendor[] | null>[] = [];
     for (let [id, vendor] of this.vendors) {
       promises.push((async () => {
         try {
@@ -879,9 +879,10 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
           // Ambient vendors carry it too: an organization credential (goAML's B2B login) is
           // entered here whether or not the vendor also has a connect flow.
           let setup: { status: VendorSetup["status"] } | undefined;
+          let setupState: VendorSetup | undefined;
           if (description.supportsAdminSetup === true) {
-            let state = await (vendor as unknown as VendorSetupStub).describeSetup();
-            setup = { status: state.status };
+            setupState = await (vendor as unknown as VendorSetupStub).describeSetup();
+            setup = { status: setupState.status };
           }
           if (description.autoProvisionsAccount && supportedResources.length === 0) {
             // Auto-provisioning ("ambient") gatekeeper: a three-state mode, no resources to toggle.
@@ -899,20 +900,60 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
             return null;
           }
           let disabled = new Set(config.disabledResources[id] ?? []);
-          return {
-            vendorId: id,
-            ...display,
-            autoProvisions: false,
-            enabled: !disabledGatekeeperSet.has(id),
-            resources: supportedResources.map(r => ({
-              urlPattern: r.urlPattern,
-              title: r.title,
-              description: r.description,
-              icon: r.icon,
-              enabled: !disabled.has(r.urlPattern),
-            })),
-            ...(setup ? { setup } : {}),
-          };
+          // Resources presented as connectors of their own (ResourceConnector) become separate
+          // entries; the vendor keeps the rest. Each presented one owns the setup inputs it
+          // names, and the vendor keeps whatever inputs remain.
+          let presented = supportedResources.filter(r => r.connector);
+          let own = supportedResources.filter(r => !r.connector);
+          let claimedInputs = new Set(presented.flatMap(r => r.connector!.setupInputNames ?? []));
+          let ownInputs = setupState
+              ? setupState.inputs.map(i => i.name).filter(name => !claimedInputs.has(name))
+              : [];
+          let configuredInputs = new Set(setupState?.configured.map(c => c.name) ?? []);
+          let vendorEnabled = !disabledGatekeeperSet.has(id);
+          let entries: AdminResourceVendor[] = [];
+          for (let r of presented) {
+            let c = r.connector!;
+            let inputs = c.setupInputNames ?? [];
+            entries.push({
+              vendorId: `${id}:${c.id}`,
+              displayName: c.displayName,
+              logo: c.logo ?? description.logo,
+              url: c.url,
+              color: c.color ?? description.color,
+              tagline: c.tagline,
+              description: c.description ?? r.description,
+              departments: c.departments,
+              credentialScope: c.credentialScope,
+              ...(inputs.length > 0 ? {
+                setup: { status: inputs.every(name => configuredInputs.has(name)) ? "configured" : "unconfigured" },
+                setupInputNames: inputs,
+              } : {}),
+              virtual: { parentVendorId: id, resourceUrlPattern: r.urlPattern },
+              autoProvisions: false,
+              enabled: vendorEnabled && !disabled.has(r.urlPattern),
+              resources: [],
+            });
+          }
+          let ownSetup = setup && (presented.length === 0 || ownInputs.length > 0) ? setup : undefined;
+          if (own.length > 0 || ownSetup) {
+            entries.push({
+              vendorId: id,
+              ...display,
+              autoProvisions: false,
+              enabled: vendorEnabled,
+              resources: own.map(r => ({
+                urlPattern: r.urlPattern,
+                title: r.title,
+                description: r.description,
+                icon: r.icon,
+                enabled: !disabled.has(r.urlPattern),
+              })),
+              ...(ownSetup ? { setup: ownSetup } : {}),
+              ...(ownSetup && presented.length > 0 ? { setupInputNames: ownInputs } : {}),
+            });
+          }
+          return entries;
         } catch (err) {
           logger.warn("failed to read resource config for gatekeeper", {
             event: "gatekeeper.resource.config.read.failed", gatekeeperId: id, error: err,
@@ -922,7 +963,8 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
       })());
     }
 
-    let vendors = (await Promise.all(promises)).filter((v): v is AdminResourceVendor => v !== null);
+    let vendors = (await Promise.all(promises))
+        .flatMap(v => v === null ? [] : Array.isArray(v) ? v : [v]);
     // Show auto-provisioned ("ambient") gatekeepers first; preserve the existing order otherwise.
     vendors.sort((a, b) => Number(b.autoProvisions) - Number(a.autoProvisions));
     return vendors;
@@ -1180,8 +1222,14 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
     await (await this.#setupVendor(vendorId)).applySetup(values);
   }
 
-  async clearIntegrationSetup(vendorId: string): Promise<void> {
-    await (await this.#setupVendor(vendorId)).clearSetup();
+  async clearIntegrationSetup(vendorId: string, names?: string[]): Promise<void> {
+    if (names !== undefined) {
+      if (!Array.isArray(names) || names.length === 0 ||
+          names.some(name => typeof name !== "string" || !name)) {
+        throw new Error("names must be a non-empty list of setup input names.");
+      }
+    }
+    await (await this.#setupVendor(vendorId)).clearSetup(names);
   }
 
   addModel(profile: AiChatAuthorInfo, config: AiModelConfig): Promise<void> {

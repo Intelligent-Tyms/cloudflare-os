@@ -968,6 +968,15 @@ export type AdminResourceVendor = {
   // its current setup status, so the panel can offer the setup flow. An unconfigured such vendor
   // keeps its row (with no resources) — that row is where setup is entered.
   setup?: { status: VendorSetup["status"] };
+  // The subset of the vendor's setup inputs this entry owns, when the vendor's setup was split
+  // between it and connectors presented from its resources (ResourceConnector.setupInputNames).
+  // Absent means every input.
+  setupInputNames?: string[];
+  // Present for an entry that is one of a vendor's resources presented as a connector of its own
+  // (see ResourceConnector). Its `vendorId` is `<parent>:<connector id>`, a listing key only: the
+  // panel switches it on and off with setResourceEnabled(parentVendorId, resourceUrlPattern) and
+  // reads and writes its setup through the parent, limited to setupInputNames.
+  virtual?: { parentVendorId: string; resourceUrlPattern: string };
 } & (
   | {
     autoProvisions: false;
@@ -1241,10 +1250,11 @@ export interface AdminApi {
   applyIntegrationSetup(vendorId: string, values: Record<string, string>): Promise<void>;
 
   /**
-   * Delete the vendor's admin-entered setup. It falls back to deploy-time secrets when those
-   * exist, and otherwise hides from users until set up again.
+   * Delete the vendor's admin-entered setup: all of it, or only the inputs `names` when given
+   * (one presented connector's key, leaving the others). It falls back to deploy-time secrets
+   * when those exist, and otherwise hides from users until set up again.
    */
-  clearIntegrationSetup(vendorId: string): Promise<void>;
+  clearIntegrationSetup(vendorId: string, names?: string[]): Promise<void>;
 
   /**
    * Set the top-bar notice (centered text in the top navigation bar). Pass "" to clear. Rejects over

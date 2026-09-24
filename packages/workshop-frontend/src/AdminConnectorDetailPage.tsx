@@ -130,7 +130,11 @@ export default function AdminConnectorDetailPage({ vendorId }: { vendorId: strin
   const handleEnabledToggle = (enabled: boolean) => {
     if (!admin || !vendor || vendor.autoProvisions) return
     setVendor({ ...vendor, enabled })
-    void withBusy('gk', () => admin.api.setGatekeeperMode(vendorId, enabled ? 'enabled' : 'disabled'))
+    // A presented connector is one of its parent's resources: its switch is that resource's.
+    const virtual = vendor.virtual
+    void withBusy('gk', () => virtual
+      ? admin.api.setResourceEnabled(virtual.parentVendorId, virtual.resourceUrlPattern, enabled)
+      : admin.api.setGatekeeperMode(vendorId, enabled ? 'enabled' : 'disabled'))
   }
 
   const handleMode = (mode: AmbientGatekeeperMode) => {
@@ -281,7 +285,7 @@ export default function AdminConnectorDetailPage({ vendorId }: { vendorId: strin
     />
   )
 
-  const resourcesPanel = !vendor.autoProvisions && (
+  const resourcesPanel = !vendor.autoProvisions && !vendor.virtual && (
     <Panel
       step={nextStep()}
       title="Resources"
@@ -428,9 +432,10 @@ export default function AdminConnectorDetailPage({ vendorId }: { vendorId: strin
       {admin && setupOpen && (
         <AdminIntegrationSetupModal
           open={setupOpen}
-          vendorId={vendor.vendorId}
+          vendorId={vendor.virtual?.parentVendorId ?? vendor.vendorId}
           displayName={vendor.displayName}
           admin={admin.api}
+          inputNames={vendor.setupInputNames}
           onOpenChange={(open) => { if (!open) setSetupOpen(false) }}
           onChanged={() => { reload().catch(() => {}) }}
         />

@@ -56,6 +56,44 @@ interface VendorEntry {
   // explanatory badge instead of a connect affordance.
   disabledByAdmin?: boolean
   needsAdminSetup?: boolean
+  // Set on an entry that is one of a vendor's resources presented as a connector of its own (a
+  // catalog MCP server): connecting goes through the parent vendor, limited to that resource.
+  presented?: { parentId: string; resourceUrlPattern: string }
+}
+
+// One card per service: a vendor whose resources carry a `connector` presentation is split into
+// one entry per presented resource, and keeps a card of its own only for the rest.
+function presentVendors(vendors: GatekeeperVendorInfo[]): VendorEntry[] {
+  const entries: VendorEntry[] = []
+  for (const vendor of vendors) {
+    const presented = vendor.supportedResources.filter((r) => r.connector)
+    const own = vendor.supportedResources.filter((r) => !r.connector)
+    for (const resource of presented) {
+      const c = resource.connector!
+      entries.push({
+        id: `${vendor.id}:${c.id}`,
+        description: {
+          ...vendor.description,
+          displayName: c.displayName,
+          tagline: c.tagline ?? vendor.description.tagline,
+          description: c.description ?? resource.description,
+          logo: c.logo ?? vendor.description.logo,
+          color: c.color ?? vendor.description.color,
+          url: c.url ?? vendor.description.url,
+          departments: c.departments ?? vendor.description.departments,
+          credentialScope: c.credentialScope,
+        },
+        supportedResources: [resource],
+        disabledByAdmin: vendor.disabledByAdmin,
+        needsAdminSetup: vendor.needsAdminSetup,
+        presented: { parentId: vendor.id, resourceUrlPattern: resource.urlPattern },
+      })
+    }
+    if (own.length > 0 || presented.length === 0) {
+      entries.push({ ...vendor, supportedResources: own })
+    }
+  }
+  return entries
 }
 
 function VendorIconTile({
@@ -601,7 +639,11 @@ export function ConnectorsPage() {
         // If the gatekeeper provides a management UI, its nav entry should appear without a reload.
         refreshGatekeeperApps(authenticatedApi)
       } else {
-        const { url } = await authenticatedApi.connectAccount(vendorId, resourceUrlPatterns)
+        // A presented connector connects through its parent vendor, pinned to its resource.
+        const target = availableVendors.find((v) => v.id === vendorId)
+        const { url } = target?.presented
+          ? await authenticatedApi.connectAccount(target.presented.parentId, [target.presented.resourceUrlPattern])
+          : await authenticatedApi.connectAccount(vendorId, resourceUrlPatterns)
         window.open(url, '_blank', 'noopener,noreferrer')
       }
       handleCloseModal()
@@ -695,9 +737,17 @@ export function ConnectorsPage() {
     () => {
       // Inert rows (needs-setup, admin-disabled) sink below everything connectable.
       const weight = (v: VendorEntry) => (v.disabledByAdmin ? 2 : v.needsAdminSetup ? 1 : 0)
-      return [...vendors, ...addable].sort((a, b) => weight(a) - weight(b))
+      // A presented service the user already reaches through a connected account (their own,
+      // or one the company provided) is listed under Connected, not offered again here.
+      const covered = (v: VendorEntry) =>
+        v.presented !== undefined &&
+        accounts.some((a) =>
+          a.vendorId === v.presented!.parentId &&
+          a.supportedResources.some((r) => r.urlPattern === v.presented!.resourceUrlPattern))
+      return [...presentVendors(vendors).filter((v) => !covered(v)), ...addable]
+        .sort((a, b) => weight(a) - weight(b))
     },
-    [vendors, addable],
+    [vendors, addable, accounts],
   )
 
   const filteredAvailable = useMemo(() => {
@@ -799,14 +849,19 @@ export function ConnectorsPage() {
                   account.accountDescription.displayName ??
                   account.accountDescription.uniqueName ??
                   'Connected'
-                const tagline = account.vendorDescription.tagline
+                // An account on one service presented as its own connector (a catalog MCP server)
+                // shows under that service's name; the transport's name would say nothing. An
+                // account covering several services (the company's) keeps its own name.
+                const presentedResources = account.supportedResources.filter((r) => r.connector)
+                const presented = presentedResources.length === 1 ? presentedResources[0].connector : undefined
+                const tagline = presented?.tagline ?? account.vendorDescription.tagline
                 return (
                   <ConnectorCard
                     key={account.id}
-                    logoUrl={account.vendorDescription.logo?.url}
-                    color={account.vendorDescription.color}
-                    fallback={account.vendorDescription.displayName}
-                    name={account.vendorDescription.displayName}
+                    logoUrl={presented?.logo?.url ?? account.vendorDescription.logo?.url}
+                    color={presented?.color ?? account.vendorDescription.color}
+                    fallback={presented?.displayName ?? account.vendorDescription.displayName}
+                    name={presented?.displayName ?? account.vendorDescription.displayName}
                     metaLine={
                       <span
                         className={`truncate ${

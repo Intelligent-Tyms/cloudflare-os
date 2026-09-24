@@ -466,6 +466,35 @@ export type ResourceDescription = {
  * Describes a kind of resource that a vendor can provide access to (e.g. "Jira Issue", "Gmail
  * Mailbox") rather than a specific instance.
  */
+/**
+ * How a resource type is presented when it is a service in its own right rather than a kind of
+ * thing within the vendor's service. A vendor that fronts many services over one transport (an
+ * MCP connector and its catalog of servers) attaches this to each catalog server's resource, and
+ * the Workshop then lists that resource as its own connector: a card of its own in the admin
+ * and user galleries, with its own status, on/off (the resource's), setup (the named inputs of
+ * the vendor's setup) and connect flow (the vendor's, limited to this resource). The vendor's
+ * own card keeps only the resources without a presentation. Presentation only: the resource is
+ * still granted, bound and enforced through its vendor.
+ */
+export type ResourceConnector = {
+  /** Stable, path-safe id within the vendor, e.g. a catalog slug. */
+  id: string;
+  displayName: string;
+  tagline?: string;
+  description?: string;
+  logo?: AvatarImage;
+  color?: string;
+  url?: string;
+  departments?: IntegrationDepartment[];
+  /** Whose credential connections to this service run on (see CredentialScope). */
+  credentialScope?: CredentialScope;
+  /**
+   * The vendor's setup inputs (VendorSetupInput.name) that belong to this service, such as its
+   * company API key. Shown on this connector's setup and hidden from the vendor's own.
+   */
+  setupInputNames?: string[];
+};
+
 export type SupportedResource = {
   /** URLPattern string for matching URLs, e.g. "https://jira.cfdata.org/*" */
   urlPattern: string;
@@ -487,6 +516,9 @@ export type SupportedResource = {
    * If omitted/false, the resource type is not separately grantable.
    */
   grantable?: boolean;
+
+  /** Present when this resource is listed as a connector of its own (see ResourceConnector). */
+  connector?: ResourceConnector;
 }
 
 /** Removes every trailing slash from a string in linear time. */
@@ -782,9 +814,11 @@ export interface GatekeeperVendor extends WorkerEntrypoint {
   // not the Workshop's), preserving the invariant that the Workshop persists no credentials.
   applySetup?(values: Record<string, string>): Promise<void>;
 
-  // Delete all admin-entered setup values. The vendor falls back to its deploy-time secrets if
-  // present, and otherwise returns to advertising no resources (hidden from users).
-  clearSetup?(): Promise<void>;
+  // Delete admin-entered setup values: all of them, or only `names` when given. The vendor falls
+  // back to its deploy-time secrets if present, and otherwise returns to advertising no resources
+  // (hidden from users). A vendor whose resources carry a ResourceConnector must honour `names`,
+  // since that is how one service's key is removed without touching the others'.
+  clearSetup?(names?: string[]): Promise<void>;
 }
 
 export interface GatekeeperConnectCallback extends WorkerEntrypoint {
