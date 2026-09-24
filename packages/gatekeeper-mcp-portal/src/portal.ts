@@ -76,7 +76,8 @@ import {
   portalCatalogValidationMode,
   portalResource,
   portalServer,
-  portalSharing,
+  PORTAL_SHARING_OPTIONS,
+  portalSharingFor,
   portalTrust,
   requirePortalServerScope,
   type PortalSetupValues,
@@ -305,7 +306,29 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> impleme
         "Use the MCP servers this organization has approved, through its MCP server portal. Reads " +
         "happen straight away. Anything that writes waits for your approval.",
       supportsAdminSetup: true,
+      // A portal fronted by a preissued token (or none) is the company's credential: the
+      // Workshop provisions an account for every member and nobody signs in. One that signs
+      // each user in through OAuth is personal, like any other sign-in.
+      credentialScope: config?.auth === "oauth" ? "personal" : "organization",
+      autoProvisionsAccount: config !== null && config.auth !== "oauth",
     };
+  }
+
+  /**
+   * Mints a member's account for a token or public portal, connected here and now with the
+   * tenant's configured credential. Only meaningful while `autoProvisionsAccount` is on.
+   */
+  @skipRpcValidation()
+  async createAccount(): Promise<Fetcher<GatekeeperUser>> {
+    const config = await loadPortalConfig(this.env, this.ctx.exports, this.#tenant);
+    if (!config || config.auth === "oauth") {
+      throw new Error("This deployment's MCP server portal signs each user in; there is nothing to provision.");
+    }
+    const account = this.ctx.exports.McpAccount.get(this.ctx.exports.McpAccount.newUniqueId());
+    // The Durable Object hands back the account entrypoint stub it minted; the RPC wrapper's type
+    // is wider than the contract's Fetcher, as with every account minted through createAccount.
+    return await account.connectProvisioned(this.#tenant, portalServer(config)) as
+      unknown as Fetcher<GatekeeperUser>;
   }
 
   async connectAccount(
@@ -404,6 +427,10 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> impleme
     if (auth !== undefined && !["oauth", "token", "none"].includes(auth)) {
       throw new Error('MCP_PORTAL_AUTH must be "oauth", "token", or "none".');
     }
+    const sharing = merged.MCP_PORTAL_SHARING?.trim().toLowerCase();
+    if (sharing !== undefined && !(PORTAL_SHARING_OPTIONS as readonly string[]).includes(sharing)) {
+      throw new Error(`MCP_PORTAL_SHARING must be one of ${PORTAL_SHARING_OPTIONS.join(", ")}.`);
+    }
     if (auth === "token" && !merged.MCP_PORTAL_TOKEN) {
       throw new Error('Authentication "token" needs a preissued bearer token.');
     }
@@ -438,6 +465,10 @@ const SETUP_INPUTS: VendorSetupInput[] = [
   { name: "MCP_PORTAL_NAME", kind: "var", label: "Display name", optional: true },
   { name: "MCP_PORTAL_AUTH", kind: "var", label: "Authentication", optional: true, options: ["oauth", "token", "none"] },
   { name: "MCP_PORTAL_TOKEN", kind: "secret", label: "Preissued bearer token", optional: true },
+  {
+    name: "MCP_PORTAL_SHARING", kind: "var", label: "Who can open a shared workspace that reads from it",
+    optional: true, options: [...PORTAL_SHARING_OPTIONS],
+  },
 ];
 const SETUP_VALUE_MAX_LENGTH = 2048;
 
@@ -517,6 +548,16 @@ export class McpAccount extends McpAccountBase<Env> {
    */
   protected override staticToken(server: ConnectedServer): Promise<string | null> {
     return loadPortalToken(this.env, this.ctx.exports, server.endpoint, this.#tenant());
+  }
+
+  /**
+   * Connects this fresh account to the tenant's portal with no browser round trip and hands the
+   * account capability back for the Workshop to keep (GatekeeperVendor.createAccount).
+   */
+  async connectProvisioned(tenant: string, server: ConnectedServer): Promise<Fetcher<GatekeeperUser>> {
+    this.ctx.storage.kv.put("tenant", tenant);
+    await this.connectDirect(server);
+    return this.mintAccount();
   }
 }
 
@@ -604,6 +645,7 @@ export class GatekeeperUserImpl
       serverName: config.name,
       scopeServerName: upstream?.name ?? scope.serverId,
       scope,
+      tenant: this.#tenant,
     };
     return { class: this.ctx.exports.McpGatekeeperImpl({ props }), resource };
   }
@@ -717,6 +759,9 @@ type McpGatekeeperImplProps = {
   scopeServerName?: string;
   // How much of one upstream server this binding may call.
   scope: ToolScope & { serverId: string };
+  // Whose portal setup governs this binding's sharing. Absent on facets minted before tenants
+  // carried it, which read the owning deployment's.
+  tenant?: string;
 };
 
 export class McpGatekeeperImpl
@@ -745,9 +790,9 @@ export class McpGatekeeperImpl
     return portalTrust(this.env);
   }
 
-  /** Deployment configuration, like `trust`: `MCP_PORTAL_SHARING`, else owner-only. */
+  /** The tenant's setting, like `trust`: `MCP_PORTAL_SHARING` from its setup, else owner-only. */
   protected get sharing(): McpSharingPolicy {
-    return portalSharing(this.env);
+    return portalSharingFor(this.env, this.ctx.exports, this.ctx.props.tenant ?? "");
   }
 
   protected get sessionClass() {

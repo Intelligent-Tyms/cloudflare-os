@@ -59,6 +59,19 @@ export function integrationDepartmentLabel(id: IntegrationDepartment): string {
   return INTEGRATION_DEPARTMENTS.find((d) => d.id === id)?.label ?? id;
 }
 
+/**
+ * Whose credential a vendor's connections run on.
+ *   - "personal": each person signs in to their own account (OAuth, a pasted key). A connection
+ *     carries that person's identity, so a collaborator must prove their own access before they
+ *     may observe what a workspace read (Gatekeeper.addObserver).
+ *   - "organization": one credential an administrator enters for the whole deployment (a B2B
+ *     login, a company API key). Every member acts as the company, no one signs in, and admitting
+ *     a collaborator is a question of membership rather than identity.
+ * A vendor that declares neither, such as a built-in capability holding no external credential,
+ * is presented as personal when it has a connect flow and as built-in when it auto-provisions.
+ */
+export type CredentialScope = "personal" | "organization";
+
 /** Describes a connected GatekeeperVendor, for display purposes. */
 export type VendorDescription = {
   /** Human-readable name of the service, e.g. "Google", "GitHub", etc. */
@@ -126,6 +139,12 @@ export type VendorDescription = {
   // vendor advertises no supported resources, which hides it from users; the admin panel keeps
   // its row visible so setup can be entered.
   supportsAdminSetup?: boolean;
+
+  // Whose credential this vendor's connections run on (see CredentialScope). Display and policy
+  // guidance for the admin panel: an "organization" vendor is enabled by entering its setup, and
+  // the panel says so, while a "personal" one is enabled by letting people sign in. Omitted means
+  // the vendor holds no organization-wide credential.
+  credentialScope?: CredentialScope;
 }
 
 // One value an administrator supplies during vendor setup (see GatekeeperVendor.describeSetup).

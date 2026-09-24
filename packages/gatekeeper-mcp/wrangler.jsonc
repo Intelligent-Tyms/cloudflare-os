@@ -26,6 +26,10 @@
     {
       "tag": "v0",
       "new_sqlite_classes": ["McpAccount", "McpGatekeeperImpl"]
+    },
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["VendorSetupStore"]
     }
   ],
   "vars": {

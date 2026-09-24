@@ -29,6 +29,7 @@ import { useAuthenticatedApi } from './AuthContext'
 import { useServerConfig } from './ServerConfigContext'
 import { AdminApi, AdminFormat, AdminModel, AdminResourceVendor, AdminSkill, ChannelsDescription, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
 import { INTEGRATION_DEPARTMENTS } from '@gadgets/workshop-shared/gatekeeper'
+import { CREDENTIAL_SCOPE_GROUPS, vendorScopeGroup } from './adminIntegrationScope'
 import type { IntelligenceProductKind } from '@gadgets/workshop-shared/api'
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from './theme'
 import { cacheBustSiteLogoUrl, prepareSiteLogo } from './siteLogoUtils'
@@ -275,6 +276,9 @@ export function integrationStatus(vendor: AdminResourceVendor): { label: string;
   if (vendor.autoProvisions) {
     const mode = vendor.ambientMode ?? 'enabled'
     if (mode === 'disabled') return { label: 'Off', tone: 'off' }
+    // An organization credential the admin hasn't entered yet: the vendor is on, but usable by
+    // nobody until setup completes.
+    if (vendor.setup?.status === 'unconfigured') return { label: 'Needs setup', tone: 'attention' }
     return mode === 'enabled' ? { label: 'On for everyone', tone: 'on' } : { label: 'Optional', tone: 'on' }
   }
   if (vendor.setup?.status === 'unconfigured') return { label: 'Needs setup', tone: 'attention' }
@@ -1146,8 +1150,16 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
               No configurable integrations are installed on this deployment.
             </p>
           ) : (
-            <div className="space-y-6">
-              {groupVendorsByDepartment(resourceVendors).map((group) => (
+            <div className="space-y-8">
+              {CREDENTIAL_SCOPE_GROUPS.map((scope) => {
+                const scoped = resourceVendors.filter((v) => vendorScopeGroup(v) === scope.key)
+                if (scoped.length === 0) return null
+                return (
+              <div key={scope.key}>
+                <h2 className="text-base font-semibold text-kumo-strong">{scope.label}</h2>
+                <p className="text-sm text-kumo-subtle mt-0.5 mb-3">{scope.hint}</p>
+              <div className="space-y-6">
+              {groupVendorsByDepartment(scoped).map((group) => (
                 <div key={group.label}>
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-kumo-subtle mb-1 px-3">
                     {group.label}
@@ -1195,6 +1207,10 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
                   </div>
                 </div>
               ))}
+              </div>
+              </div>
+                )
+              })}
             </div>
           )}
         </div>

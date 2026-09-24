@@ -9522,12 +9522,15 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
     if (!hadAccess && hasShareNotifications(this.impl.env)) {
       // Awaited (not waitUntil) so the UI can tell the sharer whether an email went out; the
       // notifier never throws and treats every failure as "not notified".
+      let effectiveRole = result.role ?? role;
       result.emailNotified = await notifyWorkspaceShared(this.impl.env, {
         recipientEmail: profile.id,
         sharedBy: this.clientProfileId,
         workspaceId: this.impl.ctx.id.toString(),
         workspaceTitle: this.impl.storage.title.get(),
-        role: result.role ?? role,
+        role: effectiveRole,
+        requirements: this.impl.listObserverRequirements(effectiveRole)
+            .map(need => ({ title: need.resourceTitle })),
       });
     }
     return result;

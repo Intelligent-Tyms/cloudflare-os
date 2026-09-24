@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseCatalog } from "../src/vetted-catalog.js";
+import { companyServers, parseCatalog, personalServers } from "../src/vetted-catalog.js";
 
 describe("parseCatalog", () => {
   it("keeps well-formed rows and normalizes endpoints", () => {
@@ -18,7 +18,34 @@ describe("parseCatalog", () => {
       endpoint: "https://mcp.stripe.com/v1",
       vetted: true,
       sharing: "owner-only",
+      auth: "oauth",
+      credential: "personal",
     }]);
+  });
+
+  it("carries auth and credential scope through, and never offers an oauth company server", () => {
+    const parsed = parseCatalog({
+      servers: [
+        {
+          id: "resend", name: "Resend", endpoint: "https://mcp.resend.example/mcp",
+          auth: "token", credential: "organization",
+          keyLabel: " Resend API key ", keyConsoleUrl: "https://resend.example/keys",
+        },
+        { id: "rates", name: "Rates", endpoint: "https://rates.example/mcp", auth: "none", credential: "organization" },
+        { id: "odd", name: "Odd", endpoint: "https://odd.example/mcp", auth: "oauth", credential: "organization" },
+        { id: "bad-console", name: "B", endpoint: "https://b.example/mcp", auth: "token", credential: "organization", keyConsoleUrl: "http://plain.example" },
+      ],
+    });
+    expect(parsed.map(server => [server.id, server.auth, server.credential])).toEqual([
+      ["resend", "token", "organization"],
+      ["rates", "none", "organization"],
+      ["odd", "oauth", "personal"],
+      ["bad-console", "token", "organization"],
+    ]);
+    expect(parsed[0]).toMatchObject({ keyLabel: "Resend API key", keyConsoleUrl: "https://resend.example/keys" });
+    expect(parsed[3].keyConsoleUrl).toBeUndefined();
+    expect(personalServers(parsed).map(server => server.id)).toEqual(["odd"]);
+    expect(companyServers(parsed).map(server => server.id)).toEqual(["resend", "rates", "bad-console"]);
   });
 
   it("carries the curator's sharing policy through and defaults it to owner-only", () => {

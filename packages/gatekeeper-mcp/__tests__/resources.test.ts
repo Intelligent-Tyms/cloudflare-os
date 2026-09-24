@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mcpResourceFor, mcpResources } from "../src/resources.js";
+import { companyResources, mcpResourceFor, mcpResources } from "../src/resources.js";
 import type { CatalogServer } from "../src/vetted-catalog.js";
 
 const STRIPE: CatalogServer = {
@@ -10,6 +10,19 @@ const STRIPE: CatalogServer = {
   endpoint: "https://mcp.stripe.com/v1",
   vetted: true,
   sharing: "owner-only",
+  auth: "oauth",
+  credential: "personal",
+};
+
+const RESEND: CatalogServer = {
+  id: "resend",
+  name: "Resend",
+  description: "",
+  endpoint: "https://mcp.resend.example/mcp",
+  vetted: true,
+  sharing: "public",
+  auth: "token",
+  credential: "organization",
 };
 
 describe("mcpResources", () => {
@@ -29,6 +42,20 @@ describe("mcpResources", () => {
     ]);
     expect(resources[0]).toMatchObject({ title: "Stripe", grantable: true });
     expect(resources[1].grantable).toBeUndefined();
+  });
+
+  it("keeps company servers out of the personal list and offers them separately", () => {
+    expect(mcpResources(false, [RESEND, STRIPE]).map(resource => resource.urlPattern)).toEqual([
+      "https://mcp.stripe.com/v1",
+      "https://*",
+    ]);
+    const [resource] = companyResources([RESEND]);
+    expect(resource).toMatchObject({
+      urlPattern: "https://mcp.resend.example/mcp",
+      title: "Resend",
+      description: "Tools from Resend, set up for the whole company.",
+    });
+    expect(resource.grantable).toBe(false);
   });
 
   it("returns the resource matching the connected endpoint", () => {

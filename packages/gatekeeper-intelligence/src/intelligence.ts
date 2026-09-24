@@ -132,6 +132,8 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> impleme
       autoProvisionsAccount: await this.#configured(),
       providesAuth: false,
       supportsAdminSetup: true,
+      // One assistant key per tenant wiki, written by provisioning or entered by an admin.
+      credentialScope: "organization",
     };
   }
 

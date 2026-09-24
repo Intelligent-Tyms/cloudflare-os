@@ -24,7 +24,7 @@
 // Gadget a stub pointing to the Gadget's server-side Durable Object interface.
 
 import { RpcCompatible, RpcStub, RpcTarget } from "capnweb";
-import { AccountDescription, ActionKind, ActionDescription, AvatarImage, GatekeeperUiFrame, IntegrationDepartment, ObservationDescription, ResourceDescription, ResourceConfiguratorFrame, SupportedResource, VendorDescription, VendorSetup, HookDescription } from "./gatekeeper.js";
+import { AccountDescription, ActionKind, ActionDescription, AvatarImage, CredentialScope, GatekeeperUiFrame, IntegrationDepartment, ObservationDescription, ResourceDescription, ResourceConfiguratorFrame, SupportedResource, VendorDescription, VendorSetup, HookDescription } from "./gatekeeper.js";
 import type { UiFeatureFlags } from "./feature-flags.js";
 import type { ChannelsDescription, EmailInbox, TelegramBinding, TelegramLinkCode, UserChannelsView } from "./channels-admin.js";
 
@@ -149,9 +149,14 @@ export interface ConnectedAccountsSubscriber {
   /**
    * If `credentialsValid` is false, the account's credentials are known to be expired, and the
    * UI should call reconnectAccount() to fix this if the user tries to select this account.
+   *
+   * `provided` is true for an account the deployment created for the user (an auto-provisioned
+   * account, see VendorDescription.autoProvisionsAccount) rather than one they connected: it
+   * has no sign-in to redo and, while its vendor is forced on, cannot be disconnected.
    */
   add(id: number, description: AccountDescription, vendor: VendorDescription,
-      supportedResources: SupportedResource[], credentialsValid: boolean, vendorId: string): void;
+      supportedResources: SupportedResource[], credentialsValid: boolean, vendorId: string,
+      provided?: boolean): void;
   remove(id: number): void;
 
   /** Called after add() has been called for all accounts known so far. */
@@ -941,6 +946,9 @@ export function isAmbientGatekeeperMode(value: unknown): value is AmbientGatekee
  * A bound gatekeeper in the admin gatekeeper-config UI, discriminated by `autoProvisions`:
  *   - an ordinary OAuth/resource gatekeeper has a binary `enabled` flag and `resources` to toggle;
  *   - an auto-provisioning ("ambient") gatekeeper has a three-state `ambientMode` and no resources.
+ * A vendor that auto-provisions an account *and* offers resources to bind (its auto-provisioned
+ * account is how people reach those resources) takes the ordinary shape: its on/off switch covers
+ * both, and its account is provisioned for everyone while it is on.
  */
 export type AdminResourceVendor = {
   vendorId: string;
@@ -952,15 +960,19 @@ export type AdminResourceVendor = {
   tagline?: string;
   description?: string;
   departments?: IntegrationDepartment[];
+  // Whose credential the vendor's connections run on (VendorDescription.credentialScope), so the
+  // panel can group and explain vendors: set up once by an admin versus signed in to by each
+  // person.
+  credentialScope?: CredentialScope;
+  // Present when the vendor accepts runtime admin setup (VendorDescription.supportsAdminSetup):
+  // its current setup status, so the panel can offer the setup flow. An unconfigured such vendor
+  // keeps its row (with no resources) — that row is where setup is entered.
+  setup?: { status: VendorSetup["status"] };
 } & (
   | {
     autoProvisions: false;
     enabled: boolean;
     resources: AdminResource[];
-    // Present when the vendor accepts runtime admin setup (VendorDescription.supportsAdminSetup):
-    // its current setup status, so the panel can offer the setup flow. An unconfigured such
-    // vendor keeps its row (with no resources) — that row is where setup is entered.
-    setup?: { status: VendorSetup["status"] };
   }
   | { autoProvisions: true; ambientMode: AmbientGatekeeperMode }
 );

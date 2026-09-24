@@ -12,6 +12,7 @@ import { AdminApi, AdminResourceVendor, AmbientGatekeeperMode } from '@gadgets/w
 import { integrationDepartmentLabel } from '@gadgets/workshop-shared/gatekeeper'
 import { useDocumentTitle } from './useDocumentTitle'
 import AdminIntegrationSetupModal from './components/AdminIntegrationSetupModal'
+import { CREDENTIAL_SCOPE_GROUPS, vendorScopeGroup } from './adminIntegrationScope'
 
 export default function AdminIntegrationDetailPage({ vendorId }: { vendorId: string }) {
   const { authenticatedApi, isAdmin } = useAuthenticatedApi()
@@ -147,6 +148,46 @@ export default function AdminIntegrationDetailPage({ vendorId }: { vendorId: str
   }
 
   const gkBusy = busy.has('gk')
+  const scope = vendorScopeGroup(vendor)
+  const scopeMeta = CREDENTIAL_SCOPE_GROUPS.find((g) => g.key === scope)
+  const needsSetup = vendor.setup?.status === 'unconfigured'
+  // An organization credential is what turns the integration on: until an administrator enters
+  // it, enabling would offer the team something nobody can use.
+  const enableBlockedBySetup = scope === 'organization' && needsSetup
+
+  // Runtime admin setup: the organization's credential (a B2B login, a company API key) or the
+  // OAuth app people sign in through. Shown for every vendor that accepts setup, ambient or not.
+  const setupCard = vendor.setup && (
+    <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
+      <div className="flex items-center gap-4">
+        <div className="flex-1 min-w-0">
+          <h2 className="text-lg font-semibold text-kumo-strong">
+            {scope === 'organization' ? 'Company credential' : 'Setup'}
+          </h2>
+          <p className="text-sm text-kumo-subtle mt-0.5">
+            {scope === 'organization'
+              ? needsSetup
+                ? 'Entered once by an administrator. Until then, no one on the team can use this integration.'
+                : 'Entered once by an administrator. Everyone on the team uses it without signing in.'
+              : needsSetup
+                ? 'Not set up yet — hidden from your team until an administrator completes setup.'
+                : 'Set up and ready for your team to connect.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setSetupOpen(true)}
+          className={`shrink-0 text-sm font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+            needsSetup
+              ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20'
+              : 'border-kumo-line text-kumo-subtle hover:bg-kumo-tint'
+          }`}
+        >
+          {needsSetup ? 'Set up' : 'Manage setup'}
+        </button>
+      </div>
+    </div>
+  )
 
   return (
     <div className="mx-auto w-full max-w-[1040px] px-4 sm:px-8 py-8 space-y-6">
@@ -177,6 +218,14 @@ export default function AdminIntegrationDetailPage({ vendorId }: { vendorId: str
           <p className="text-sm text-kumo-subtle mt-3 max-w-2xl">{vendor.description}</p>
         )}
         <div className="mt-3 flex flex-wrap items-center gap-2">
+          {scopeMeta && (
+            <span
+              title={scopeMeta.hint}
+              className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-kumo-brand/10 text-kumo-brand border border-kumo-brand/20"
+            >
+              {scopeMeta.label}
+            </span>
+          )}
           {(vendor.departments ?? []).map((d) => (
             <span
               key={d}
@@ -201,10 +250,14 @@ export default function AdminIntegrationDetailPage({ vendorId }: { vendorId: str
 
       {vendor.autoProvisions ? (
         // Auto-provisioned ("ambient") integration: a three-state mode, no resources to toggle.
+        <>
+        {setupCard}
         <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
           <h2 className="text-lg font-semibold text-kumo-strong">Availability</h2>
           <p className="text-sm text-kumo-subtle mt-0.5">
-            This integration is auto-provisioned: no account connection is needed.
+            {scope === 'organization'
+              ? 'Runs on the company credential above: no one signs in, and shared workspaces open for every member.'
+              : 'This integration is auto-provisioned: no account connection is needed.'}
           </p>
           <div className="flex gap-2 mt-4">
             {(
@@ -231,46 +284,31 @@ export default function AdminIntegrationDetailPage({ vendorId }: { vendorId: str
             ))}
           </div>
         </div>
+        </>
       ) : (
         <>
+          {scope === 'organization' && setupCard}
           <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
             <div className="flex items-center gap-4">
               <div className="flex-1 min-w-0">
                 <h2 className="text-lg font-semibold text-kumo-strong">Available to your team</h2>
                 <p className="text-sm text-kumo-subtle mt-0.5">
-                  When off, no one can connect it and assistants stop seeing its resources. Turning
-                  it off is soft: it doesn’t revoke access an app already holds.
+                  {enableBlockedBySetup
+                    ? 'Enter the company credential first. The integration turns on for everyone once it is set up.'
+                    : scope === 'organization'
+                      ? 'When on, everyone on the team can use it through the company credential. When off, assistants stop seeing its resources; turning it off is soft and doesn’t revoke access an app already holds.'
+                      : 'When off, no one can connect it and assistants stop seeing its resources. Turning it off is soft: it doesn’t revoke access an app already holds.'}
                 </p>
               </div>
-              <Switch checked={vendor.enabled} disabled={gkBusy} onCheckedChange={handleEnabledToggle} />
+              <Switch
+                checked={vendor.enabled && !enableBlockedBySetup}
+                disabled={gkBusy || enableBlockedBySetup}
+                onCheckedChange={handleEnabledToggle}
+              />
             </div>
           </div>
 
-          {vendor.setup && (
-            <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
-              <div className="flex items-center gap-4">
-                <div className="flex-1 min-w-0">
-                  <h2 className="text-lg font-semibold text-kumo-strong">Setup</h2>
-                  <p className="text-sm text-kumo-subtle mt-0.5">
-                    {vendor.setup.status === 'unconfigured'
-                      ? 'Not set up yet — hidden from your team until an administrator completes setup.'
-                      : 'Set up and ready for your team to connect.'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSetupOpen(true)}
-                  className={`shrink-0 text-sm font-medium px-3 py-1.5 rounded-lg border transition-colors ${
-                    vendor.setup.status === 'unconfigured'
-                      ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20'
-                      : 'border-kumo-line text-kumo-subtle hover:bg-kumo-tint'
-                  }`}
-                >
-                  {vendor.setup.status === 'unconfigured' ? 'Set up' : 'Manage setup'}
-                </button>
-              </div>
-            </div>
-          )}
+          {scope !== 'organization' && setupCard}
 
           <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
             <h2 className="text-lg font-semibold text-kumo-strong">Resources</h2>
