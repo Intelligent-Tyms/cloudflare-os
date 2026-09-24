@@ -42,7 +42,12 @@ import { generateNonce } from "@gadgets/mcp-shared/connect-nonce";
 import { fetchTools, withClient, type ConnectionAccount } from "@gadgets/mcp-shared/connection";
 import { McpSessionBase } from "@gadgets/mcp-shared/session";
 import { McpFacetBase } from "@gadgets/mcp-shared/facet";
-import { McpVerifierBase, mcpVerifierAccount } from "@gadgets/mcp-shared/verifier";
+import {
+  McpVerifierBase,
+  mcpVerifierAccount,
+  type McpVerifierApi,
+  type ObserverAccount,
+} from "@gadgets/mcp-shared/verifier";
 import type { McpSharingPolicy } from "@gadgets/mcp-shared/sharing-policy";
 import { looksLikePortal } from "@gadgets/mcp-shared/portal";
 import {
@@ -657,8 +662,8 @@ export class CompanyAccountImpl
 @validateRpc()
 export class McpCompanyVerifier
   extends WorkerEntrypoint<Env, { tenant: string }>
-  implements GatekeeperUserVerifier {
-  async observerAccount(): Promise<never> {
+  implements GatekeeperUserVerifier, McpVerifierApi {
+  async observerAccount(): Promise<ObserverAccount> {
     throw new Error("A company MCP server is shared by membership, not by account.");
   }
 }
