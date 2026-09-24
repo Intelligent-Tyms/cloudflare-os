@@ -106,7 +106,7 @@ export default function UserMenu({ collapsed = false }: { collapsed?: boolean })
           onClick={() => navigate({ to: '/gatekeepers' })}
           className={MENU_ITEM}
         >
-          <ItemContent icon={<Plug />}>Integrations</ItemContent>
+          <ItemContent icon={<Plug />}>Connectors</ItemContent>
         </DropdownMenu.Item>
         <DropdownMenu.Item
           onClick={() => navigate({ to: '/theme' })}

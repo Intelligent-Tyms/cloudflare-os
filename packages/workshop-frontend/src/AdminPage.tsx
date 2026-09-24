@@ -7,7 +7,6 @@ import {
   BookOpenCheck,
   Bot,
   Building2,
-  ChevronRight,
   CreditCard,
   Database,
   FileText,
@@ -28,8 +27,7 @@ import {
 import { useAuthenticatedApi } from './AuthContext'
 import { useServerConfig } from './ServerConfigContext'
 import { AdminApi, AdminFormat, AdminModel, AdminResourceVendor, AdminSkill, ChannelsDescription, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
-import { INTEGRATION_DEPARTMENTS } from '@gadgets/workshop-shared/gatekeeper'
-import { CREDENTIAL_SCOPE_GROUPS, vendorScopeGroup } from './adminIntegrationScope'
+import AdminConnectorsGallery from './components/AdminConnectorsGallery'
 import type { IntelligenceProductKind } from '@gadgets/workshop-shared/api'
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from './theme'
 import { cacheBustSiteLogoUrl, prepareSiteLogo } from './siteLogoUtils'
@@ -70,7 +68,7 @@ export type AdminSectionId =
   | 'formats'
   | 'skills'
   | 'channels'
-  | 'integrations'
+  | 'connectors'
   | 'providers'
   | 'organization-intelligence'
   | 'data-intelligence'
@@ -181,11 +179,11 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         icon: <MessagesSquare size={18} />,
       },
       {
-        id: 'integrations',
-        title: 'Integrations',
-        blurb: 'The services assistants can connect to, organized by department.',
+        id: 'connectors',
+        title: 'Connectors',
+        blurb: 'The services assistants can reach: set up company credentials and choose what people can connect.',
         description:
-          'The services assistants can connect to on this deployment, organized by the departments they serve. Open an integration to turn it on or off, toggle its resource types, or enter its setup. Changes are soft: they don’t revoke access an app already holds.',
+          'Everything assistants can reach outside this deployment. Company connectors run on a credential you enter once; personal ones are signed in to by each person. Open a connector to set it up, turn it on or off, or choose which of its resources are offered. Changes are soft: they don’t revoke access an app already holds.',
         icon: <Plug size={18} />,
       },
       {
@@ -258,33 +256,6 @@ export function isAdminSectionId(value: string): value is AdminSectionId {
   return ADMIN_SECTIONS.some((s) => s.id === value)
 }
 
-// Group integrations by their primary department (departments[0]). Cross-department services
-// (no departments) come first under "General"; departments with no integrations don't render.
-function groupVendorsByDepartment(vendors: AdminResourceVendor[]): { label: string; vendors: AdminResourceVendor[] }[] {
-  const general = vendors.filter((v) => !v.departments?.length)
-  return [
-    ...(general.length > 0 ? [{ label: 'General', vendors: general }] : []),
-    ...INTEGRATION_DEPARTMENTS.map((d) => ({
-      label: d.label,
-      vendors: vendors.filter((v) => v.departments?.[0] === d.id),
-    })).filter((g) => g.vendors.length > 0),
-  ]
-}
-
-// One-line status for an integration row on the admin list.
-export function integrationStatus(vendor: AdminResourceVendor): { label: string; tone: 'on' | 'off' | 'attention' } {
-  if (vendor.autoProvisions) {
-    const mode = vendor.ambientMode ?? 'enabled'
-    if (mode === 'disabled') return { label: 'Off', tone: 'off' }
-    // An organization credential the admin hasn't entered yet: the vendor is on, but usable by
-    // nobody until setup completes.
-    if (vendor.setup?.status === 'unconfigured') return { label: 'Needs setup', tone: 'attention' }
-    return mode === 'enabled' ? { label: 'On for everyone', tone: 'on' } : { label: 'Optional', tone: 'on' }
-  }
-  if (vendor.setup?.status === 'unconfigured') return { label: 'Needs setup', tone: 'attention' }
-  return vendor.enabled ? { label: 'Enabled', tone: 'on' } : { label: 'Off', tone: 'off' }
-}
-
 // Swatch background per banner color, matching AnnouncementBanner's accent styles.
 const BANNER_SWATCH: Record<BannerColor, string> = {
   neutral: 'var(--color-kumo-tint)',
@@ -350,7 +321,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
   const [signupsEnabled, setSignupsEnabled] = useState(true)
   const [savingSignups, setSavingSignups] = useState(false)
 
-  // Gatekeeper resource config; per-integration controls live on /admin/integrations/$vendorId.
+  // Gatekeeper resource config; per-connector controls live on /admin/connectors/$vendorId.
   const [resourceVendors, setResourceVendors] = useState<AdminResourceVendor[]>([])
 
   // Promoted output formats, in menu order (see AdminFormatsPanel).
@@ -673,7 +644,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1040px] px-4 sm:px-8 py-8 space-y-6">
+    <div className={`mx-auto w-full ${section === 'connectors' ? 'max-w-[1240px]' : 'max-w-[1040px]'} px-4 sm:px-8 py-8 space-y-6`}>
       <div>
         <Link
           to="/admin"
@@ -1141,80 +1112,9 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
       {section === 'market-intelligence' && <AdminIntelligenceComingSoon kind="market" />}
       {section === 'process-intelligence' && <AdminIntelligenceComingSoon kind="process" />}
 
-      {/* Integrations: a department-grouped index. Everything per-integration (on/off, resource
-          toggles, setup) lives on /admin/integrations/$vendorId. */}
-      {section === 'integrations' && (
-        <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
-          {resourceVendors.length === 0 ? (
-            <p className="text-sm text-kumo-subtle">
-              No configurable integrations are installed on this deployment.
-            </p>
-          ) : (
-            <div className="space-y-8">
-              {CREDENTIAL_SCOPE_GROUPS.map((scope) => {
-                const scoped = resourceVendors.filter((v) => vendorScopeGroup(v) === scope.key)
-                if (scoped.length === 0) return null
-                return (
-              <div key={scope.key}>
-                <h2 className="text-base font-semibold text-kumo-strong">{scope.label}</h2>
-                <p className="text-sm text-kumo-subtle mt-0.5 mb-3">{scope.hint}</p>
-              <div className="space-y-6">
-              {groupVendorsByDepartment(scoped).map((group) => (
-                <div key={group.label}>
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-kumo-subtle mb-1 px-3">
-                    {group.label}
-                  </h3>
-                  <div className="space-y-1">
-                    {group.vendors.map((vendor) => {
-                      const status = integrationStatus(vendor)
-                      return (
-                        <Link
-                          key={vendor.vendorId}
-                          to="/admin/integrations/$vendorId"
-                          params={{ vendorId: vendor.vendorId }}
-                          className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-kumo-tint transition-colors"
-                        >
-                          {vendor.logo && (
-                            <img
-                              src={vendor.logo.url}
-                              alt=""
-                              className={`w-6 h-6 object-contain ${status.tone === 'off' ? 'grayscale opacity-40' : ''}`}
-                            />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-semibold truncate ${status.tone === 'off' ? 'text-kumo-subtle' : 'text-kumo-default'}`}>
-                              {vendor.displayName}
-                            </p>
-                            {vendor.tagline && (
-                              <p className="text-xs text-kumo-subtle truncate mt-0.5">{vendor.tagline}</p>
-                            )}
-                          </div>
-                          {status.tone === 'attention' ? (
-                            <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-600">
-                              {status.label}
-                            </span>
-                          ) : status.tone === 'off' ? (
-                            <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-kumo-tint text-kumo-subtle border border-kumo-line">
-                              {status.label}
-                            </span>
-                          ) : (
-                            <span className="shrink-0 text-xs text-kumo-subtle">{status.label}</span>
-                          )}
-                          <ChevronRight size={16} className="shrink-0 text-kumo-subtle" />
-                        </Link>
-                      )
-                    })}
-                  </div>
-                </div>
-              ))}
-              </div>
-              </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Connectors: a category-filtered gallery. Everything per-connector (setup, on/off,
+          resource toggles) lives on /admin/connectors/$vendorId. */}
+      {section === 'connectors' && <AdminConnectorsGallery vendors={resourceVendors} />}
 
       {/* AI models */}
       {section === 'providers' && admin && (
