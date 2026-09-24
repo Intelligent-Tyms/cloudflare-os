@@ -144,20 +144,23 @@ function platformConnectionTypes(siteName: string): ConnectionType[] {
 }
 
 function connectionForResource(vendor: VendorOption, resource: SupportedResource): ConnectionType {
+  // A resource presented as a connector of its own (a catalog MCP server) is its own group,
+  // named after the service rather than the vendor that fronts it.
+  const presented = resource.connector
   return {
     id: `resource:${vendor.id}:${resource.urlPattern}`,
     vendorId: vendor.id,
     // Group by stable vendor ID, not displayName, so two distinct vendors that
     // happen to share a display name don't get merged into the same group.
-    groupKey: `vendor:${vendor.id}`,
-    groupLabel: vendor.description.displayName,
+    groupKey: presented ? `vendor:${vendor.id}:${presented.id}` : `vendor:${vendor.id}`,
+    groupLabel: presented?.displayName ?? vendor.description.displayName,
     title: resource.title,
-    vendor: vendor.description.displayName,
+    vendor: presented?.displayName ?? vendor.description.displayName,
     description: resource.description,
     icon: Database,
     iconUrl: resource.icon?.url,
-    logoUrl: vendor.description.logo?.url,
-    accent: vendor.description.color,
+    logoUrl: presented?.logo?.url ?? vendor.description.logo?.url,
+    accent: presented?.color ?? vendor.description.color,
     resourceUrlPattern: resource.urlPattern,
     grantable: Boolean(resource.grantable),
   }

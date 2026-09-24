@@ -82,6 +82,7 @@ import {
   companyServers,
   companySharingFor,
   ensureCatalog,
+  keyInputName,
   personalServers,
   sharingFor,
   trustFor,
@@ -223,15 +224,16 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> impleme
     const catalog = await ensureCatalog(this.env);
     const usable = await usableCompanyServers(this.env, this.ctx.exports, this.#tenant, catalog);
     return {
-      displayName: "MCP Server",
+      displayName: "Custom MCP server",
       url: "https://modelcontextprotocol.io",
       logo: MCP_AVATAR,
       color: "#1a1d21",
-      tagline: "Connect any Model Context Protocol server",
+      tagline: "Connect any MCP server by its URL",
       description:
-        "Connect a Model Context Protocol server and use its tools from a Gadget. Reads happen " +
-        "straight away. Anything that writes waits for your approval. Servers the company has " +
-        "set up are available to everyone without signing in.",
+        "Connect a Model Context Protocol server that isn't in the catalog by pasting its URL, " +
+        "with an API key if it needs one. Its tools are discovered automatically: reads happen " +
+        "straight away and anything that writes waits for approval. Catalog servers appear as " +
+        "connectors of their own.",
       credentialScope: "personal",
       // Company servers are reached through an account the Workshop provisions for every
       // member; there is nothing to provision until the tenant can use at least one.
@@ -331,8 +333,17 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> impleme
     invalidateCompanyKeyCache(this.#tenant);
   }
 
-  async clearSetup(): Promise<void> {
-    await this.ctx.exports.VendorSetupStore.getByName(this.#tenant).clear();
+  async clearSetup(names?: string[]): Promise<void> {
+    const store = this.ctx.exports.VendorSetupStore.getByName(this.#tenant);
+    if (names === undefined) {
+      await store.clear();
+    } else {
+      const allowed = new Set(companyKeyInputs(await ensureCatalog(this.env)).map((i) => i.name));
+      for (const name of names) {
+        if (!allowed.has(name)) throw new Error(`Unknown setup value "${name}".`);
+      }
+      await store.remove(names);
+    }
     invalidateCompanyKeyCache(this.#tenant);
   }
 
@@ -450,11 +461,6 @@ function companyAccountName(tenant: string, serverId: string): string {
 
 const SETUP_VALUE_MAX_LENGTH = 2048;
 
-/** The setup-store name under which a company server's key is kept. */
-export function keyInputName(serverId: string): string {
-  return `KEY_${serverId.toUpperCase().replace(/-/g, "_")}`;
-}
-
 /** One secret input per catalog company server that authenticates with a key. */
 export function companyKeyInputs(catalog: CatalogServer[]): VendorSetupInput[] {
   return companyServers(catalog)
@@ -534,6 +540,17 @@ export class VendorSetupStore extends DurableObject<Env> {
   clear(): void {
     this.ctx.storage.kv.delete("values");
     this.ctx.storage.kv.delete("updatedAt");
+  }
+
+  remove(names: string[]): void {
+    const values = this.getValues();
+    const updatedAt = this.getUpdatedAt();
+    for (const name of names) {
+      delete values[name];
+      delete updatedAt[name];
+    }
+    this.ctx.storage.kv.put("values", values);
+    this.ctx.storage.kv.put("updatedAt", updatedAt);
   }
 }
 
@@ -685,9 +702,14 @@ export class GatekeeperUserImpl
     return { account: this.#account(), avatar: MCP_AVATAR, baseUrl: getBaseUrl(this.env) };
   }
 
+  /**
+   * The one resource this account can grant: the server it is connected to, reported as its
+   * catalog entry when it has one and as the bring-your-own catch-all otherwise. An account is
+   * bound to one endpoint, so advertising the whole catalog would offer grants it cannot mint.
+   */
   async getSupportedResources(): Promise<SupportedResource[]> {
-    return mcpResources(fetchOptions(this.env).allowInsecure === true,
-      await ensureCatalog(this.env));
+    const server = await this.#account().getServer();
+    return [mcpResourceFor(server.endpoint, await ensureCatalog(this.env))];
   }
 
   async getGatekeeperClassFor(url: string): Promise<{

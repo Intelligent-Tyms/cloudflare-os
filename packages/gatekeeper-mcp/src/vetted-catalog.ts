@@ -232,15 +232,33 @@ export function companySharingFor(env: CatalogEnv, endpoint: string): McpSharing
 // deliberately never the `https://*` catch-all, which the Workshop treats as the
 // whole-instance fallback (that stays the bring-your-own entry's job).
 export function catalogResource(server: CatalogServer): SupportedResource {
+  const description = server.description ||
+    (server.credential === "organization"
+      ? `Tools from ${server.name}, set up for the whole company.`
+      : `Tools from ${server.name}, vetted by your organization.`);
   return {
     urlPattern: server.endpoint,
     title: server.name,
-    description: server.description ||
-      (server.credential === "organization"
-        ? `Tools from ${server.name}, set up for the whole company.`
-        : `Tools from ${server.name}, vetted by your organization.`),
+    description,
     // A personal server's grant is a resource the user enables at connect time; a company one
     // is reached through the provisioned account, which has nothing to expand.
     grantable: server.credential === "personal",
+    // Each catalog server is a service in its own right, so the Workshop lists it as its own
+    // connector rather than as a kind of thing inside "Custom MCP server".
+    connector: {
+      id: server.id,
+      displayName: server.name,
+      tagline: server.description || undefined,
+      description,
+      url: new URL(server.endpoint).origin,
+      credentialScope: server.credential,
+      ...(server.credential === "organization" && server.auth === "token"
+        ? { setupInputNames: [keyInputName(server.id)] } : {}),
+    },
   };
+}
+
+/** The setup-store name under which a company server's key is kept. */
+export function keyInputName(serverId: string): string {
+  return `KEY_${serverId.toUpperCase().replace(/-/g, "_")}`;
 }

@@ -13,13 +13,16 @@ interface AdminIntegrationSetupModalProps {
   vendorId: string
   displayName: string
   admin: RpcStub<AdminApi>
+  // Only these of the vendor's setup inputs (a presented connector's own key, or what the
+  // vendor keeps after its connectors took theirs). Removing then clears only these.
+  inputNames?: string[]
   onOpenChange: (open: boolean) => void
   // Called after setup was applied or removed, so the panel can reload vendor state.
   onChanged: () => void
 }
 
 export default function AdminIntegrationSetupModal({
-  open, vendorId, displayName, admin, onOpenChange, onChanged,
+  open, vendorId, displayName, admin, inputNames, onOpenChange, onChanged,
 }: AdminIntegrationSetupModalProps) {
   const toast = useKumoToastManager()
   const [setup, setSetup] = useState<VendorSetup | null>(null)
@@ -38,11 +41,25 @@ export default function AdminIntegrationSetupModal({
     setDrafts({})
     setReplacing(new Set())
     admin.getIntegrationSetup(vendorId).then(
-      (state) => { if (!cancelled) setSetup(state) },
+      (state) => {
+        if (cancelled) return
+        if (!inputNames) {
+          setSetup(state)
+          return
+        }
+        const keep = new Set(inputNames)
+        setSetup({
+          ...state,
+          inputs: state.inputs.filter((input) => keep.has(input.name)),
+          configured: state.configured.filter((entry) => keep.has(entry.name)),
+          redirectUri: undefined,
+        })
+      },
       (error) => { if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error)) },
     )
     return () => { cancelled = true }
-  }, [open, vendorId, admin])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, vendorId, admin, inputNames?.join('|')])
 
   const configuredNames = new Set(setup?.configured.map((entry) => entry.name) ?? [])
   const dirtyEntries = Object.entries(drafts).filter(([, value]) => value.trim())
@@ -81,7 +98,7 @@ export default function AdminIntegrationSetupModal({
     if (!window.confirm(`Remove the ${displayName} setup? The integration hides from your team until it is set up again.`)) return
     setBusy(true)
     try {
-      await admin.clearIntegrationSetup(vendorId)
+      await admin.clearIntegrationSetup(vendorId, inputNames)
       toast.add({ title: `${displayName} setup removed` })
       onChanged()
       onOpenChange(false)
