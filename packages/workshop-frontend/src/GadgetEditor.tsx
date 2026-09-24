@@ -1385,14 +1385,24 @@ export default function GadgetEditor() {
 
   if (error?.kind === 'message') {
     return (
-      <div className="flex min-h-full items-center justify-center flex-col gap-4 bg-kumo-base">
+      <div className="flex min-h-full items-center justify-center flex-col gap-4 bg-kumo-base px-6">
         {/* Observer-verification denials list one line per failed connection, so preserve newlines. */}
         <p className="text-sm text-kumo-danger whitespace-pre-line text-center max-w-lg">
           {error.message}
         </p>
+        {/* Every message-kind denial is about the recipient's own connected accounts: they are
+            missing, expired, or don't reach what the workspace read. Connecting or reconnecting
+            them on the Integrations page is the fix in each case. */}
+        <p className="text-[13px] leading-[18px] text-kumo-subtle text-center max-w-lg">
+          Connect or reconnect your accounts for the services above, then try again. If your
+          access to one of them has changed, ask the workspace owner.
+        </p>
         <div className="flex items-center gap-2">
           <WorkshopButton tone="secondary" onClick={handleGoToWorkspaces}>
             Go to workspaces
+          </WorkshopButton>
+          <WorkshopButton tone="secondary" onClick={() => navigate({ to: '/integrations' })}>
+            Connect accounts
           </WorkshopButton>
           <WorkshopButton tone="primary" onClick={retryOpen}>
             Try again

@@ -7,11 +7,12 @@
 // The endpoint is whatever a user typed, so annotations never earn auto-approval here and a Gadget
 // bound to it is owner-only, unless the deployment's vetted catalog says otherwise for that
 // endpoint. See `sharing-policy.ts` and the README.
-import { RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
+import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 import { validateRpc, skipRpcValidation } from "capnweb-validate";
 import { createLogger } from "@gadgets/backend-utils/logger";
 import {
   stripTrailingSlashes,
+  type AccountDescription,
   type AvatarImage,
   type Gatekeeper,
   type GatekeeperConnectCallback,
@@ -23,6 +24,8 @@ import {
   type ResourceDescription,
   type SupportedResource,
   type VendorDescription,
+  type VendorSetup,
+  type VendorSetupInput,
 } from "@gadgets/workshop-shared/gatekeeper";
 import type { ToolCatalog } from "@gadgets/mcp-shared/client";
 import {
@@ -67,8 +70,18 @@ import {
 } from "@gadgets/mcp-shared/user";
 import { connectFormHtml } from "./connect-form.js";
 import { serverIdFromEndpoint } from "./server-id.js";
-import { mcpResourceFor, mcpResources } from "./resources.js";
-import { catalogEntryFor, ensureCatalog, sharingFor, trustFor } from "./vetted-catalog.js";
+import { companyResources, mcpResourceFor, mcpResources } from "./resources.js";
+import {
+  catalogEntryFor,
+  catalogResource,
+  companyServers,
+  companySharingFor,
+  ensureCatalog,
+  personalServers,
+  sharingFor,
+  trustFor,
+  type CatalogServer,
+} from "./vetted-catalog.js";
 import type { ConfiguratorUIOption } from "@gadgets/configurator-ui";
 import { MCP_BASE_TYPES } from "@gadgets/mcp-shared/base-types";
 import MCP_LOGO_SVG from "./mcp-logo.svg";
@@ -123,7 +136,7 @@ export default {
           const requested = await account.requestedEndpoint();
           if (requested) return continueConnect(account, initiationNonce, requested, env, path);
           const catalog = await ensureCatalog(env);
-          return htmlResponse(connectFormHtml(path, undefined, catalog));
+          return htmlResponse(connectFormHtml(path, undefined, personalServers(catalog)));
         }
         const form = await request.formData();
         return continueConnect(
@@ -150,7 +163,7 @@ async function continueConnect(
     const validated = validateCustomEndpoint(env, endpointUrl);
     if (!validated.ok) {
       return htmlResponse(
-        connectFormHtml(formPath, validated.reason, await ensureCatalog(env)), 400);
+        connectFormHtml(formPath, validated.reason, personalServers(await ensureCatalog(env))), 400);
     }
     // A catalog member seeds the curated display name; either way the handshake may report the
     // server's own name, and `auth` is a guess that `beginConnect` corrects to `"none"` if the
@@ -190,9 +203,20 @@ async function continueConnect(
 // ---------------------------------------------------------------------------
 // Vendor
 
+// Which tenant a call is for. A shared connector serves many workshops: each binds with
+// `props: { tenant }`, and the company's server keys (admin-entered setup) are keyed by it. A
+// deployment running its own copy binds without props and keys by "".
+type VendorProps = { tenant?: string };
+
 @validateRpc()
-export class GatekeeperVendor extends WorkerEntrypoint<Env> implements GatekeeperVendorIface {
+export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> implements GatekeeperVendorIface {
+  get #tenant(): string {
+    return this.ctx.props?.tenant ?? "";
+  }
+
   async describe(): Promise<VendorDescription> {
+    const catalog = await ensureCatalog(this.env);
+    const usable = await usableCompanyServers(this.env, this.ctx.exports, this.#tenant, catalog);
     return {
       displayName: "MCP Server",
       url: "https://modelcontextprotocol.io",
@@ -201,7 +225,14 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
       tagline: "Connect any Model Context Protocol server",
       description:
         "Connect a Model Context Protocol server and use its tools from a Gadget. Reads happen " +
-        "straight away. Anything that writes waits for your approval.",
+        "straight away. Anything that writes waits for your approval. Servers the company has " +
+        "set up are available to everyone without signing in.",
+      credentialScope: "personal",
+      // Company servers are reached through an account the Workshop provisions for every
+      // member; there is nothing to provision until the tenant can use at least one.
+      autoProvisionsAccount: usable.length > 0,
+      // The catalog decides which servers take a company key; the form only exists for those.
+      supportsAdminSetup: companyKeyInputs(catalog).length > 0,
     };
   }
 
@@ -215,19 +246,89 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
     await account.setCallback(callback, initiationNonce);
     // A single requested pattern naming a catalog server pre-selects that endpoint: the connect
     // popup then skips the URL form. Anything else (no patterns, several, the catch-alls) falls
-    // through to the form, which offers the catalog too.
+    // through to the form, which offers the catalog too. A company server is never pre-selected:
+    // it is reached through the provisioned account, not a personal connect.
     const patterns = options?.resourceUrlPatterns ?? [];
     if (patterns.length === 1) {
       await ensureCatalog(this.env);
       const entry = catalogEntryFor(patterns[0]);
-      if (entry) await account.setRequestedEndpoint(entry.endpoint);
+      if (entry && entry.credential === "personal") await account.setRequestedEndpoint(entry.endpoint);
     }
     return { url: `${getBaseUrl(this.env)}/${accountId.toString()}/${initiationNonce}` };
   }
 
+  /**
+   * The company's account: one per member, minted by the Workshop for everyone once the tenant
+   * can use a company server. It carries no credential of its own; every server it reaches runs
+   * on the shared per-tenant account for that server (see `CompanyAccountImpl`).
+   */
+  @skipRpcValidation()
+  async createAccount(): Promise<Fetcher<GatekeeperUser>> {
+    const usable = await usableCompanyServers(
+      this.env, this.ctx.exports, this.#tenant, await ensureCatalog(this.env));
+    if (usable.length === 0) {
+      throw new Error("No company MCP server is set up for this deployment.");
+    }
+    return this.ctx.exports.CompanyAccountImpl({
+      props: { tenant: this.#tenant },
+    }) as unknown as Fetcher<GatekeeperUser>;
+  }
+
   async getSupportedResources(): Promise<SupportedResource[]> {
-    return mcpResources(fetchOptions(this.env).allowInsecure === true,
-      await ensureCatalog(this.env));
+    const catalog = await ensureCatalog(this.env);
+    return [
+      ...companyResources(
+        await usableCompanyServers(this.env, this.ctx.exports, this.#tenant, catalog)),
+      ...mcpResources(fetchOptions(this.env).allowInsecure === true, catalog),
+    ];
+  }
+
+  /**
+   * The company keys, one secret per catalog server that takes one. Servers needing no key are
+   * usable as soon as the catalog lists them. "configured" means the tenant can use at least one
+   * company server; the vendor as a whole is never hidden, since personal connections need no
+   * setup.
+   */
+  async describeSetup(): Promise<VendorSetup> {
+    const catalog = await ensureCatalog(this.env);
+    const store = this.ctx.exports.VendorSetupStore.getByName(this.#tenant);
+    const [values, updatedAt] = await Promise.all([store.getValues(), store.getUpdatedAt()]);
+    const inputs = companyKeyInputs(catalog);
+    const configured = inputs
+      .filter((input) => values[input.name] !== undefined)
+      .map((input) => ({ name: input.name, updatedAt: updatedAt[input.name] ?? 0 }));
+    const usable = await usableCompanyServers(this.env, this.ctx.exports, this.#tenant, catalog,
+      { fresh: true });
+    return {
+      description: "Company MCP servers from the catalog. Enter the company's API key for each " +
+        "server your team should use; everyone then uses it without signing in. A server left " +
+        "without a key stays hidden.",
+      inputs,
+      status: usable.length > 0 || inputs.length === 0 ? "configured" : "unconfigured",
+      configured,
+    };
+  }
+
+  async applySetup(values: Record<string, string>): Promise<void> {
+    const entries = Object.entries(values);
+    if (!entries.length) throw new Error("No setup values provided.");
+    const allowed = new Set(companyKeyInputs(await ensureCatalog(this.env)).map((i) => i.name));
+    for (const [name, value] of entries) {
+      if (!allowed.has(name)) {
+        throw new Error(`Unknown setup value "${name}". Expected one of: ${[...allowed].join(", ")}.`);
+      }
+      if (typeof value !== "string" || !value.trim() || value.length > SETUP_VALUE_MAX_LENGTH) {
+        throw new Error(`Setup value "${name}" must be a non-empty string of at most ${SETUP_VALUE_MAX_LENGTH} characters.`);
+      }
+    }
+    const trimmed = Object.fromEntries(entries.map(([name, value]) => [name, value.trim()]));
+    await this.ctx.exports.VendorSetupStore.getByName(this.#tenant).apply(trimmed, []);
+    invalidateCompanyKeyCache(this.#tenant);
+  }
+
+  async clearSetup(): Promise<void> {
+    await this.ctx.exports.VendorSetupStore.getByName(this.#tenant).clear();
+    invalidateCompanyKeyCache(this.#tenant);
   }
 
   async getTypeScriptTypes(): Promise<string> {
@@ -270,28 +371,295 @@ export class McpAccount extends McpAccountBase<Env> {
     return this.awaitingSelection(initiationNonce);
   }
 
-  // A catalog server chosen in the Workshop before the popup opened (see connectAccount). Only
-  // an endpoint, never a credential; consumed by the connect handler to skip the URL form.
+  /**
+   * A catalog server chosen in the Workshop before the popup opened (see connectAccount). Only
+   * an endpoint, never a credential; consumed by the connect handler to skip the URL form.
+   */
   async setRequestedEndpoint(endpoint: string): Promise<void> {
     this.ctx.storage.kv.put("requestedCatalogEndpoint", endpoint);
   }
 
-  // A user-supplied API key for a server that authenticates with a preissued bearer instead of
-  // OAuth. Accepted only while the connect link's nonce is still live, so a stale or replayed
-  // link cannot swap the credential; stored alongside the account's other secrets in this DO
-  // (the abandonment alarm's deleteAll covers it) and read back through `staticToken`.
+  /**
+   * A user-supplied API key for a server that authenticates with a preissued bearer instead of
+   * OAuth. Accepted only while the connect link's nonce is still live, so a stale or replayed
+   * link cannot swap the credential; stored alongside the account's other secrets in this DO
+   * (the abandonment alarm's deleteAll covers it) and read back through `staticToken`.
+   */
   async setPreissuedToken(initiationNonce: string, token: string): Promise<boolean> {
     if (!(await this.awaitingSelection(initiationNonce))) return false;
     this.ctx.storage.kv.put("preissuedToken", token);
     return true;
   }
 
-  protected override staticToken(_server: ConnectedServer): string | null {
-    return this.ctx.storage.kv.get<string>("preissuedToken") ?? null;
+  /**
+   * A personal account's own pasted key, or — for the shared per-tenant account behind a company
+   * server — the key its administrator entered, read live from the setup store so a rotated key
+   * takes effect without reconnecting and a withdrawn one fails closed. The catalog must still
+   * name this endpoint as that server's, or the key is not sent (see `staticToken`'s contract).
+   */
+  protected override async staticToken(server: ConnectedServer): Promise<string | null> {
+    const company = this.ctx.storage.kv.get<CompanyRef>("company");
+    if (!company) return this.ctx.storage.kv.get<string>("preissuedToken") ?? null;
+    const entry = companyServers(await ensureCatalog(this.env))
+      .find((candidate) => candidate.id === company.serverId);
+    if (!entry || !sameEndpoint(entry.endpoint, server.endpoint)) return null;
+    if (entry.auth !== "token") return null;
+    return (await loadCompanyKeys(this.ctx.exports, company.tenant))[keyInputName(entry.id)] ?? null;
   }
 
   async requestedEndpoint(): Promise<string | null> {
     return this.ctx.storage.kv.get<string>("requestedCatalogEndpoint") ?? null;
+  }
+
+  /**
+   * Makes this the shared account for one company server of one tenant, connecting it with the
+   * tenant's key (or nothing) on first use and restating the catalog's name and auth kind after.
+   * Called by every member's `CompanyAccountImpl` before it mints a facet, so the connection is
+   * established lazily and once; the Durable Object serialises concurrent first calls.
+   */
+  async ensureCompanyConnection(tenant: string, serverId: string): Promise<void> {
+    const entry = companyServers(await ensureCatalog(this.env))
+      .find((candidate) => candidate.id === serverId);
+    if (!entry) throw new Error("This server is no longer set up for the company.");
+    this.ctx.storage.kv.put<CompanyRef>("company", { tenant, serverId });
+    await this.connectDirect({
+      endpoint: entry.endpoint,
+      serverId: serverIdFromEndpoint(entry.endpoint),
+      serverName: entry.name,
+      provenance: "deployment",
+      auth: entry.auth === "token" ? "token" : "none",
+    });
+  }
+}
+
+// Which tenant's key a shared company account sends, and for which catalog server.
+type CompanyRef = { tenant: string; serverId: string };
+
+// The stable name of the shared account behind one company server for one tenant.
+function companyAccountName(tenant: string, serverId: string): string {
+  return `company:${tenant}:${serverId}`;
+}
+
+// ---------------------------------------------------------------------------
+// Company servers: admin-entered keys and the account every member gets
+
+const SETUP_VALUE_MAX_LENGTH = 2048;
+
+/** The setup-store name under which a company server's key is kept. */
+export function keyInputName(serverId: string): string {
+  return `KEY_${serverId.toUpperCase().replace(/-/g, "_")}`;
+}
+
+/** One secret input per catalog company server that authenticates with a key. */
+export function companyKeyInputs(catalog: CatalogServer[]): VendorSetupInput[] {
+  return companyServers(catalog)
+    .filter((server) => server.auth === "token")
+    .map((server) => ({
+      name: keyInputName(server.id),
+      kind: "secret" as const,
+      label: server.keyLabel ?? `${server.name} API key`,
+      optional: true,
+      ...(server.keyConsoleUrl ? { consoleUrl: server.keyConsoleUrl } : {}),
+      setupSteps: [
+        `Create an API key for the company's ${server.name} account` +
+          (server.keyConsoleUrl ? ` at ${hostOf(server.keyConsoleUrl)}.` : "."),
+        "Paste it here. It is stored in this connector and sent only to that server, as a bearer token.",
+      ],
+    }));
+}
+
+// The per-tenant company keys sit behind a Durable Object RPC and are consulted on every
+// authenticated request, so they are cached per isolate briefly; writers reset their own isolate's
+// entry and other isolates converge within the TTL.
+const companyKeyCache = new Map<string, { values: Record<string, string>; expiresAt: number }>();
+const COMPANY_KEY_CACHE_MS = 30_000;
+
+type SetupStoreExports = {
+  VendorSetupStore: { getByName(name: string): { getValues(): Promise<Record<string, string>> } };
+};
+
+function invalidateCompanyKeyCache(tenant: string): void {
+  companyKeyCache.delete(tenant);
+}
+
+async function loadCompanyKeys(
+  exports: SetupStoreExports, tenant: string, options?: { fresh?: boolean },
+): Promise<Record<string, string>> {
+  const cached = companyKeyCache.get(tenant);
+  if (!options?.fresh && cached && Date.now() < cached.expiresAt) return cached.values;
+  const values = await exports.VendorSetupStore.getByName(tenant).getValues();
+  companyKeyCache.set(tenant, { values, expiresAt: Date.now() + COMPANY_KEY_CACHE_MS });
+  return values;
+}
+
+/** The company servers this tenant can use now: key entered, or no key needed. */
+async function usableCompanyServers(
+  env: Env, exports: SetupStoreExports, tenant: string, catalog: CatalogServer[],
+  options?: { fresh?: boolean },
+): Promise<CatalogServer[]> {
+  const servers = companyServers(catalog);
+  if (servers.length === 0) return [];
+  const keys = await loadCompanyKeys(exports, tenant, options);
+  return servers.filter((server) => server.auth !== "token" || keys[keyInputName(server.id)]);
+}
+
+/**
+ * Admin-entered company keys, one instance per tenant addressed by the tenant key ("" for the
+ * owning deployment). Values never leave this worker except as presence + timestamps.
+ */
+export class VendorSetupStore extends DurableObject<Env> {
+  getValues(): Record<string, string> {
+    return this.ctx.storage.kv.get<Record<string, string>>("values") ?? {};
+  }
+
+  getUpdatedAt(): Record<string, number> {
+    return this.ctx.storage.kv.get<Record<string, number>>("updatedAt") ?? {};
+  }
+
+  apply(values: Record<string, string>, requiredNames: string[]): void {
+    const merged = { ...this.getValues(), ...values };
+    const missing = requiredNames.filter((name) => merged[name] === undefined);
+    if (missing.length) throw new Error(`Setup is incomplete: missing ${missing.join(", ")}.`);
+    const updatedAt = this.getUpdatedAt();
+    for (const name of Object.keys(values)) updatedAt[name] = Date.now();
+    this.ctx.storage.kv.put("values", merged);
+    this.ctx.storage.kv.put("updatedAt", updatedAt);
+  }
+
+  clear(): void {
+    this.ctx.storage.kv.delete("values");
+    this.ctx.storage.kv.delete("updatedAt");
+  }
+}
+
+/**
+ * The account the Workshop provisions for every member: the company's servers, reached without a
+ * sign-in. It holds no credential. Each server it reaches runs on one shared `McpAccount` per
+ * tenant and server (named by `companyAccountName`), connected on first use with the key the
+ * administrator entered, so every member's facet on a server calls it as the same client.
+ */
+@validateRpc()
+export class CompanyAccountImpl
+  extends WorkerEntrypoint<Env, { tenant: string }>
+  implements GatekeeperUser {
+  get #tenant(): string {
+    return this.ctx.props.tenant ?? "";
+  }
+
+  async #usable(): Promise<CatalogServer[]> {
+    return usableCompanyServers(
+      this.env, this.ctx.exports, this.#tenant, await ensureCatalog(this.env));
+  }
+
+  #sharedAccount(serverId: string): DurableObjectStub<McpAccount> {
+    return this.ctx.exports.McpAccount.getByName(companyAccountName(this.#tenant, serverId));
+  }
+
+  async describe(): Promise<AccountDescription> {
+    return {
+      displayName: "Company MCP servers",
+      uniqueName: "Set up by your administrator",
+      avatar: MCP_AVATAR,
+    };
+  }
+
+  async getSupportedResources(): Promise<SupportedResource[]> {
+    return companyResources(await this.#usable());
+  }
+
+  async getGatekeeperClassFor(url: string): Promise<{
+    class: DurableObjectClass<Gatekeeper<unknown>>;
+    resource: SupportedResource;
+  }> {
+    const requested = new URL(url);
+    const entry = (await this.#usable())
+      .find((server) => sameEndpoint(endpointOfResourceUrl(requested), server.endpoint));
+    if (!entry) {
+      throw new Error(`"${url}" is not a company MCP server set up on this deployment.`);
+    }
+    const scope = parseToolScope(requested);
+    if (scope.serverId !== undefined) {
+      throw new Error(
+        `"${url}" scopes the grant to one server behind a gateway, which this integration does not ` +
+        `do.`);
+    }
+    const account = this.#sharedAccount(entry.id);
+    await account.ensureCompanyConnection(this.#tenant, entry.id);
+    if (scope.tools !== undefined) {
+      const selected = new Set(scope.tools);
+      validateToolScopeAgainstCatalog(
+        scope,
+        selected.size === 0
+          ? { tools: [], truncated: false }
+          : await withClient(
+            this.env,
+            account,
+            entry.endpoint,
+            client => client.listMatchingToolIndex(
+              selected.size,
+              tool => selected.has(tool.name),
+            ),
+          ),
+      );
+    }
+    const props: McpGatekeeperImplProps = {
+      accountObjectId: account.id.toString(),
+      endpoint: entry.endpoint,
+      serverId: serverIdFromEndpoint(entry.endpoint),
+      serverName: entry.name,
+      scope,
+      company: true,
+    };
+    return {
+      class: this.ctx.exports.McpGatekeeperImpl({ props }),
+      resource: catalogResource(entry),
+    };
+  }
+
+  async startResourceConfigurator(resourceUrlPattern: string): Promise<ResourceConfiguratorFrame> {
+    const entry = (await this.#usable())
+      .find((server) => sameEndpoint(resourceUrlPattern, server.endpoint));
+    if (!entry) throw new Error("This server is not set up for the company.");
+    const account = this.#sharedAccount(entry.id);
+    await account.ensureCompanyConnection(this.#tenant, entry.id);
+    return {
+      iframeHtml: MCP_SERVER_CONFIGURATOR_HTML,
+      ui: new RpcStub(new McpServerConfiguratorUI(this.env, account)),
+    };
+  }
+
+  /** Nothing to revoke: the account holds no credential, and the shared ones are the admin's. */
+  async revoke(): Promise<void> {}
+
+  reconnect(): Promise<{ url: string }> {
+    throw new Error("Company MCP servers are set up by an administrator under Admin → Integrations; there is nothing to reconnect.");
+  }
+
+  async getAuthenticatedEmail(): Promise<string | null> {
+    return null;
+  }
+
+  async ensureResources(_resourceUrlPatterns: string[]): Promise<{ url?: string }> {
+    return {};
+  }
+
+  @skipRpcValidation()
+  async getVerifier(): Promise<Fetcher<GatekeeperUserVerifier>> {
+    return this.ctx.exports.McpCompanyVerifier({ props: { tenant: this.#tenant } });
+  }
+}
+
+/**
+ * The verifier a company account mints. A company binding admits observers by membership
+ * (`companySharingFor`), never by replaying reads on the observer's own account, so no facet ever
+ * asks this verifier which account it stands for.
+ */
+@validateRpc()
+export class McpCompanyVerifier
+  extends WorkerEntrypoint<Env, { tenant: string }>
+  implements GatekeeperUserVerifier {
+  async observerAccount(): Promise<never> {
+    throw new Error("A company MCP server is shared by membership, not by account.");
   }
 }
 
@@ -467,6 +835,9 @@ type McpGatekeeperImplProps = {
   // How much of the endpoint this binding may call. Empty means the whole endpoint, including tools
   // it publishes later.
   scope: ToolScope;
+  // Runs on the company's shared account for this server rather than one person's: observers are
+  // admitted by membership (see `companySharingFor`).
+  company?: boolean;
 };
 
 
@@ -517,7 +888,9 @@ export class McpGatekeeperImpl
    * until the catalog says otherwise.
    */
   protected get sharing(): McpSharingPolicy {
-    return sharingFor(this.env, this.ctx.props.endpoint);
+    return this.ctx.props.company
+      ? companySharingFor(this.env, this.ctx.props.endpoint)
+      : sharingFor(this.env, this.ctx.props.endpoint);
   }
 
   protected get sessionClass() {
@@ -525,7 +898,9 @@ export class McpGatekeeperImpl
   }
 
   protected get observerName(): string {
-    return `the MCP server ${hostOf(this.ctx.props.endpoint)}`;
+    return this.ctx.props.company
+      ? `the company's MCP server ${hostOf(this.ctx.props.endpoint)}`
+      : `the MCP server ${hostOf(this.ctx.props.endpoint)}`;
   }
 
   get serverName(): string {

@@ -828,8 +828,8 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
   async setGatekeeperMode(vendorId: string, mode: AmbientGatekeeperMode): Promise<void> {
     vendorId = vendorId.toLowerCase();
     let vendor = this.vendors.get(vendorId);
-    let autoProvisions = !!vendor && (await vendor.describe()).autoProvisionsAccount === true;
-    if (autoProvisions) {
+    let ambient = !!vendor && await isAmbientOnly(vendor);
+    if (ambient) {
       await this.#mutateAdminConfig(config => {
         let modes = { ...config.ambientGatekeeperModes };
         if (mode === DEFAULT_AMBIENT_GATEKEEPER_MODE) delete modes[vendorId]; else modes[vendorId] = mode;
@@ -872,23 +872,27 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
             tagline: description.tagline,
             description: description.description,
             departments: description.departments,
+            credentialScope: description.credentialScope,
           };
-          if (description.autoProvisionsAccount) {
+          // A setup-capable vendor keeps its row even with no resources: an unconfigured one
+          // advertises none, and this row is where the admin enters the setup that changes that.
+          // Ambient vendors carry it too: an organization credential (goAML's B2B login) is
+          // entered here whether or not the vendor also has a connect flow.
+          let setup: { status: VendorSetup["status"] } | undefined;
+          if (description.supportsAdminSetup === true) {
+            let state = await (vendor as unknown as VendorSetupStub).describeSetup();
+            setup = { status: state.status };
+          }
+          if (description.autoProvisionsAccount && supportedResources.length === 0) {
             // Auto-provisioning ("ambient") gatekeeper: a three-state mode, no resources to toggle.
             let mode = ambientGatekeeperMode(config, id, this.env);
             return {
               vendorId: id,
               ...display,
+              ...(setup ? { setup } : {}),
               autoProvisions: true,
               ambientMode: mode,
             };
-          }
-          // A setup-capable vendor keeps its row even with no resources: an unconfigured one
-          // advertises none, and this row is where the admin enters the setup that changes that.
-          let setup: { status: VendorSetup["status"] } | undefined;
-          if (description.supportsAdminSetup === true) {
-            let state = await (vendor as unknown as VendorSetupStub).describeSetup();
-            setup = { status: state.status };
           }
           if (supportedResources.length === 0 && !setup) {
             // Nothing to toggle for this gatekeeper.
@@ -923,6 +927,16 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
     vendors.sort((a, b) => Number(b.autoProvisions) - Number(a.autoProvisions));
     return vendors;
   }
+}
+
+// Whether a vendor is presented and controlled as a purely ambient capability: it auto-provisions
+// an account and offers no resources to bind. A vendor that auto-provisions *and* offers resources
+// (its provisioned account is how people reach them) is an ordinary vendor with an on/off switch;
+// the provisioning policy folds that switch into the account's mode (see provisioning-policy.ts).
+async function isAmbientOnly(vendor: Service<GatekeeperVendor>): Promise<boolean> {
+  let description = await vendor.describe();
+  if (description.autoProvisionsAccount !== true) return false;
+  return (await vendor.getSupportedResources()).length === 0;
 }
 
 // Capability for managing deployment-wide admin settings, obtained via

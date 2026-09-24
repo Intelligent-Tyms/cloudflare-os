@@ -25,7 +25,12 @@ type PolicyEnv = object;
  */
 export function ambientGatekeeperMode(config: AdminConfig, vendorId: string, env: PolicyEnv)
     : AmbientGatekeeperMode {
-  return config.ambientGatekeeperModes?.[vendorId.toLowerCase()] ?? DEFAULT_AMBIENT_GATEKEEPER_MODE;
+  vendorId = vendorId.toLowerCase();
+  // A vendor the admin switched off as a whole (disabledGatekeepers, the on/off of a vendor that
+  // also offers resources) provisions nothing: its account would only reach resources nobody may
+  // bind.
+  if (config.disabledGatekeepers.includes(vendorId)) return "disabled";
+  return config.ambientGatekeeperModes?.[vendorId] ?? DEFAULT_AMBIENT_GATEKEEPER_MODE;
 }
 
 /**

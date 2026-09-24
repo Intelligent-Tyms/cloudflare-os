@@ -43,6 +43,9 @@ interface AccountEntry {
   vendorDescription: VendorDescription
   supportedResources: SupportedResource[]
   credentialsValid: boolean
+  // Created by the deployment for this user (a company connector's account): nothing to sign in
+  // to again, and not disconnectable while the admin keeps it on.
+  provided: boolean
 }
 
 interface VendorEntry {
@@ -537,7 +540,7 @@ export function ConnectorsPage() {
       })
 
     const subscriber = new AccountsSubscriberAdapter({
-      add({ id, description, vendor, supportedResources, credentialsValid, vendorId }) {
+      add({ id, description, vendor, supportedResources, credentialsValid, vendorId, provided }) {
         if (cancelled) return
         accountMap.set(id, {
           id,
@@ -546,6 +549,7 @@ export function ConnectorsPage() {
           vendorDescription: vendor,
           supportedResources,
           credentialsValid,
+          provided,
         })
         setAccounts(Array.from(accountMap.values()))
       },
@@ -900,7 +904,7 @@ export function ConnectorsPage() {
           onEnsureResources={handleEnsureResources}
           ensuringResourceUrlPatterns={ensuringResourceUrlPatterns}
           disconnecting={disconnecting}
-          onDisconnect={handleDisconnect}
+          onDisconnect={activeAccount?.provided ? undefined : handleDisconnect}
           onOpenChange={(open) => {
             if (!open && !connecting && !disconnecting) handleCloseModal()
           }}

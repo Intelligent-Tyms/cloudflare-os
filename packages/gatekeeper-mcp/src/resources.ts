@@ -1,6 +1,6 @@
 import type { SupportedResource } from "@gadgets/workshop-shared/gatekeeper";
 import { sameEndpoint } from "@gadgets/mcp-shared/scope";
-import { catalogResource, type CatalogServer } from "./vetted-catalog.js";
+import { catalogResource, personalServers, type CatalogServer } from "./vetted-catalog.js";
 
 const DESCRIPTION =
   "An MCP endpoint you supply. Tools are discovered automatically, and writes need approval.";
@@ -15,13 +15,20 @@ const HTTP_RESOURCE: SupportedResource = { ...HTTPS_RESOURCE, urlPattern: "http:
 
 // Vetted catalog servers first (each grantable, keyed by its exact endpoint), then the
 // bring-your-own catch-alls. The `https://*` entry must stay: the Workshop treats it as the
-// whole-instance fallback for arbitrary URLs, which is exactly the BYO path.
+// whole-instance fallback for arbitrary URLs, which is exactly the BYO path. Company servers are
+// not here: a personal account never reaches them (see `companyResources`).
 export function mcpResources(allowInsecure: boolean, catalog: CatalogServer[] = []): SupportedResource[] {
   return [
-    ...catalog.map(catalogResource),
+    ...personalServers(catalog).map(catalogResource),
     HTTPS_RESOURCE,
     ...(allowInsecure ? [HTTP_RESOURCE] : []),
   ];
+}
+
+// One resource per company server the tenant can actually use (its key entered, or no key
+// needed), reached through the account the Workshop provisions for every member.
+export function companyResources(usable: CatalogServer[]): SupportedResource[] {
+  return usable.map(catalogResource);
 }
 
 // The SupportedResource a connected endpoint reports back as. A catalog member reports its own

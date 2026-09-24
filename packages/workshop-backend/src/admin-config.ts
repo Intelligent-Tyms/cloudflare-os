@@ -46,8 +46,8 @@ export type AdminConfig = {
   disabledGatekeepers: string[];
   /**
    * Per-vendor provisioning mode for auto-provisioning ("ambient") gatekeepers (e.g. the Context
-   * Library). Absent ⇒ the default ("optional", see provisioning-policy.ts). Only meaningful for
-   * vendors that declare autoProvisionsAccount.
+   * Library). Absent ⇒ the default ("enabled" on Tyms deployments, see provisioning-policy.ts).
+   * Only meaningful for vendors that declare autoProvisionsAccount.
    */
   ambientGatekeeperModes: Record<string, AmbientGatekeeperMode>;
 

@@ -1703,7 +1703,9 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   async subscribeConnectedAccounts(
       subscriber: RpcStub<ConnectedAccountsSubscriber>, filter?: ConnectedAccountsFilter)
       : Promise<RpcStub<{}>> {
-    if (filter?.includeForcedAutoProvisionedAccounts) await this.#ensureAutoProvisionedAccounts();
+    // Provisioned accounts that expose resources (a company's MCP servers) are listed to everyone,
+    // so they must exist before the listing runs; capsule-only ones are listed on request.
+    await this.#ensureAutoProvisionedAccounts();
 
     let connectedAccounts = this.storage.connectedAccounts;
     let vendors = this.vendors;
@@ -1722,12 +1724,15 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     async function notifyAdd(record: ConnectedAccountRecord) {
       // Ambient (auto-provisioned) accounts only appear in the Integrations list when their vendor is
       // "optional" — i.e. the user opted in and can manage/remove it. "enabled" (forced) accounts have
-      // nothing to manage, and "disabled" ones are dormant, so both are hidden.
-      // Forced accounts are included when observer verification explicitly requests them.
+      // nothing to manage, and "disabled" ones are dormant, so both are hidden — except a forced
+      // account that is not a capsule: it exists to be chosen for bindings (a company's MCP
+      // servers), so it is listed like any connected account, just not disconnectable.
+      // Forced capsules are included when observer verification explicitly requests them.
       if (record.autoProvisioned) {
         let mode = ambientGatekeeperMode(config, record.vendorId, env);
         if (mode === "disabled" ||
-            (mode === "enabled" && !filter?.includeForcedAutoProvisionedAccounts)) {
+            (mode === "enabled" && record.description.singleton &&
+             !filter?.includeForcedAutoProvisionedAccounts)) {
           return;
         }
       }
@@ -1783,7 +1788,8 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
 
       seenIds.add(record.id);
       subscriber.add(record.id, record.description, vendorDescription,
-          supportedResources, credentialsValid, record.vendorId).catch(unsubscribe)
+          supportedResources, credentialsValid, record.vendorId,
+          record.autoProvisioned === true).catch(unsubscribe)
     }
 
     let dbSubscriber = {

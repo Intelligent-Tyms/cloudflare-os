@@ -47,7 +47,35 @@ export function portalTrust(env: Env): ServerTrust {
  * policy (see `sharing-policy.ts` in `@gadgets/mcp-shared`).
  */
 export function portalSharing(env: Env): McpSharingPolicy {
-  return parseSharingPolicy(env.MCP_PORTAL_SHARING);
+  return parseSharingSetting(env.MCP_PORTAL_SHARING);
+}
+
+/**
+ * The values the sharing setting accepts, as an administrator sees them. "company" is the
+ * connector's `public`: everyone in the tenant holds the same portal credential in token or
+ * public mode, so admitting every member is the natural reading of "shareable" there, and the
+ * word "public" would suggest the data itself is.
+ */
+export const PORTAL_SHARING_OPTIONS = ["owner-only", "company", "same-account"] as const;
+
+export function parseSharingSetting(value: unknown): McpSharingPolicy {
+  if (typeof value === "string" && value.trim().toLowerCase() === "company") return "public";
+  return parseSharingPolicy(value);
+}
+
+/**
+ * The sharing policy for one tenant's portal, from its admin-entered setup with the deployment
+ * var as fallback. Synchronous because the facet's `sharing` getter is: it answers from the
+ * per-isolate setup cache and kicks a refresh when that is cold or stale, so a cold isolate is
+ * conservative (`owner-only`) for one open and converges on the next.
+ */
+export function portalSharingFor(env: Env, exports: PortalSetupExports, tenant: string = ""): McpSharingPolicy {
+  const cached = setupCache.get(tenant);
+  if (!cached || Date.now() >= cached.expiresAt) {
+    void loadPortalSetup(env, exports, tenant).catch(() => {});
+  }
+  const values = cached?.values ?? (tenant === "" ? envSetupValues(env) : {});
+  return parseSharingSetting(values.MCP_PORTAL_SHARING ?? env.MCP_PORTAL_SHARING);
 }
 
 // The portal setup values from one source. Two sources exist — admin-entered runtime setup
@@ -59,11 +87,12 @@ export type PortalSetupValues = {
   MCP_PORTAL_NAME?: string;
   MCP_PORTAL_AUTH?: string;
   MCP_PORTAL_TOKEN?: string;
+  MCP_PORTAL_SHARING?: string;
 };
 
 // The names an administrator may set at runtime; also the store's key allowlist.
 export const PORTAL_SETUP_NAMES: (keyof PortalSetupValues)[] =
-  ["MCP_PORTAL_URL", "MCP_PORTAL_NAME", "MCP_PORTAL_AUTH", "MCP_PORTAL_TOKEN"];
+  ["MCP_PORTAL_URL", "MCP_PORTAL_NAME", "MCP_PORTAL_AUTH", "MCP_PORTAL_TOKEN", "MCP_PORTAL_SHARING"];
 
 function envSetupValues(env: Env): PortalSetupValues {
   return {
@@ -71,6 +100,7 @@ function envSetupValues(env: Env): PortalSetupValues {
     MCP_PORTAL_NAME: env.MCP_PORTAL_NAME,
     MCP_PORTAL_AUTH: env.MCP_PORTAL_AUTH,
     MCP_PORTAL_TOKEN: env.MCP_PORTAL_TOKEN,
+    MCP_PORTAL_SHARING: env.MCP_PORTAL_SHARING,
   };
 }
 
