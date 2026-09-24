@@ -1392,7 +1392,7 @@ export default function GadgetEditor() {
         </p>
         {/* Every message-kind denial is about the recipient's own connected accounts: they are
             missing, expired, or don't reach what the workspace read. Connecting or reconnecting
-            them on the Integrations page is the fix in each case. */}
+            them on the Connectors page is the fix in each case. */}
         <p className="text-[13px] leading-[18px] text-kumo-subtle text-center max-w-lg">
           Connect or reconnect your accounts for the services above, then try again. If your
           access to one of them has changed, ask the workspace owner.

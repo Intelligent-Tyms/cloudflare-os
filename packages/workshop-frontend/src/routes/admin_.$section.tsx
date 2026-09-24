@@ -10,9 +10,9 @@ export const Route = createFileRoute('/admin_/$section')({
 
 function AdminSectionRoute() {
   const { section } = Route.useParams()
-  // The integrations section was previously called "connectors"; keep old links working.
-  if (section === 'connectors') {
-    return <Navigate to="/admin/$section" params={{ section: 'integrations' }} replace />
+  // The connectors section was called "integrations" for a while; keep old links working.
+  if (section === 'integrations') {
+    return <Navigate to="/admin/$section" params={{ section: 'connectors' }} replace />
   }
   // Intelligence was one page with every product on it before the split into one card per
   // product; its old link lands on the first product.
