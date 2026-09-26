@@ -51,6 +51,8 @@ export type BillingState = {
   trialEndsAt: number | null;
   // The card on file expires before the next charge (admins are nudged to update it).
   cardExpiresBeforeNextCharge: boolean;
+  // A card is on file. False on a trial started without one (admins are asked to add one).
+  hasCard: boolean;
 };
 
 export class UsageCollectorDurableObject extends DurableObject<Cloudflare.Env> {
@@ -118,6 +120,8 @@ export class UsageCollectorDurableObject extends DurableObject<Cloudflare.Env> {
       periodEnd: e.periodEnd,
       trialEndsAt: e.subscriptionStatus === "trialing" ? (e.trialEndsAt ?? null) : null,
       cardExpiresBeforeNextCharge: e.cardExpiresBeforeNextCharge ?? false,
+      // A snapshot cached before the card field existed (undefined) never nags.
+      hasCard: e.card !== null,
     };
   }
 

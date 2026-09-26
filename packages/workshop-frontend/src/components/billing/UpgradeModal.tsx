@@ -34,8 +34,15 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
 
   // A paid workspace that ran dry wants a top-up, and top-ups live on Billing & usage (which
   // also links to the plan picker). The free plan's only way forward is a plan, so it goes to Plans.
+  // A trial started without a card ran through its capped credits: adding a card lifts the cap.
+  const cardless = gate != null && gate.trialEndsAt != null && gate.hasCard === false
+
   const openFix = () => {
     onClose()
+    if (cardless) {
+      window.location.assign('/admin/billing?tab=payment')
+      return
+    }
     const section = gate?.isFreePlan === false ? 'billing' : 'plans'
     void navigate({ to: '/admin/$section', params: { section } })
   }
@@ -58,7 +65,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
       <Dialog className="p-6 sm:w-[520px]" size="base">
         <Dialog.Title className="text-lg font-semibold mb-2 flex items-center gap-2">
           <Zap size={22} strokeWidth={2.5} className="text-kumo-warning" />
-          {gate?.isFreePlan === false ? 'Out of AI credits' : 'Upgrade your workspace'}
+          {cardless ? 'Out of trial credits' : gate?.isFreePlan === false ? 'Out of AI credits' : 'Upgrade your workspace'}
         </Dialog.Title>
 
         {gate === undefined ? (
@@ -69,6 +76,11 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
               <p className="text-sm text-kumo-subtle">
                 This workspace has reached its usage limit. Contact your administrator to
                 continue.
+              </p>
+            ) : cardless ? (
+              <p className="text-sm text-kumo-subtle">
+                You've used this trial's credits. {isAdmin ? 'Add a card' : 'An admin can add a card'} to
+                keep going.
               </p>
             ) : gate.isFreePlan ? (
               <p className="text-sm text-kumo-subtle">
@@ -104,7 +116,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
               </Button>
               {gate !== null && isAdmin && (
                 <Button variant="primary" onClick={openFix}>
-                  {gate.isFreePlan ? 'View plans' : 'Top up'}
+                  {cardless ? 'Add card' : gate.isFreePlan ? 'View plans' : 'Top up'}
                 </Button>
               )}
               {gate !== null && !isAdmin && requestState !== 'sent' && requestState !== 'already' && (

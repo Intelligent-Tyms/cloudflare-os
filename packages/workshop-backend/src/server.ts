@@ -730,6 +730,7 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
       periodEnd: isFreePlan ? null : state.periodEnd,
       trialEndsAt: state.trialEndsAt,
       cardExpiresBeforeNextCharge: state.cardExpiresBeforeNextCharge,
+      hasCard: state.hasCard,
     };
   }
 

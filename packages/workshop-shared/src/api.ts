@@ -853,6 +853,11 @@ export type BillingGateInfo = {
   trialEndsAt: number | null;
   /** The card on file expires before the next charge; admins are nudged to update it. */
   cardExpiresBeforeNextCharge: boolean;
+  /**
+   * A card is on file. False on a trial started without one: its credits are capped lower and
+   * it ends unless a card is added, so admins are asked to add one.
+   */
+  hasCard: boolean;
 };
 
 /** Describes a gatekeeper's management app, for the Workshop nav + page. */
