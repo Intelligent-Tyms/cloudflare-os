@@ -396,6 +396,14 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
           <p className="text-sm text-kumo-warning mt-4 pt-4 border-t border-kumo-line">
             Your plan ends {shortDate(overview.cancelAt)}. Undo this under Plans.
           </p>
+        ) : trialing && overview.trialEndsAt && !overview.card ? (
+          <p className="text-sm text-kumo-warning mt-4 pt-4 border-t border-kumo-line">
+            Free trial until {shortDate(overview.trialEndsAt)}.{' '}
+            <button type="button" onClick={() => setTab('payment')} className="text-kumo-brand underline">
+              Add a card
+            </button>{' '}
+            to keep your workspace after that. Adding one also raises your trial credits.
+          </p>
         ) : trialing && overview.trialEndsAt ? (
           <p className="text-sm text-kumo-subtle mt-4 pt-4 border-t border-kumo-line">
             Free trial until {shortDate(overview.trialEndsAt)}. Your card is charged then and
@@ -563,12 +571,20 @@ export default function AdminBillingPanel({ admin }: { admin: RpcStub<AdminApi> 
             </div>
           </div>
           <div className="pt-4 border-t border-kumo-line">
-            <Button variant="secondary" size="sm" loading={portalBusy} onClick={() => void handlePortal()}>
-              Manage payment details
+            <Button
+              variant={payment.card ? 'secondary' : 'primary'}
+              size="sm"
+              loading={portalBusy}
+              onClick={() => void handlePortal()}
+            >
+              {payment.card ? 'Manage payment details' : 'Add a card'}
             </Button>
             <p className="text-xs text-kumo-subtle mt-2">
-              Update your card, billing email, address, and tax IDs through our secure
-              billing portal (Stripe).
+              {payment.card
+                ? 'Update your card, billing email, address, and tax IDs through our secure billing portal (Stripe).'
+                : overview.trialEndsAt != null
+                  ? 'Add a card before your trial ends to keep your workspace. It is charged when the trial ends.'
+                  : 'Add a card, billing email, address, and tax IDs through our secure billing portal (Stripe).'}
             </p>
           </div>
         </div>

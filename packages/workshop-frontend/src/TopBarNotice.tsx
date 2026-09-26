@@ -12,7 +12,8 @@ import { credits } from './components/billing/billingFormat'
  * Markdown, so it can include links) when one is set. When no notice is set and the workspace is
  * on the free plan, falls back to a standing upgrade nudge — admins get a link to the plan picker,
  * members just see the plan. While a paid plan is on its free trial it shows the days left
- * (admins get a link to Plans, where cancelling lives). On a paid plan it warns admins when AI credits are running
+ * (admins get a link to Plans, where cancelling lives, or to Payment details when the trial
+ * started without a card and needs one to continue). On a paid plan it warns admins when AI credits are running
  * low (under a fifth of the period's credits, or out), with a link to Billing & usage where the
  * top-up is, so nobody learns the workspace is dry from a blocked turn. An admin-set announcement
  * always wins over the fallbacks.
@@ -61,6 +62,8 @@ export default function TopBarNotice() {
   const [trialEndsAt, setTrialEndsAt] = useState<number | null>(null)
   const [low, setLow] = useState<LowCredits | null>(null)
   const [cardExpiring, setCardExpiring] = useState(false)
+  // A trial started without a card: the nudges point at adding one.
+  const [cardless, setCardless] = useState(false)
 
   useEffect(() => {
     if (notice || !auth) return
@@ -72,6 +75,7 @@ export default function TopBarNotice() {
         setTrialEndsAt(gate?.trialEndsAt ?? null)
         setLow(auth.isAdmin ? lowCredits(gate) : null)
         setCardExpiring(Boolean(auth.isAdmin && gate?.cardExpiresBeforeNextCharge))
+        setCardless(gate?.trialEndsAt != null && gate.hasCard === false)
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -79,9 +83,15 @@ export default function TopBarNotice() {
 
   if (!notice && !freePlan && !low && !cardExpiring && trialEndsAt == null) return null
 
-  // Days until the trial's first charge; the card is already on file, so this is
-  // information, not a nudge. Admins get the link to where cancelling lives.
+  // Days until the trial's first charge. With a card on file this is information, not a
+  // nudge, and admins get the link to where cancelling lives; without one, admins are asked
+  // to add a card (Payment details, a full page load so the tab opens).
   const trialDaysLeft = trialEndsAt == null ? null : Math.max(0, Math.ceil((trialEndsAt - Date.now()) / 86_400_000))
+  const addCard = (
+    <a href="/admin/billing?tab=payment" className="text-kumo-brand hover:underline pointer-events-auto">
+      Add card
+    </a>
+  )
   const trialLabel = trialDaysLeft == null ? ''
     : trialDaysLeft === 0 ? 'Free trial ends today.'
     : trialDaysLeft === 1 ? 'Free trial ends tomorrow.'
@@ -100,15 +110,17 @@ export default function TopBarNotice() {
         ) : low ? (
           <>
             <span className={low.out ? 'text-kumo-danger' : 'text-kumo-warning'}>
-              {low.out ? 'Out of AI credits.' : `AI credits low: ${credits(low.balanceMicroUsd)} left.`}
+              {low.out
+                ? cardless ? 'Out of trial credits.' : 'Out of AI credits.'
+                : `${cardless ? 'Trial credits' : 'AI credits'} low: ${credits(low.balanceMicroUsd)} left.`}
             </span>{' '}
-            <Link
+            {cardless ? addCard : <Link
               to="/admin/$section"
               params={{ section: 'billing' }}
               className="text-kumo-brand hover:underline pointer-events-auto"
             >
               Top up
-            </Link>
+            </Link>}
           </>
         ) : cardExpiring ? (
           <>
@@ -127,13 +139,15 @@ export default function TopBarNotice() {
             {auth?.isAdmin && (
               <>
                 {' '}
-                <Link
-                  to="/admin/$section"
-                  params={{ section: 'plans' }}
-                  className="text-kumo-brand hover:underline pointer-events-auto"
-                >
-                  Manage plan
-                </Link>
+                {cardless ? addCard : (
+                  <Link
+                    to="/admin/$section"
+                    params={{ section: 'plans' }}
+                    className="text-kumo-brand hover:underline pointer-events-auto"
+                  >
+                    Manage plan
+                  </Link>
+                )}
               </>
             )}
           </>
