@@ -19,6 +19,7 @@ import type { McpLogFields } from "@gadgets/mcp-shared/log";
 import { sameEndpoint } from "@gadgets/mcp-shared/scope";
 import { parseSharingPolicy, type McpSharingPolicy } from "@gadgets/mcp-shared/sharing-policy";
 import type { ServerTrust } from "@gadgets/mcp-shared/tools";
+import { serverInputName } from "./tenant-servers.js";
 
 const logger = createLogger<McpLogFields>({
   component: "gatekeeper.mcp", vendorId: "mcp",
@@ -30,7 +31,7 @@ export type CatalogAuth = "oauth" | "token" | "none";
 /**
  * Whose credential a connection to a catalog server runs on. `personal`: each user connects their
  * own account (the connect popup, their own key). `organization`: one key per tenant, entered by
- * its administrator under Admin → Integrations, reached through an account the Workshop provisions
+ * its administrator under Admin → Connectors, reached through an account the Workshop provisions
  * for every member; no one signs in and, unless `sharing` says `owner-only`, any member may open a
  * workspace bound to it.
  */
@@ -56,6 +57,11 @@ export type CatalogServer = {
   keyLabel?: string;
   /** Where the administrator mints that key. */
   keyConsoleUrl?: string;
+  /**
+   * Set on a server a tenant's administrator added for their own company rather than one this
+   * catalog lists (see tenant-servers.ts). Only ever an `organization` server.
+   */
+  custom?: boolean;
 };
 
 type CatalogEnv = { MCP_CATALOG_URL?: string };
@@ -223,7 +229,15 @@ export function sharingFor(env: CatalogEnv, endpoint: string): McpSharingPolicy 
 // lists as the company's falls back to `owner-only` like any unlisted endpoint.
 export function companySharingFor(env: CatalogEnv, endpoint: string): McpSharingPolicy {
   refreshCatalogInBackground(env);
-  const entry = catalogEntryFor(endpoint);
+  return companySharingIn(catalogServers(), endpoint);
+}
+
+/**
+ * The same question asked of a catalog the caller already holds, which is how a tenant's own
+ * servers (merged in by `mergeCatalog`) get an answer: they are in no module-level cache here.
+ */
+export function companySharingIn(catalog: CatalogServer[], endpoint: string): McpSharingPolicy {
+  const entry = catalog.find((server) => sameEndpoint(server.endpoint, endpoint));
   if (!entry || entry.credential !== "organization") return "owner-only";
   return entry.sharing === "owner-only" ? "owner-only" : "public";
 }
@@ -252,10 +266,20 @@ export function catalogResource(server: CatalogServer): SupportedResource {
       description,
       url: new URL(server.endpoint).origin,
       credentialScope: server.credential,
-      ...(server.credential === "organization" && server.auth === "token"
-        ? { setupInputNames: [keyInputName(server.id)] } : {}),
+      ...setupInputNamesFor(server),
     },
   };
+}
+
+// The setup inputs a server's own connector card owns: a company server's key, and for a server
+// the tenant added, the entry that lists it (removing which removes the server).
+function setupInputNamesFor(server: CatalogServer): { setupInputNames?: string[] } {
+  if (server.credential !== "organization") return {};
+  const names = [
+    ...(server.custom ? [serverInputName(server.id)] : []),
+    ...(server.auth === "token" ? [keyInputName(server.id)] : []),
+  ];
+  return names.length > 0 ? { setupInputNames: names } : {};
 }
 
 /** The setup-store name under which a company server's key is kept. */

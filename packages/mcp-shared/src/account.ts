@@ -330,9 +330,13 @@ export abstract class McpAccountBase<E extends AccountEnv, P = unknown>
       await this.probe(server, null, generation);
     } catch (err) {
       if (err instanceof McpAuthRequiredError) {
+        // With a key in hand the challenge means the key was refused; without one, the server
+        // wants a person to sign in, which a deployment credential cannot do.
         throw new Error(
-          `The MCP server "${server.serverName}" requires a sign-in, so it cannot be connected ` +
-          `with a deployment credential.`, { cause: err });
+          server.auth === "token"
+            ? `The MCP server "${server.serverName}" rejected the key. Check it and try again.`
+            : `The MCP server "${server.serverName}" requires a sign-in or an API key, so it ` +
+              `cannot be connected without one.`, { cause: err });
       }
       throw err;
     }

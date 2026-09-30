@@ -1,4 +1,4 @@
-import { logRpcFailure } from './rpcErrors'
+import { failureTitle, logRpcFailure } from './rpcErrors'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Dialog, useKumoToastManager, type PortalContainer } from '@cloudflare/kumo'
 import {
@@ -101,6 +101,8 @@ type ConnectionType = {
   resourceUrlPattern?: string
   // Whether this resource type is independently grantable.
   grantable?: boolean
+  // The connector runs on a credential the company set up, reached through a provided account.
+  companyCredential?: boolean
 }
 
 type VendorOption = {
@@ -163,6 +165,7 @@ function connectionForResource(vendor: VendorOption, resource: SupportedResource
     accent: presented?.color ?? vendor.description.color,
     resourceUrlPattern: resource.urlPattern,
     grantable: Boolean(resource.grantable),
+    companyCredential: presented?.credentialScope === 'organization',
   }
 }
 
@@ -606,7 +609,7 @@ export default function GatekeeperModal({
     } catch (error) {
       console.error('Failed to initiate connection:', error)
       reportIssue('gatekeeper.connect-start', error, { gatekeeperVendorId: vendorId })
-      toasts.add({ title: 'Failed to start connection flow', variant: 'error' })
+      toasts.add({ title: failureTitle(error, 'Failed to start connection flow'), variant: 'error' })
     } finally {
       setConnectingVendor(null)
     }
@@ -650,7 +653,7 @@ export default function GatekeeperModal({
       reportIssue('gatekeeper.reconnect-start', error, {
         gatekeeperVendorId: selectedConnection?.vendorId,
       })
-      toasts.add({ title: 'Failed to start reconnect flow', variant: 'error' })
+      toasts.add({ title: failureTitle(error, 'Failed to start reconnect flow'), variant: 'error' })
     } finally {
       setReconnectingAccountId(null)
     }
@@ -840,6 +843,7 @@ export default function GatekeeperModal({
                     reconnectingAccountId={reconnectingAccountId}
                     requiredResourceUrlPatterns={requiredResourceUrlPatterns(selectedConnection)}
                     grantingAccountId={grantingAccountId}
+                    companyCredential={selectedConnection.companyCredential}
                     onSelect={setSelectedAccountId}
                     onConnect={() => {
                       if (!selectedConnection.vendorId) return

@@ -429,7 +429,7 @@ const PASSTHROUGH_GATEKEEPER_VARS: Record<string, string[]> = {
     "MCP_PORTAL_URL", "MCP_PORTAL_NAME", "MCP_PORTAL_AUTH", "MCP_PORTAL_TOKEN",
     "MCP_PORTAL_TRUST_ANNOTATIONS", "MCP_ALLOW_INSECURE",
   ],
-  "gatekeeper-mcp": ["MCP_ALLOW_INSECURE"],
+  "gatekeeper-mcp": ["MCP_ALLOW_INSECURE", "MCP_CATALOG_URL"],
   "gatekeeper-intelligence": ["MCP_ALLOW_INSECURE"],
   "gatekeeper-data-intelligence": ["MCP_ALLOW_INSECURE"],
 };

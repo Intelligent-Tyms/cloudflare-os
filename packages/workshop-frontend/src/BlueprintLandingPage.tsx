@@ -1,4 +1,4 @@
-import { logRpcFailure } from './rpcErrors'
+import { failureTitle, logRpcFailure } from './rpcErrors'
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { useNavigate, useParams, useRouter } from '@tanstack/react-router'
 import { RpcStub } from 'capnweb'
@@ -198,7 +198,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
       toasts.add({ title: 'Complete the account connection in the new tab.', variant: 'success' })
     } catch (err) {
       console.error('Failed to initiate connection:', err)
-      toasts.add({ title: 'Failed to start connection flow', variant: 'error' })
+      toasts.add({ title: failureTitle(err, 'Failed to start connection flow'), variant: 'error' })
     } finally {
       setConnectingVendor(null)
     }
@@ -213,7 +213,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
       toasts.add({ title: 'Complete the account reconnect in the new tab.', variant: 'success' })
     } catch (err) {
       console.error('Failed to initiate reconnect:', err)
-      toasts.add({ title: 'Failed to start reconnect flow', variant: 'error' })
+      toasts.add({ title: failureTitle(err, 'Failed to start reconnect flow'), variant: 'error' })
       setReconnectingAccountId(null)
     }
   }, [authenticatedApi, toasts])

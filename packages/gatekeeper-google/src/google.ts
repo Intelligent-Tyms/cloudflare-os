@@ -104,6 +104,9 @@ type Env = Cloudflare.Env & {
   // deployments typically leave these unset and use admin-entered setup (VendorSetupStore) instead.
   CLIENT_ID?: string;
   CLIENT_SECRET?: string;
+  // "true" on a shared connector whose deploy-time OAuth app is one the operator runs for every
+  // tenant (see `inheritsDeploymentApp`).
+  SHARED_OAUTH_APP?: string;
 }
 
 // Which tenant a call is for. A shared connector serves many workshops: each binds with
@@ -359,6 +362,16 @@ const OAUTH_APP_CACHE_MS = 30_000;
 
 type SetupExports = { VendorSetupStore: DurableObjectNamespace<VendorSetupStore> };
 
+// Whether a tenant with no setup of its own authenticates against the deploy-time OAuth app.
+// The owning deployment always does. A tenant of a shared connector does only when the operator
+// declares that app to be one it runs for everyone (SHARED_OAUTH_APP): registered with this
+// connector's one redirect URI, so a tenant's administrator has no OAuth client to create and
+// people simply sign in. Otherwise a tenant never inherits another deployment's app, and the
+// vendor stays hidden from it until its own administrator enters one.
+function inheritsDeploymentApp(env: Env, tenant: string): boolean {
+  return tenant === "" || env.SHARED_OAUTH_APP === "true";
+}
+
 async function resolveOAuthApp(env: Env, exports: SetupExports, tenant: string,
                                options?: { fresh?: boolean }): Promise<OAuthApp | null> {
   const cached = oauthAppCache.get(tenant);
@@ -366,9 +379,8 @@ async function resolveOAuthApp(env: Env, exports: SetupExports, tenant: string,
     return cached.value;
   }
   const stored = await exports.VendorSetupStore.getByName(tenant).getValues();
-  // Deploy-time secrets are the owning deployment's fallback only: a tenant of a shared
-  // connector never inherits another deployment's OAuth app.
-  const fallback: { CLIENT_ID?: string; CLIENT_SECRET?: string } = tenant === "" ? env : {};
+  const fallback: { CLIENT_ID?: string; CLIENT_SECRET?: string } =
+      inheritsDeploymentApp(env, tenant) ? env : {};
   const clientId = stored.CLIENT_ID ?? fallback.CLIENT_ID;
   const clientSecret = stored.CLIENT_SECRET ?? fallback.CLIENT_SECRET;
   const value = clientId && clientSecret ? { clientId, clientSecret } : null;
@@ -524,7 +536,7 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> impleme
     // Fail here rather than in the popup: an unconfigured vendor should refuse the connect
     // attempt with a readable error instead of minting a URL that dead-ends.
     if (!(await resolveOAuthApp(this.env, this.ctx.exports, this.#tenant))) {
-      throw new Error("Google is not set up on this deployment. An administrator can set it up under Admin → Integrations.");
+      throw new Error("Google is not set up on this deployment. An administrator can set it up under Admin → Connectors.");
     }
     let userObjectId = this.ctx.exports.UserAccount.newUniqueId();
     let initiationNonce = generateNonce();
@@ -567,7 +579,8 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> impleme
         .filter((name) => values[name] !== undefined)
         .map((name) => ({ name, updatedAt: updatedAt[name] ?? 0 }));
     const usable = configured.length === SETUP_INPUT_NAMES.length ||
-        (this.#tenant === "" && Boolean(this.env.CLIENT_ID && this.env.CLIENT_SECRET));
+        (inheritsDeploymentApp(this.env, this.#tenant) &&
+            Boolean(this.env.CLIENT_ID && this.env.CLIENT_SECRET));
     return {
       description: "Create an OAuth client in the Google Cloud Console and paste its keys " +
           "here. Your team then connects their own Google accounts — nobody shares logins.",

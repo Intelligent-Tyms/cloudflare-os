@@ -84,17 +84,38 @@ See `src/types.d.ts` in `@gadgets/mcp-shared` for the base session API.
 | `MCP_CATALOG_URL` | Optional URL of a curated catalog of vetted MCP servers (JSON `{ servers: [{ id, name, description, endpoint, vetted, sharing }] }`). Listed servers appear as one-click connect choices, and vetted entries earn the `vetted` trust tier: their own read-only/idempotent annotations may drive auto-approval. `sharing` (`owner-only`, `same-account`, `public`) says who besides the owner may open a Gadget bound to the server; see "Approvals and sharing". Absent means pure bring-your-own. |
 
 Per-server configuration is the catalog: listing an endpoint there is a review assertion (see
-`src/vetted-catalog.ts`). Everything else stays bring-your-own — users supply endpoints, and an
-administrator can toggle each catalog server (and the bring-your-own entry) in the admin
-Integrations panel. A deployment that wants one gateway fronting many servers should still use
-[`gatekeeper-mcp-portal`](../gatekeeper-mcp-portal/README.md).
+`src/vetted-catalog.ts`). An administrator can toggle each catalog server (and the
+bring-your-own entry) in the admin Connectors panel. A deployment that wants one gateway fronting
+many servers should still use [`gatekeeper-mcp-portal`](../gatekeeper-mcp-portal/README.md).
+
+### Who adds a server
+
+Adding a server is an administrator's job; a member only signs in.
+
+- **A member** is offered the catalog's personal servers and nothing else. The bring-your-own
+  resources carry `connectableBy: "admin"`, so the Workshop hides them from members and narrows a
+  member's connect to the catalog servers they may sign in to. A connect limited that way
+  pre-selects its one server, or shows a page of just those choices: there is no address or key
+  to type.
+- **An administrator adds a server for the company** under Admin → Connectors → Custom MCP
+  server: a name, the endpoint URL, and the company's API key if the server takes one
+  (`src/tenant-servers.ts`). The server is connected before it is saved, so a wrong address or a
+  rejected key fails there and then. It then behaves like a company server from the catalog: a
+  connector of its own, reached by every member through the provisioned account with no sign-in,
+  never vetted (writes always wait for approval), and a workspace bound to it opens for any
+  member. Only key or no-auth servers can be added this way; one that needs each person to sign
+  in has no company credential to enter and belongs in the catalog.
+- **An administrator may still connect a server personally** with the bring-your-own form, for
+  a server that needs their own sign-in or to try one out. That connection is theirs alone and a
+  workspace bound to it is owner-only.
 
 For local development no credentials are needed. Set `MCP_ALLOW_INSECURE=true` in the repo-root
 `.dev.vars` to connect a server running on localhost.
 
 ## How the connect flow works
 
-1. The user starts a connection and gets a form asking for the server's endpoint URL. The URL is
+1. An administrator starts a personal connection and gets a form asking for the server's endpoint
+   URL (a member's connect never reaches this form; see "Who adds a server"). The URL is
    validated against the host blocklist in `endpoint.ts` (no private, loopback, or metadata hosts;
    HTTPS required unless `MCP_ALLOW_INSECURE`). The form says plainly that connecting a server is a
    decision to trust it, since the server's own annotations decide which of its tools run without
