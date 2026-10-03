@@ -40,6 +40,7 @@ export function AccountChooser({
   reconnectingAccountId,
   requiredResourceUrlPatterns,
   grantingAccountId = null,
+  companyCredential = false,
   onSelect,
   onConnect,
   onReconnect,
@@ -54,6 +55,11 @@ export function AccountChooser({
   reconnectingAccountId: number | null
   requiredResourceUrlPatterns?: string[]
   grantingAccountId?: number | null
+  /**
+   * The connection runs on a credential the company set up (see CredentialScope): there is one
+   * account, provided to everyone, and no other to sign in with.
+   */
+  companyCredential?: boolean
   onSelect: (id: number) => void
   onConnect: () => void
   onReconnect: (id: number) => void
@@ -68,7 +74,9 @@ export function AccountChooser({
         <p className="mt-0.5 text-[12px] leading-4 font-normal tracking-[-0.2px] text-kumo-subtle">
           {isEmailMailbox
             ? 'Enable the Email receiver account, then choose the mailbox name below.'
-            : `Pick which ${vendorName} identity this ${resourceTitle ?? 'connection'} should use.`}
+            : companyCredential
+              ? `Runs on your company’s ${vendorName} account. There is nothing to sign in to.`
+              : `Pick which ${vendorName} identity this ${resourceTitle ?? 'connection'} should use.`}
         </p>
       </div>
       <div className="divide-y divide-kumo-line">
@@ -139,7 +147,7 @@ export function AccountChooser({
           )
         })}
 
-        {(!isEmailMailbox || accounts.length === 0) && (
+        {(!isEmailMailbox || accounts.length === 0) && !(companyCredential && accounts.length > 0) && (
           <button
             type="button"
             onClick={onConnect}

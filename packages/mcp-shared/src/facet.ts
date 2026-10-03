@@ -112,6 +112,15 @@ export abstract class McpFacetBase<
   /** Current sharing policy, read whenever an observer is admitted or a read is recorded. */
   protected abstract get sharing(): McpSharingPolicy;
 
+  /**
+   * The sharing policy once its source is loaded. `sharing` answers synchronously from whatever is
+   * cached, which on a cold isolate can be the conservative default rather than the configured
+   * policy; override this to await the source so an observer is judged by the real one.
+   */
+  protected async currentSharing(): Promise<McpSharingPolicy> {
+    return this.sharing;
+  }
+
   /** Connector-decorated session class exposed through RPC. */
   protected abstract get sessionClass(): SessionConstructor<Session>;
 
@@ -297,7 +306,7 @@ export abstract class McpFacetBase<
    * whatever was read since, and against the whole log again once the last full pass is stale.
    */
   async addObserver(id: string, user: Fetcher<GatekeeperUserVerifier>): Promise<void> {
-    const policy = this.sharing;
+    const policy = await this.currentSharing();
     const store = this.#observers();
     const now = Date.now();
 
@@ -375,7 +384,7 @@ export abstract class McpFacetBase<
     const observers = store.listObservers();
     if (observers.length === 0) return undefined;
 
-    const policy = this.sharing;
+    const policy = await this.currentSharing();
     if (policy === "public") return undefined;
     if (policy === "owner-only" || recorded.overflow) {
       return observers.map(observer => observer.observerId);

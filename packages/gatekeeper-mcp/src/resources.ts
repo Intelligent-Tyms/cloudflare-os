@@ -5,10 +5,14 @@ import { catalogResource, personalServers, type CatalogServer } from "./vetted-c
 const DESCRIPTION =
   "An MCP endpoint you supply. Tools are discovered automatically, and writes need approval.";
 
+// Connecting one means typing a server's address and perhaps a key, which is adding a connector
+// rather than signing in to one: the Workshop offers these to administrators only. A team gets a
+// server of its own when an administrator adds it for the company (see tenant-servers.ts).
 const HTTPS_RESOURCE: SupportedResource = {
   urlPattern: "https://*",
   title: "Any MCP server",
   description: DESCRIPTION,
+  connectableBy: "admin",
 };
 
 const HTTP_RESOURCE: SupportedResource = { ...HTTPS_RESOURCE, urlPattern: "http://*" };
@@ -17,6 +21,11 @@ const HTTP_RESOURCE: SupportedResource = { ...HTTPS_RESOURCE, urlPattern: "http:
 // bring-your-own catch-alls. The `https://*` entry must stay: the Workshop treats it as the
 // whole-instance fallback for arbitrary URLs, which is exactly the BYO path. Company servers are
 // not here: a personal account never reaches them (see `companyResources`).
+/** Whether a requested resource pattern is one of the bring-your-own catch-alls. */
+export function isCustomServerPattern(pattern: string): boolean {
+  return pattern === HTTPS_RESOURCE.urlPattern || pattern === HTTP_RESOURCE.urlPattern;
+}
+
 export function mcpResources(allowInsecure: boolean, catalog: CatalogServer[] = []): SupportedResource[] {
   return [
     ...personalServers(catalog).map(catalogResource),

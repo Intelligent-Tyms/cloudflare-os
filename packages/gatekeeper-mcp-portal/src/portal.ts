@@ -338,7 +338,7 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> impleme
     // Fail here rather than in the popup: an unconfigured portal should refuse the connect
     // attempt with a readable error instead of minting a URL that dead-ends.
     if (!(await loadPortalConfig(this.env, this.ctx.exports, this.#tenant))) {
-      throw new Error("No MCP server portal is set up on this deployment. An administrator can set one up under Admin → Integrations.");
+      throw new Error("No MCP server portal is set up on this deployment. An administrator can set one up under Admin → Connectors.");
     }
     const accountId = this.ctx.exports.McpAccount.newUniqueId();
     const initiationNonce = generateNonce();

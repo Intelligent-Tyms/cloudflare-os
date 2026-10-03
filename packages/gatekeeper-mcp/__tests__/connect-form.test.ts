@@ -20,4 +20,17 @@ describe("connect form", () => {
     expect(html).toContain("Stripe");
     expect(html).toContain('name="token"');
   });
+
+  it("offers only the listed servers when the connect is limited to them", () => {
+    const html = connectFormHtml("/connect/x/y", undefined, [
+      { name: "Stripe", endpoint: "https://mcp.stripe.com/v1" },
+      { name: "Mercury", endpoint: "https://mcp.mercury.com/mcp" },
+    ], false);
+    expect(html).toContain("Stripe");
+    expect(html).toContain("Mercury");
+    // Nothing to type: no address, no key.
+    expect(html).not.toContain('id="url"');
+    expect(html).not.toContain('name="token"');
+    expect(html).toContain("added by an");
+  });
 });

@@ -363,12 +363,16 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     return offers.map(({agentHint: _agentHint, bindings: _bindings, ...offer}) => offer);
   }
 
-  listGatekeeperVendors(filter?: GatekeeperVendorFilter): Promise<GatekeeperVendorInfo[]> {
-    return retryOnDoReset(() => this.#user.listGatekeeperVendors(filter));
+  // Adding a connector is an administrator's job; a member only signs in to what the deployment
+  // offers them. The user object enforces that from the role passed here.
+  async listGatekeeperVendors(filter?: GatekeeperVendorFilter): Promise<GatekeeperVendorInfo[]> {
+    let caller = {admin: await this.#isAdminUser()};
+    return retryOnDoReset(() => this.#user.listGatekeeperVendors(filter, caller));
   }
 
-  connectAccount(vendorId: string, resourceUrlPatterns?: string[]): Promise<{url: string}> {
-    return this.#user.connectAccount(vendorId, resourceUrlPatterns);
+  async connectAccount(vendorId: string, resourceUrlPatterns?: string[]): Promise<{url: string}> {
+    let caller = {admin: await this.#isAdminUser()};
+    return this.#user.connectAccount(vendorId, resourceUrlPatterns, caller);
   }
 
   ensureAccountResources(accountId: number, resourceUrlPatterns: string[]): Promise<{url?: string}> {
@@ -730,6 +734,7 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
       periodEnd: isFreePlan ? null : state.periodEnd,
       trialEndsAt: state.trialEndsAt,
       cardExpiresBeforeNextCharge: state.cardExpiresBeforeNextCharge,
+      hasCard: state.hasCard,
     };
   }
 
