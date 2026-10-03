@@ -920,6 +920,16 @@ export class McpGatekeeperImpl
       : sharingFor(this.env, this.ctx.props.endpoint);
   }
 
+  /**
+   * `sharing` once the catalog is loaded. A cold isolate has no catalog yet, so the sync getter
+   * would answer `owner-only` and turn away every collaborator on a `same-account` or `public`
+   * server until the background fetch lands.
+   */
+  protected override async currentSharing(): Promise<McpSharingPolicy> {
+    await ensureCatalog(this.env);
+    return this.sharing;
+  }
+
   protected get sessionClass() {
     return McpSessionImpl;
   }
