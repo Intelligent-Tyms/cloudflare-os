@@ -65,6 +65,26 @@ import {
 const logger = createWorkshopLogger("workshop.overseer");
 export const AGENT_RUNNING_ERROR_MESSAGE = "Agent is running, wait for it to finish.";
 
+/**
+ * Waits for `done`, but no longer than `maxMs`. Resolves true if `done` settled first. The timer
+ * is cancelled as soon as the wait is over, so a wait that ends early leaves nothing pending to
+ * keep the object busy. `wait` is injectable for tests.
+ */
+export async function waitUpTo(
+    done: Promise<void>, maxMs: number,
+    wait: (ms: number, signal: AbortSignal) => Promise<void> =
+        (ms, signal) => scheduler.wait(ms, { signal })): Promise<boolean> {
+  let timer = new AbortController();
+  try {
+    return await Promise.race([
+      done.then(() => true),
+      wait(maxMs, timer.signal).then(() => false),
+    ]);
+  } finally {
+    timer.abort();
+  }
+}
+
 let CODE_MODE_HARNESS =
 `import { WorkerEntrypoint, restore } from "cloudflare:workers";
 import agent from "agent.js";
@@ -1253,6 +1273,12 @@ class OverseerImpl implements AgentHooks {
   // keeps the DO alive, so the alarm typically never fires.
   static #AGENT_KEEPALIVE_ALARM_MS = 60_000;
 
+  // How long one alarm invocation holds the DO open for running agents. The platform gives an
+  // alarm handler 15 minutes; each time one overran in production, every client session on the
+  // DO was dropped at that instant. So a handler lets go well before that and hands over to a
+  // fresh alarm (see holdForRunningAgents).
+  static #AGENT_ALARM_HOLD_MS = 10 * 60_000;
+
   addChatSubscriber(subscriber: RpcStub<AiChatSubscriber>) {
     this.#chatSubscribers.add(subscriber);
   }
@@ -1466,6 +1492,53 @@ class OverseerImpl implements AgentHooks {
     await new Promise<void>(resolve => { this.#allAgentsIdleWaiters.push(resolve); });
   }
 
+  // The alarm handler's hold: wait for running agents, but only for as long as one alarm
+  // invocation may safely last. If agents are still running when the hold ends, the next alarm is
+  // set a moment from now so a fresh invocation takes over; the DO stays up across that gap
+  // because the turn itself is mid-flight. Returns whether every agent finished.
+  async holdForRunningAgents(): Promise<boolean> {
+    let idle = await waitUpTo(
+        this.waitForAllAgentsToComplete(), OverseerImpl.#AGENT_ALARM_HOLD_MS);
+    if (!idle && this.#runningAgents.size > 0) {
+      this.logger.info("agent turn outlasted one alarm hold; handing over to the next alarm", {
+        event: "agent.keepalive.handover", runningAgents: this.#runningAgents.size,
+      });
+      this.ctx.storage.setAlarm(Date.now() + 1000);
+    }
+    return idle;
+  }
+
+  // Set once this instance has found that it is no longer the live one (see #retireIfSuperseded).
+  #superseded = false;
+
+  // A Durable Object can be replaced while it is still running: the platform starts a fresh
+  // instance for the same id, and this one is not told. It finds out only when its own storage
+  // starts refusing it ("Durable Object reset because its code was updated"). Until then it is
+  // worse than dead: every client session opened before the switch is still attached to it, so
+  // people watch a workspace that will never change, and its alarm handler waits on a turn that
+  // can no longer finish until the platform kills it at the 15-minute limit.
+  //
+  // So where a failure might mean that, ask storage directly. If it refuses a plain read, nothing
+  // here can be saved or recorded any more: abort this instance, which drops its sessions (the
+  // client reopens the workspace and reaches the live instance, which has already resumed any
+  // interrupted turn) and ends its alarm. Returns true when this instance is being retired.
+  #retireIfSuperseded(cause: unknown): boolean {
+    if (this.#superseded) return true;
+    try {
+      this.storage.version.get();
+      return false;
+    } catch (storageError) {
+      this.#superseded = true;
+      this.logger.warn("workspace object was superseded; retiring this instance", {
+        event: "overseer.superseded", error: storageError,
+        reason: cause instanceof Error ? cause.message : String(cause),
+        runningAgents: this.#runningAgents.size,
+      });
+      this.ctx.abort("Workspace restarted: this instance was replaced by a newer one.");
+      return true;
+    }
+  }
+
   // Resume a single interrupted agent turn. Re-resolves the model config from the initiator's user
   // DO (we don't persist the secret API token), then runs the agent loop, which rebuilds its state
   // by replaying the persisted chat log.
@@ -1543,6 +1616,10 @@ class OverseerImpl implements AgentHooks {
       // respected.
       let liveChat = this.#getLiveChat(record.chatId);
 
+      // An interrupted turn is the visible trace of this DO having been restarted mid-run.
+      this.logger.info("resuming an agent turn interrupted by a restart", {
+        event: "agent.resumed", chatId: record.chatId, modelId: record.modelId,
+      });
       this.#resumeAgent(record, liveChat);
     }
 
@@ -2377,9 +2454,41 @@ class OverseerImpl implements AgentHooks {
   // with no entry has never had its facet loaded this session.
   #runningChatIds = new Map<WorkpieceId, number | null>();
 
+  // When each gadget's facet was last handed to a caller, and when it was last stopped so that
+  // it restarts under different code. Only feed the two logs below.
+  #gadgetFacetLastUsed = new Map<WorkpieceId, number>();
+  #gadgetFacetStoppedAt = new Map<WorkpieceId, number>();
+
+  // Restarting an app's facet under new code is the last thing seen in production before this
+  // whole DO is replaced mid-turn (see #retireIfSuperseded): in every case examined, the facet
+  // was started again within about ten seconds of its previous use, and never when it had been
+  // left alone for longer. Record each stop with how recently the facet was used, and each start
+  // with how long ago it was stopped, so the next occurrence can be read straight from the logs.
+  #logGadgetFacetRestart(gadgetId: WorkpieceId, reason: string): void {
+    let now = Date.now();
+    let lastUsed = this.#gadgetFacetLastUsed.get(gadgetId);
+    this.#gadgetFacetStoppedAt.set(gadgetId, now);
+    this.logger.debug("app facet stopped to restart under different code", {
+      event: "gadget.facet.restart", appId: gadgetId, reason,
+      ...(lastUsed === undefined ? {} : { idleMs: now - lastUsed }),
+      runningAgents: this.#runningAgents.size,
+    });
+  }
+
+  #logGadgetFacetStart(gadgetId: WorkpieceId): void {
+    let stoppedAt = this.#gadgetFacetStoppedAt.get(gadgetId);
+    if (stoppedAt === undefined) return;  // a cold start, not a restart
+    this.#gadgetFacetStoppedAt.delete(gadgetId);
+    this.logger.debug("app facet started after a restart", {
+      event: "gadget.facet.start", appId: gadgetId, idleMs: Date.now() - stoppedAt,
+      runningAgents: this.#runningAgents.size,
+    });
+  }
+
   proposedChangesChanged(chatId: number) {
     for (let [gadgetId, runningChatId] of this.#runningChatIds) {
       if (runningChatId === chatId) {
+        this.#logGadgetFacetRestart(gadgetId, "proposed-changes-changed");
         this.ctx.facets.abort(this.gadgetFacetName(gadgetId), new Error(
             "App restarted because the proposed changes changed."));
       }
@@ -2628,6 +2737,11 @@ class OverseerImpl implements AgentHooks {
     let oldChat = this.#runningChatIds.get(gadgetId);
     let newChat = chatId ?? null;
     if (newChat !== oldChat) {
+      // Not worth a line when the facet has never run in this instance (the defensive abort).
+      if (oldChat !== undefined) {
+        this.#logGadgetFacetRestart(
+            gadgetId, newChat === null ? "switch-to-main" : "switch-to-proposed");
+      }
       this.ctx.facets.abort(facetName, new Error(
           newChat === null
             ? "App restarted to switch back to main version."
@@ -2635,7 +2749,10 @@ class OverseerImpl implements AgentHooks {
       this.#runningChatIds.set(gadgetId, newChat);
     }
 
+    this.#gadgetFacetLastUsed.set(gadgetId, Date.now());
+
     return this.ctx.facets.get<DurableObject>(facetName, () => {
+      this.#logGadgetFacetStart(gadgetId);
       let stub = this.loadGadgetWorker(gadgetId, chatId);
 
       return {
@@ -3401,6 +3518,7 @@ class OverseerImpl implements AgentHooks {
       await owner.setGadgetLastActive(this.ctx.id.toString(), this.#lastActiveTimeKnownToUs!,
                                       this.storage.totalCost.get());
     } catch (err) {
+      if (this.#retireIfSuperseded(err)) return;
       this.logger.warn("failed to bump gadget last-active on user DO", {
         event: "gadget.last.active.bump.failed",
         gadgetId: this.ctx.id.toString(), error: err,
@@ -3545,6 +3663,7 @@ class OverseerImpl implements AgentHooks {
     this.storage.codeVersion.put(codeVersion);
     let ids = affectedGadgetIds ?? [...this.storage.gadgets.list()].map(gadget => gadget.id);
     for (let id of ids) {
+      if (this.#runningChatIds.has(id)) this.#logGadgetFacetRestart(id, "code-update");
       this.ctx.facets.abort(this.gadgetFacetName(id),
           new Error("App restarted due to code update."));
     }
@@ -4485,6 +4604,10 @@ class OverseerImpl implements AgentHooks {
         durationMs: Date.now() - startedAt,
       });
     } catch (err: unknown) {
+      // The turn may have failed because this instance was replaced under it. Then there is
+      // nothing to report and nowhere to write it: the live instance has the turn.
+      if (this.#retireIfSuperseded(err)) return;
+
       // A failed model request surfaces as AgentTurnError (pi reports provider failures as data;
       // runAgent converts them back to a throw), carrying the failing request's HTTP status when
       // one was observed.
@@ -4526,53 +4649,61 @@ class OverseerImpl implements AgentHooks {
       }
       liveChat.activeAgentCallbacks.clear();
     } finally {
-      // If this turn billed the user's own Cloudflare account, refresh their cached balance now (in
-      // the background) so the next turn's billing decision reflects the spend just incurred. Runs
-      // on both the success and error paths — an "insufficient funds" failure is exactly when an
-      // up-to-date balance matters most.
-      if (byokOwnerStub) {
-        this.ctx.waitUntil(refreshCachedBalance(this.env, byokOwnerStub));
-      }
+      // A superseded instance owns none of the state the teardown touches; it would only throw.
+      if (!this.#superseded) await this.#finishAgentTurn(chatId, liveChat, byokOwnerStub);
+    }
+  }
 
-      // Belt-and-suspenders: reap any provisional gadget this turn created whose creation ended
-      // up backed by nothing in the log. (Normally the turn's final flush -- which runs even on
-      // error, in runAgent's own finally -- records every buffered creation, so this only
-      // matters when that flush couldn't write, e.g. the chat was deleted mid-turn.) Never
-      // throws, so it can't mask an error propagating out of the turn.
-      await this.reconcilePendingGadgets(chatId);
+  // The teardown of an agent turn, on success and on failure alike.
+  async #finishAgentTurn(chatId: number, liveChat: LiveChatContext,
+                         byokOwnerStub: DurableObjectStub<UserDurableObject> | undefined)
+      : Promise<void> {
+    // If this turn billed the user's own Cloudflare account, refresh their cached balance now (in
+    // the background) so the next turn's billing decision reflects the spend just incurred. Runs
+    // on both the success and error paths — an "insufficient funds" failure is exactly when an
+    // up-to-date balance matters most.
+    if (byokOwnerStub) {
+      this.ctx.waitUntil(refreshCachedBalance(this.env, byokOwnerStub));
+    }
 
-      // Note: We no longer emit a stream "clear" event here. The client performs a full clear of
-      // provisional streaming state when it observes that the agent is no longer running (i.e. when
-      // chat metadata's activeAgent becomes unset, which happens just below).
+    // Belt-and-suspenders: reap any provisional gadget this turn created whose creation ended
+    // up backed by nothing in the log. (Normally the turn's final flush -- which runs even on
+    // error, in runAgent's own finally -- records every buffered creation, so this only
+    // matters when that flush couldn't write, e.g. the chat was deleted mid-turn.) Never
+    // throws, so it can't mask an error propagating out of the turn.
+    await this.reconcilePendingGadgets(chatId);
 
-      let meta = this.storage.chatMeta.get(chatId);
-      if (meta) {
-        delete meta.activeAgent;
-        meta.lastActive = this.getChatTimestamp();
-        this.storage.chatMeta.put(meta);
-      }
+    // Note: We no longer emit a stream "clear" event here. The client performs a full clear of
+    // provisional streaming state when it observes that the agent is no longer running (i.e. when
+    // chat metadata's activeAgent becomes unset, which happens just below).
 
-      // Tear down the registry entry, persistent `activeAgents` record, and keep-alive alarm in the
-      // same synchronous step as clearing `activeAgent` above, so the chat never appears idle while
-      // stale records of this agent linger. If pending callbacks below restart the agent, they'll
-      // re-register everything consistently.
-      this.#unregisterRunningAgent(chatId);
+    let meta = this.storage.chatMeta.get(chatId);
+    if (meta) {
+      delete meta.activeAgent;
+      meta.lastActive = this.getChatTimestamp();
+      this.storage.chatMeta.put(meta);
+    }
 
-      // Resolve any agent callback returns that weren't explicitly returned (they get undefined).
-      for (let [, cb] of liveChat.activeAgentCallbacks) {
-        cb.resolve(undefined);
-      }
-      liveChat.activeAgentCallbacks.clear();
+    // Tear down the registry entry, persistent `activeAgents` record, and keep-alive alarm in the
+    // same synchronous step as clearing `activeAgent` above, so the chat never appears idle while
+    // stale records of this agent linger. If pending callbacks below restart the agent, they'll
+    // re-register everything consistently.
+    this.#unregisterRunningAgent(chatId);
 
-      // If any new messages were queued waiting for the agent to finish, deliver them now.
-      if (liveChat.pendingAgentCallbacks.length > 0) {
-        this.#startAgentForCallbacks(meta, liveChat);
-      } else {
-        this.#deliverWaitingExternalMessageResponse(chatId);
+    // Resolve any agent callback returns that weren't explicitly returned (they get undefined).
+    for (let [, cb] of liveChat.activeAgentCallbacks) {
+      cb.resolve(undefined);
+    }
+    liveChat.activeAgentCallbacks.clear();
 
-        // LiveChatContext is now empty.
-        this.#liveChats.delete(chatId);
-      }
+    // If any new messages were queued waiting for the agent to finish, deliver them now.
+    if (liveChat.pendingAgentCallbacks.length > 0) {
+      this.#startAgentForCallbacks(meta, liveChat);
+    } else {
+      this.#deliverWaitingExternalMessageResponse(chatId);
+
+      // LiveChatContext is now empty.
+      this.#liveChats.delete(chatId);
     }
   }
 
@@ -7081,7 +7212,7 @@ export class OverseerDurableObject extends DurableObject<Cloudflare.Env> {
    *   the agents yet again.
    */
   async alarm() {
-    await this.impl.waitForAllAgentsToComplete();
+    await this.impl.holdForRunningAgents();
     await this.impl.deliverReadyExternalMessageResponses();
   }
 
