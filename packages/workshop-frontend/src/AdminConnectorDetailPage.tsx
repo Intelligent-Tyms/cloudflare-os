@@ -199,7 +199,25 @@ export default function AdminConnectorDetailPage({ vendorId }: { vendorId: strin
 
   // Runtime admin setup: the organization's credential (a B2B login, a company API key) or the
   // OAuth app people sign in through. Shown for every vendor that accepts setup, ambient or not.
-  const setupPanel = vendor.setup && (
+  // A setup that adds something (a server of the company's own) is worded as adding, and can be
+  // used again and again; every other setup is a configuration to complete or manage.
+  const addition = vendor.setup?.addition
+  const setupPanel = vendor.setup && (addition ? (
+    <Panel
+      step={nextStep()}
+      title={`Add a ${addition.noun} for your team`}
+      hint={`Add it once, with the company’s API key if it needs one. It becomes a connector of its own that everyone on the team uses without signing in.`}
+      aside={
+        <button
+          type="button"
+          onClick={() => setSetupOpen(true)}
+          className="text-sm font-medium px-3 py-1.5 rounded-lg border border-kumo-brand bg-kumo-brand/10 text-kumo-default transition-colors hover:bg-kumo-brand/20"
+        >
+          Add {addition.noun}
+        </button>
+      }
+    />
+  ) : (
     <Panel
       step={nextStep()}
       title={scope === 'organization' ? 'Company credential' : 'Setup'}
@@ -226,7 +244,7 @@ export default function AdminConnectorDetailPage({ vendorId }: { vendorId: strin
         </button>
       }
     />
-  )
+  ))
 
   const availabilityPanel = vendor.autoProvisions ? (
     <Panel
@@ -436,6 +454,7 @@ export default function AdminConnectorDetailPage({ vendorId }: { vendorId: strin
           displayName={vendor.displayName}
           admin={admin.api}
           inputNames={vendor.setupInputNames}
+          addition={addition}
           onOpenChange={(open) => { if (!open) setSetupOpen(false) }}
           onChanged={() => { reload().catch(() => {}) }}
         />

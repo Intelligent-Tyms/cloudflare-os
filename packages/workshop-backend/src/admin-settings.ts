@@ -860,7 +860,9 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
         try {
           let [description, supportedResources] = await Promise.all([
             vendor.describe(),
-            vendor.getSupportedResources({ userId: adminUserId }),
+            // forSetup: a resource that needs setup before anyone can use it still gets its
+            // card here, since this is where that setup is entered.
+            vendor.getSupportedResources({ userId: adminUserId, forSetup: true }),
           ]);
           // Display metadata shared by both vendor shapes, forwarded for the admin list and
           // detail pages.
@@ -878,7 +880,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
           // advertises none, and this row is where the admin enters the setup that changes that.
           // Ambient vendors carry it too: an organization credential (goAML's B2B login) is
           // entered here whether or not the vendor also has a connect flow.
-          let setup: { status: VendorSetup["status"] } | undefined;
+          let setup: { status: VendorSetup["status"]; addition?: { noun: string } } | undefined;
           let setupState: VendorSetup | undefined;
           if (description.supportsAdminSetup === true) {
             setupState = await (vendor as unknown as VendorSetupStub).describeSetup();
@@ -936,6 +938,9 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
             });
           }
           let ownSetup = setup && (presented.length === 0 || ownInputs.length > 0) ? setup : undefined;
+          // The vendor's own card is where its adding form lives; the connectors presented from
+          // its resources keep only their own inputs.
+          if (ownSetup && setupState?.addition) ownSetup = { ...ownSetup, addition: setupState.addition };
           if (own.length > 0 || ownSetup) {
             entries.push({
               vendorId: id,

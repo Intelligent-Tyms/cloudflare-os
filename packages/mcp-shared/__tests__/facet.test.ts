@@ -323,3 +323,31 @@ it("bounds concurrent catalog reads", async () => {
   release();
   await Promise.all(searches);
 });
+
+// A connector whose policy source loads asynchronously (the gatekeeper-mcp catalog): the sync
+// getter still holds the cold-isolate default when an observer arrives.
+class ColdCatalogFacet extends TestFacet {
+  loadedPolicy: McpSharingPolicy = "same-account";
+  loads = 0;
+  protected override async currentSharing(): Promise<McpSharingPolicy> {
+    this.loads++;
+    this.sharingPolicy = this.loadedPolicy;
+    return this.sharing;
+  }
+}
+
+it("judges observers and reads by the loaded policy, not the cold-isolate default", async () => {
+  const subject = new ColdCatalogFacet({
+    props: { endpoint: "https://example.com/mcp", scope: {} },
+    storage: { kv: {}, sql: fakeSql() },
+  } as never, {});
+  await subject.recordRead("get_account", { id: "a1" });
+
+  subject.sharingPolicy = "owner-only";  // cold again: the cached catalog is empty
+  await expect(subject.addObserver("observer", verifier("acc-obs"))).resolves.toBeUndefined();
+  expect(subject.replayed).toEqual([{ account: "acc-obs", toolName: "get_account", args: { id: "a1" } }]);
+
+  subject.sharingPolicy = "owner-only";
+  await expect(subject.recordRead("list_transactions", { account: "a1" })).resolves.toBeUndefined();
+  expect(subject.loads).toBe(2);
+});

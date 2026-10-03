@@ -972,7 +972,8 @@ export type AdminResourceVendor = {
   // Present when the vendor accepts runtime admin setup (VendorDescription.supportsAdminSetup):
   // its current setup status, so the panel can offer the setup flow. An unconfigured such vendor
   // keeps its row (with no resources) — that row is where setup is entered.
-  setup?: { status: VendorSetup["status"] };
+  // `addition` is set when this entry's setup is a form that adds something (VendorSetup.addition).
+  setup?: { status: VendorSetup["status"]; addition?: { noun: string } };
   // The subset of the vendor's setup inputs this entry owns, when the vendor's setup was split
   // between it and connectors presented from its resources (ResourceConnector.setupInputNames).
   // Absent means every input.

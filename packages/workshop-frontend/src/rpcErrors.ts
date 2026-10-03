@@ -110,3 +110,16 @@ export function logRpcFailure(
 export function reportDoResetError(site: string, err: unknown, options?: { gadgetId?: string }) {
   reportIssue(`do-reset.${site}`, err, { severity: 'warning', handled: true, ...options })
 }
+
+/**
+ * The title for a toast about a failed action: the backend's own sentence when the failure is
+ * one it explained and a person can act on ("Google is not set up on this deployment…", "Only an
+ * administrator can add this connector…"), and the caller's generic wording for everything else
+ * (a dropped connection, a reset, an opaque internal error, an essay).
+ */
+export function failureTitle(err: unknown, fallback: string): string {
+  if (!(err instanceof Error) || classifyRpcError(err) !== 'other') return fallback
+  const message = err.message.trim()
+  if (!message || message.length > 240 || /internal error/i.test(message)) return fallback
+  return message
+}
