@@ -6286,7 +6286,7 @@ class OverseerImpl implements AgentHooks {
     let vendor = vendors.find(v => v.id === vendorId);
     if (!vendor) {
       return `Unknown vendor "${vendorId}". Available vendors: ` +
-          `${vendors.map(v => v.id).join(", ") || "(none)"}.`;
+          `${vendors.map(v => v.id).join(", ") || "(none)"}. ${NOT_ADDED_HINT}`;
     }
     if (vendor.supportedResources.length === 0) {
       return `Vendor "${vendorId}" (${vendor.description.displayName}) offers no connectable ` +
@@ -6322,7 +6322,8 @@ class OverseerImpl implements AgentHooks {
     if (!vendor) {
       return { requested: false, message:
           `Cannot request a connection: unknown vendor "${input.vendorId}". ` +
-          `Available vendors: ${vendors.map(v => v.id).join(", ") || "(none)"}.` };
+          `Available vendors: ${vendors.map(v => v.id).join(", ") || "(none)"}. ` +
+          NOT_ADDED_HINT };
     }
 
     // Resolve the exact resource this request maps to, using the same precedence the accept modal
@@ -7626,6 +7627,12 @@ type BindingLoopbackTarget = {
  * TODO(multi-gadget): Rename to BindingLoopback. Stubs to this entrypoint aren't stored anywhere,
  * so a rename should be safe.
  */
+// What the agent is told when it asks for a service the deployment does not offer this user:
+// the fix is an administrator's, and the agent should say so rather than improvise around it.
+const NOT_ADDED_HINT =
+    "A service that is not listed has not been added for this company: tell the user an " +
+    "administrator can add it under Admin → Connectors.";
+
 export class GatekeeperLoopback extends WorkerEntrypoint<Cloudflare.Env, GatekeeperLoopbackProps> {
   constructor(ctx: ExecutionContext<GatekeeperLoopbackProps>, env: Cloudflare.Env) {
     super(ctx, env);

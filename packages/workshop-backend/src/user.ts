@@ -15,6 +15,7 @@ import type { AdminSettings } from "./admin-settings.js";
 import { isReservedBlueprintKey, readBlueprintKvRecord } from "./blueprint-archive.js";
 import { readBlueprintKvRecordViaCatalog } from "./template-catalog.js";
 import { filterEnabledResources, isResourceDisabled, readAdminConfig } from "./admin-config.js";
+import { connectableResources, memberConnectPatterns, type ConnectorCaller } from "./connector-access.js";
 import { buildGatekeeperVendorMap } from "./auth/auth-vendors.js";
 import { validateAssistantProfile } from "./assistant-profile.js";
 
@@ -1348,7 +1349,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     return result;
   }
 
-  async listGatekeeperVendors(filter: GatekeeperVendorFilter = {})
+  async listGatekeeperVendors(filter: GatekeeperVendorFilter = {}, caller: ConnectorCaller = {})
       : Promise<GatekeeperVendorInfo[]> {
     let options = {
       userId: this.storage.profile.get().id
@@ -1400,8 +1401,18 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
             vendor.describe(),
             vendor.getSupportedResources(options),
           ]);
+          // A member is offered only what a member may connect; the rest is an administrator's
+          // to add, and a vendor with nothing else has nothing to show them.
+          let offeredResources = connectableResources(supportedResources, caller);
+          if (offeredResources.length == 0 && supportedResources.length > 0) return null;
           let enabledResources =
-              filterEnabledResources(config, id, supportedResources);
+              filterEnabledResources(config, id, offeredResources);
+          if (filter.resourceUrl) {
+            // The vendor matched on some resource type; keep it only if one this caller can
+            // actually use matches too.
+            let url = filter.resourceUrl;
+            if (!enabledResources.some(r => new URLPattern(r.urlPattern).test(url))) return null;
+          }
           if (enabledResources.length == 0) {
             // Nothing connectable. Hidden by default; with includeHidden the row survives with
             // an explanatory state: a vendor that advertised resources the admin turned off is
@@ -1437,13 +1448,21 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     return (await Promise.all(promises)).filter(value => value !== null);
   }
 
-  async connectAccount(vendorId: string, resourceUrlPatterns?: string[]): Promise<{url: string}> {
+  async connectAccount(
+      vendorId: string, resourceUrlPatterns?: string[], caller: ConnectorCaller = {})
+      : Promise<{url: string}> {
     let vendor = this.vendors.get(vendorId);
     if (!vendor) {
       throw new Error("No such service: " + vendorId);
     }
-    if ((await readAdminConfig(this.env)).disabledGatekeepers.includes(vendorId.toLowerCase())) {
+    let config = await readAdminConfig(this.env);
+    if (config.disabledGatekeepers.includes(vendorId.toLowerCase())) {
       throw new Error(`The "${vendorId}" integration is disabled on this deployment.`);
+    }
+    if (!caller.admin) {
+      // A member signs in to a connector; they don't add one (see connector-access.ts).
+      let resources = await vendor.getSupportedResources({userId: this.storage.profile.get().id});
+      resourceUrlPatterns = memberConnectPatterns(config, vendorId, resources, resourceUrlPatterns);
     }
 
     let accountId = this.storage.nextAccountId.get();

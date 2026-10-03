@@ -16,13 +16,16 @@ interface AdminIntegrationSetupModalProps {
   // Only these of the vendor's setup inputs (a presented connector's own key, or what the
   // vendor keeps after its connectors took theirs). Removing then clears only these.
   inputNames?: string[]
+  // Set when these inputs add something (VendorSetup.addition) rather than configure the
+  // connector: the dialog is worded as adding a `noun`.
+  addition?: { noun: string }
   onOpenChange: (open: boolean) => void
   // Called after setup was applied or removed, so the panel can reload vendor state.
   onChanged: () => void
 }
 
 export default function AdminIntegrationSetupModal({
-  open, vendorId, displayName, admin, inputNames, onOpenChange, onChanged,
+  open, vendorId, displayName, admin, inputNames, addition, onOpenChange, onChanged,
 }: AdminIntegrationSetupModalProps) {
   const toast = useKumoToastManager()
   const [setup, setSetup] = useState<VendorSetup | null>(null)
@@ -32,6 +35,9 @@ export default function AdminIntegrationSetupModal({
   const [replacing, setReplacing] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
+  // Why the last save was refused, kept in the dialog: it is usually something to fix in the
+  // fields right here (a wrong address, a rejected key), and a toast is gone before it is read.
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -40,6 +46,7 @@ export default function AdminIntegrationSetupModal({
     setLoadError(null)
     setDrafts({})
     setReplacing(new Set())
+    setSaveError(null)
     admin.getIntegrationSetup(vendorId).then(
       (state) => {
         if (cancelled) return
@@ -80,14 +87,17 @@ export default function AdminIntegrationSetupModal({
   const handleSave = async () => {
     if (!canSave) return
     setBusy(true)
+    setSaveError(null)
     try {
       await admin.applyIntegrationSetup(vendorId, Object.fromEntries(
         dirtyEntries.map(([name, value]) => [name, value.trim()])))
-      toast.add({ title: `${displayName} set up`, description: 'Your team can now connect their accounts.' })
+      toast.add(addition
+        ? { title: `${addition.noun[0].toUpperCase()}${addition.noun.slice(1)} added`, description: 'It is now a connector your whole team can use. Find it in the Connectors list.' }
+        : { title: `${displayName} set up`, description: 'Your team can now use it.' })
       onChanged()
       onOpenChange(false)
     } catch (error) {
-      toast.add({ title: 'Setup failed', description: error instanceof Error ? error.message : String(error) })
+      setSaveError(error instanceof Error ? error.message : String(error))
     } finally {
       setBusy(false)
     }
@@ -117,7 +127,7 @@ export default function AdminIntegrationSetupModal({
       <Dialog className="max-w-xl">
         <div className="p-6">
           <Dialog.Title className="text-[17px] leading-6 font-medium tracking-[-0.35px] text-kumo-default">
-            Set up {displayName}
+            {addition ? `Add a ${addition.noun} for your team` : `Set up ${displayName}`}
           </Dialog.Title>
           <Dialog.Description className="mt-1 text-[13px] leading-[18px] text-kumo-subtle">
             {setup?.description ?? `Enter the configuration ${displayName} needs. Secrets are stored on the server and never shown again.`}
@@ -219,9 +229,17 @@ export default function AdminIntegrationSetupModal({
                 })}
               </div>
 
+              {saveError && (
+                <p role="alert" className="rounded-lg border border-kumo-danger/30 bg-kumo-danger/5 px-3 py-2 text-[13px] leading-[18px] text-kumo-danger">
+                  {saveError}
+                </p>
+              )}
+
               <div className="flex items-center gap-2 pt-2">
                 <Button type="button" variant="primary" disabled={!canSave} onClick={handleSave}>
-                  {busy ? 'Saving…' : 'Save setup'}
+                  {addition
+                    ? busy ? 'Connecting…' : `Add ${addition.noun}`
+                    : busy ? 'Saving…' : 'Save setup'}
                 </Button>
                 <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
                   Cancel
@@ -233,7 +251,7 @@ export default function AdminIntegrationSetupModal({
                   </Button>
                 )}
               </div>
-              {setup.status === 'configured' && setup.configured.length === 0 && (
+              {!addition && setup.status === 'configured' && setup.configured.length === 0 && (
                 <p className="text-xs text-kumo-subtle">
                   Currently configured by the deployment. Values you save here take precedence.
                 </p>

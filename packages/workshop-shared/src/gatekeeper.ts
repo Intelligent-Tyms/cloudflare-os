@@ -188,6 +188,13 @@ export type VendorSetup = {
   // secret values never appear here. Empty when the vendor is configured only by deploy-time
   // secrets — the UI then reports "configured by the deployment".
   configured: { name: string; updatedAt: number; value?: string }[];
+  /**
+   * Present when some of the inputs are a form that adds something (a server to the company's
+   * list) instead of completing a fixed configuration: they are never reported as configured and
+   * read back empty, so another can be added. The panel words that part of setup as adding a
+   * `noun` rather than as setup still to be done.
+   */
+  addition?: { noun: string };
 };
 
 // One file of a skill package being installed (see GatekeeperVendor.installSkillPackage).
@@ -519,6 +526,15 @@ export type SupportedResource = {
 
   /** Present when this resource is listed as a connector of its own (see ResourceConnector). */
   connector?: ResourceConnector;
+
+  /**
+   * Who may start a new connection to this resource type. Omitted: anyone the deployment offers
+   * it to, by signing in to their own account. "admin": connecting means supplying an address or
+   * a credential (a server URL, an API key) rather than signing in, which is an administrator's
+   * job: the Workshop hides the resource from everyone else and refuses their connect attempts.
+   * Connections that already exist keep working for whoever holds them.
+   */
+  connectableBy?: "admin";
 }
 
 /** Removes every trailing slash from a string in linear time. */
@@ -755,9 +771,15 @@ export interface GatekeeperVendor extends WorkerEntrypoint {
    * TODO: Providing the user ID here is a temporary hack to enable a hidden internal gatekeeper.
    *   Later on we should come up with a better way to manage which users see which gatekeepers.
    *
+   * `options.forSetup` is set when the admin panel is listing what an administrator can set up,
+   * rather than what a user can use: a vendor then also returns the resource types that exist
+   * but are not usable yet (a company server whose key has not been entered), so each gets a
+   * card where its setup is entered. Without it, only usable resource types are returned.
+   *
    * TODO: How does the Gadget Workshop know when the supported URLs have changed, without polling?
    */
-  getSupportedResources(options?: {userId?: string}): Promise<SupportedResource[]>;
+  getSupportedResources(options?: {userId?: string; forSetup?: boolean})
+      : Promise<SupportedResource[]>;
 
   /**
    * Returns TypeScript source code defining all types covering APIs defined by this Gatekeeper.

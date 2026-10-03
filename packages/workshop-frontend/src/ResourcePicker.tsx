@@ -1,4 +1,4 @@
-import { logRpcFailure } from './rpcErrors'
+import { failureTitle, logRpcFailure } from './rpcErrors'
 import { useState, useEffect, useMemo, useCallback, type MutableRefObject } from 'react'
 import { Tooltip, useKumoToastManager } from '@cloudflare/kumo'
 import { Plus, ChevronRight, TriangleAlert } from 'lucide-react'
@@ -402,7 +402,7 @@ export default function ResourcePicker({
       window.open(result.url, '_blank', 'noopener,noreferrer')
     } catch (error) {
       console.error('Failed to initiate connection:', error)
-      toasts.add({ title: 'Failed to start connection flow', variant: 'error' })
+      toasts.add({ title: failureTitle(error, 'Failed to start connection flow'), variant: 'error' })
     } finally {
       setConnectingVendor(null)
     }
@@ -438,7 +438,7 @@ export default function ResourcePicker({
       // The reconnectingAccount state is cleared at that point.
     } catch (error) {
       console.error('Failed to initiate reconnection:', error)
-      toasts.add({ title: 'Failed to start re-authentication flow', variant: 'error' })
+      toasts.add({ title: failureTitle(error, 'Failed to start re-authentication flow'), variant: 'error' })
       setReconnectingAccount(null)
     }
   }, [authenticatedApi])

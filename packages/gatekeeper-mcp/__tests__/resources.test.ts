@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { companyResources, mcpResourceFor, mcpResources } from "../src/resources.js";
+import { companyResources, isCustomServerPattern, mcpResourceFor, mcpResources } from "../src/resources.js";
 import type { CatalogServer } from "../src/vetted-catalog.js";
 
 const STRIPE: CatalogServer = {
@@ -42,6 +42,14 @@ describe("mcpResources", () => {
     ]);
     expect(resources[0]).toMatchObject({ title: "Stripe", grantable: true });
     expect(resources[1].grantable).toBeUndefined();
+  });
+
+  it("reserves the BYO catch-alls for administrators and nothing else", () => {
+    const resources = mcpResources(true, [STRIPE]);
+    expect(resources.map(resource => resource.connectableBy)).toEqual([undefined, "admin", "admin"]);
+    expect(isCustomServerPattern("https://*")).toBe(true);
+    expect(isCustomServerPattern("http://*")).toBe(true);
+    expect(isCustomServerPattern("https://mcp.stripe.com/v1")).toBe(false);
   });
 
   it("keeps company servers out of the personal list and offers them separately", () => {

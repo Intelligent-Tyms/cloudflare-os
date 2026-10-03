@@ -2457,6 +2457,10 @@ export async function runAgent(
           `because it is missing from your env; confirm the connection and offer to attach it to ` +
           `this chat instead. Later attachments in this conversation are announced in the chat ` +
           `itself and won't be reflected in this list.\n` +
+          `These are the only services this company has added. If the task needs one that is ` +
+          `not listed, say so plainly and tell the user an administrator can add it under ` +
+          `Admin → Connectors; do not ask the user to paste an API key, a token or a server ` +
+          `address into the chat to work around it.\n` +
           `Available integrations:\n${vendorLines.join("\n")}`;
     }
 
