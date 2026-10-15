@@ -30,6 +30,7 @@ import { recordAnalytics } from "./analytics";
 import { handleClientErrorRequest } from "./client-errors.js";
 import { verifyCfAccessJwt } from "./access.js";
 import { importSPKI, jwtVerify } from "jose";
+import { CENTRAL_ADMIN_PATH, handleCentralAdmin } from "./central-admin.js";
 import { resolveUiFeatureFlags } from "./feature-flags";
 import { serveSiteLogo, SITE_LOGO_PATH } from "./site-logo.js";
 import { createWorkshopLogger } from "./observability";
@@ -1046,6 +1047,10 @@ export default {
 
     if (url.pathname === "/api/central/signout") {
       return handleCentralSignout(req, env, ctx);
+    }
+
+    if (url.pathname === CENTRAL_ADMIN_PATH) {
+      return handleCentralAdmin(req, env, ctx);
     }
 
     if (url.pathname.startsWith(BLUEPRINT_SCREENSHOT_PATH_PREFIX)) {
