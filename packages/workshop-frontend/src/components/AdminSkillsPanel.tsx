@@ -12,6 +12,7 @@ import { ArrowUpRight, Check, ChevronRight, TriangleAlert } from 'lucide-react'
 import type { AdminApi, AdminSkill, SkillMarketplaceEntry } from '@gadgets/workshop-shared/api'
 import type { RpcStub } from 'capnweb'
 import { useGatekeeperApps } from '../useGatekeeperApps'
+import { useServerConfig } from '../ServerConfigContext'
 
 export default function AdminSkillsPanel({
   admin,
@@ -24,6 +25,7 @@ export default function AdminSkillsPanel({
   onChanged: () => Promise<void>
 }) {
   const toasts = useKumoToastManager()
+  const managed = Boolean(useServerConfig()?.settingsManagedCentrally)
   const [busy, setBusy] = useState(false)
   // The Knowledge management app, for the "add skills" pointer. Discovered, not hardcoded: any
   // skills-providing integration's app would do, but today that is Knowledge.
@@ -72,7 +74,7 @@ export default function AdminSkillsPanel({
         <h2 className="mb-1 text-lg font-semibold text-kumo-strong">Skills</h2>
         <p className="mb-5 text-sm text-kumo-subtle">
           Skills teach assistants how to perform specific tasks. Select one to see what it does
-          and turn it on or off. Add your own as{' '}
+          {managed ? '; which are offered is set on the admin portal' : ' and turn it on or off'}. Add your own as{' '}
           <code className="rounded bg-kumo-tint px-1 py-0.5 font-mono text-[12px]">SKILL.md</code>{' '}
           files in a shared{' '}
           {driveApp ? (

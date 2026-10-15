@@ -9,6 +9,12 @@ import type { ServerConfig } from '@gadgets/workshop-shared/api'
 export type Portal = 'admin' | 'billing'
 
 /**
+ * The admin portal's page for this deployment's centrally managed settings (organization
+ * profile, instructions, brand, notices, and the skills and AI models offered).
+ */
+export const CENTRAL_SETTINGS_PATH = '/jamaa'
+
+/**
  * A page on one of the portals for this workspace (`path` like '/plans' or '?tab=payment'),
  * or undefined when the deployment has no such portal.
  */
