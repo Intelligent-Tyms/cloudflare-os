@@ -23,8 +23,7 @@ declare global {
                                           // (no gateway, no cost logs) instead of a named Gateway
       CF_AI_GATEWAY_TENANT?: string;      // Tenant id attached to gateway log attribution
                                           // metadata (fleet deployments share one gateway)
-      // Note: outside gateway mode, Workers AI (provider "cloudflare") is BYOK like every other
-      // provider -- the account ID and API token live in the user's model config, not in env.
+      // Without CF_AI_GATEWAY the deployment offers no models.
 
       // Skill marketplace catalog URL (the fleet's curated skill-package catalog endpoint,
       // e.g. https://start.tyms.ai/marketplace/skills). Absent ⇒ no marketplace: the admin

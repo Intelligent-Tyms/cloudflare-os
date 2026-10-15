@@ -671,10 +671,6 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     return models;
   }
 
-  async getQuickModel(): Promise<null | string> {
-    return this.adminSettings.getByName("").getQuickModelId();
-  }
-
   async getPreferredModel(): Promise<string | null> {
     return this.storage.preferredModel.get();
   }
@@ -744,11 +740,8 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   async setPreferredModel(id: string | null): Promise<void> {
     if (id !== null) {
       // Validate that the model exists in the deployment catalog (and is not admin-disabled).
-      // Platform gateway mode is platform-catalog-only; BYOK records count only outside it.
       let gwConfig = getAiGatewayConfig(this.env);
-      let exists = gwConfig
-          ? !!gwConfig.resolveModel(id, await this.#disabledModels())
-          : !!(await this.adminSettings.getByName("").getModelRecord(id));
+      let exists = !!gwConfig?.resolveModel(id, await this.#disabledModels());
       if (!exists) {
         let disabledRecord = gwConfig?.resolveModel(id);
         if (disabledRecord) {
@@ -870,18 +863,15 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
    * via retryOnDoReset, so it must stay free of writes and side effects. */
   async getChatContext(modelId: string | null): Promise<UserChatContext> {
     let gwConfig = getAiGatewayConfig(this.env);
-    let adminSettings = this.adminSettings.getByName("");
 
     let result: UserChatContext = {
       profile: this.storage.profile.get()
     };
     if (modelId) {
       if (gwConfig) {
-        // Platform gateway mode is platform-catalog-only: admin-added BYOK records never
-        // resolve (the platform holds the keys; stored tenant tokens are dead weight until the
-        // teardown release purges them). Admin-disabled models refuse to resolve here too --
-        // this is the enforcement point for stale client selections, gadget bindings, and
-        // crafted requests, not just the picker filter.
+        // Admin-disabled models refuse to resolve here -- this is the enforcement point for
+        // stale client selections, gadget bindings, and crafted requests, not just the picker
+        // filter.
         result.aiModel = gwConfig.resolveModel(modelId, await this.#disabledModels());
         if (!result.aiModel) {
           // Distinguish "disabled by the admin" from "never existed": the surfaced error tells
@@ -893,19 +883,12 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
                 `Choose another model.`);
           }
         }
-      } else {
-        result.aiModel = await adminSettings.getModelRecord(modelId) ?? undefined;
       }
       if (!result.aiModel) throw new Error(`No such model: ${modelId}`);
     }
 
-    // Resolve the quick model (used for lightweight tasks like title generation).
-    if (gwConfig) {
-      // In AI Gateway mode, always use the hardcoded quick model.
-      result.quickModel = gwConfig.getQuickModelConfig();
-    } else {
-      result.quickModel = (await adminSettings.getQuickModelRecord())?.config;
-    }
+    // The quick model (used for lightweight tasks like title generation) is the gateway's.
+    result.quickModel = gwConfig?.getQuickModelConfig();
     return result;
   }
 

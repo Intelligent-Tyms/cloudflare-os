@@ -447,8 +447,6 @@ export interface AuthenticatedApi extends RpcTarget {
    */
   listModels(): Promise<AiChatAuthorInfo[]>;
 
-  /** Get the deployment's quick model (used for lightweight tasks like chat titles). */
-  getQuickModel(): Promise<null | string>;
 
   /**
    * Get AI configuration info, including whether AI Gateway mode is active and which providers
