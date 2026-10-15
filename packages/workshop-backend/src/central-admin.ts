@@ -1,5 +1,5 @@
 // Admin calls from the control plane: a workspace's owners and admins manage it on the
-// central admin portal, which asks this deployment to run an AdminApi method on their behalf.
+// central admin portal, which asks this deployment to run a CentralAdminApi method on their behalf.
 // Server to server, like the sign-out fan-out (/api/central/signout): the control plane POSTs
 // a JWT signed with the central handoff key, and this verifies it with HANDOFF_PUBLIC_KEY,
 // so nothing is trusted here that a handoff isn't already trusted with (a handoff can make
@@ -9,11 +9,11 @@
 // the method and its arguments. Signing the arguments means a captured token cannot be turned
 // into a different call; its 60-second lifetime bounds a replay to the same call. The control
 // plane checks the actor's role; this checks the method against CENTRAL_ADMIN_METHODS, so the
-// portal reaches only what was moved there, never the whole AdminApi.
+// portal reaches only what was moved there.
 
 import { importSPKI, jwtVerify } from "jose";
 import { hasCentralLogin } from "./auth/config.js";
-import { AdminApiImpl } from "./admin-settings.js";
+import { CentralAdminApi } from "./admin-settings.js";
 import { createWorkshopLogger } from "./observability";
 
 const logger = createWorkshopLogger("workshop.central.admin");
@@ -21,7 +21,7 @@ const logger = createWorkshopLogger("workshop.central.admin");
 /** Where the control plane sends admin calls. */
 export const CENTRAL_ADMIN_PATH = "/api/central/admin";
 
-/** The AdminApi methods the admin portal may call, each with how many arguments it takes. */
+/** The CentralAdminApi methods the admin portal may call, each with how many arguments it takes. */
 export const CENTRAL_ADMIN_METHODS = {
   getIntelligenceOverview: 0,
   provisionIntelligence: 1,
@@ -53,7 +53,10 @@ export const CENTRAL_ADMIN_METHODS = {
   removeFormat: 1,
   updateFormat: 2,
   setFormatOrder: 1,
-} as const satisfies Partial<Record<keyof AdminApiImpl, number>>;
+  // Skill packages from the marketplace, installed as shared Knowledge folders.
+  listSkillMarketplace: 0,
+  installSkillPackage: 1,
+} as const satisfies Partial<Record<keyof CentralAdminApi, number>>;
 
 export type CentralAdminMethod = keyof typeof CENTRAL_ADMIN_METHODS;
 
@@ -94,14 +97,14 @@ export async function handleCentralAdmin(
   }
   if (!call) return Response.json({ error: "invalid token" }, { status: 403 });
 
-  let api = new AdminApiImpl(ctx.exports.AdminSettings.getByName(""), call.actor, env);
+  let api = new CentralAdminApi(ctx.exports.AdminSettings.getByName(""), call.actor, env);
   try {
     let fn = api[call.method] as (...args: unknown[]) => Promise<unknown>;
     let result = await fn.apply(api, call.args);
     logger.info("central admin call", { event: "central_admin.call", operation: call.method, outcome: "ok" });
     return Response.json({ result: result ?? null });
   } catch (error) {
-    // AdminApi refusals are written for the admin ("...is not provisioned..."), so they go back as-is.
+    // Refusals are written for the admin ("...is not provisioned..."), so they go back as-is.
     logger.warn("central admin call failed", { event: "central_admin.call", operation: call.method, outcome: "error", error });
     return Response.json({ error: error instanceof Error ? error.message : "the call failed" }, { status: 400 });
   }

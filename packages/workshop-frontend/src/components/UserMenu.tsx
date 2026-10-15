@@ -3,6 +3,8 @@ import { DropdownMenu } from '@cloudflare/kumo'
 import { Bot, ChevronsUpDown, LogOut, MessageSquare, Plug, ShieldCheck, SunMoon, User } from 'lucide-react'
 import { useAuthenticatedApi } from '../AuthContext'
 import { useAvatar } from '../useAvatar'
+import { useServerConfig } from '../ServerConfigContext'
+import { portalLink } from '../portalLinks'
 import { useMyChannels } from '../useMyChannels'
 import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER, MENU_POSITIONER_STYLE } from './menuStyles'
 
@@ -22,12 +24,14 @@ function ItemContent({ icon, children }: { icon: React.ReactNode; children: Reac
 
 // Profile row pinned at the bottom of the sidebar: avatar, name, and email with a disclosure
 // chevron (the Slack/Notion account-switcher pattern). The dropdown is the single home for
-// account-level destinations — Profile, Integrations, Theme, Admin — each of which is a
-// full page rather than inline controls. When the sidebar is collapsed the row shrinks to just
+// account-level destinations — Profile, Integrations, Theme, and Admin (the admin portal) — each
+// of which is a full page rather than inline controls. When the sidebar is collapsed the row shrinks to just
 // the avatar.
 export default function UserMenu({ collapsed = false }: { collapsed?: boolean }) {
   const { authenticatedApi, logout, currentUser, isAdmin } = useAuthenticatedApi()
   const navigate = useNavigate()
+  // Workspace administration is on the admin portal.
+  const adminPortal = portalLink(useServerConfig(), 'admin')
   // Non-null only on deployments with a channels worker, so most workspaces never see the entry.
   const myChannels = useMyChannels()
 
@@ -114,9 +118,9 @@ export default function UserMenu({ collapsed = false }: { collapsed?: boolean })
         >
           <ItemContent icon={<SunMoon />}>Theme</ItemContent>
         </DropdownMenu.Item>
-        {isAdmin && (
+        {isAdmin && adminPortal && (
           <DropdownMenu.Item
-            onClick={() => navigate({ to: '/admin' })}
+            onClick={() => window.location.assign(adminPortal)}
             className={MENU_ITEM}
           >
             <ItemContent icon={<ShieldCheck />}>Admin</ItemContent>

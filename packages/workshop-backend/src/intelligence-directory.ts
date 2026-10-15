@@ -97,20 +97,6 @@ export async function rotateAssistantKey(
   return await call(env, `/intelligence/${kind}/rotate-key`, {}, kind);
 }
 
-/**
- * A signed-in URL into the product's console for `actor`, landing on `next` (a path on the
- * product host). The control plane mints a single-use, short-lived handoff token into it, so
- * this is called on the click that opens the console. Throws `not_provisioned` (as the
- * product's message) when the instance is not active.
- */
-export async function handoffUrl(
-  env: Cloudflare.Env, kind: IntelligenceProductKind,
-  actor: { email: string; role: "owner" | "admin" | "member" }, next?: string,
-): Promise<string> {
-  let { url } = await call<{ url: string }>(env, `/intelligence/${kind}/handoff`, { ...actor, next }, kind);
-  return url;
-}
-
 /** One product's instance out of a directory snapshot, or null when never provisioned. */
 export function instanceOf(view: CentralIntelligence, kind: IntelligenceProductKind): IntelligenceInstanceView | null {
   return view.instances.find(instance => instance.kind === kind) ?? null;

@@ -26,16 +26,12 @@ import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as ThemeRouteImport } from './routes/theme'
 import { Route as WorkspacesRouteImport } from './routes/workspaces'
-import { Route as AdminSectionRouteImport } from './routes/admin_.$section'
+import { Route as AdminSplatRouteImport } from './routes/admin_.$'
 import { Route as BlueprintIdRouteImport } from './routes/blueprint.$id'
 import { Route as GadgetIdRouteImport } from './routes/gadget.$id'
 import { Route as GatekeepersAppIdRouteImport } from './routes/gatekeepers_.$appId'
 import { Route as IntegrationsAppIdRouteImport } from './routes/integrations_.$appId'
 import { Route as WorkspaceIdRouteImport } from './routes/workspace.$id'
-import { Route as AdminChannelsChannelRouteImport } from './routes/admin_.channels.$channel'
-import { Route as AdminConnectorsVendorIdRouteImport } from './routes/admin_.connectors.$vendorId'
-import { Route as AdminIntegrationsVendorIdRouteImport } from './routes/admin_.integrations.$vendorId'
-import { Route as AdminSkillsSkillNameRouteImport } from './routes/admin_.skills.$skillName'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -122,9 +118,9 @@ const WorkspacesRoute = WorkspacesRouteImport.update({
   path: '/workspaces',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminSectionRoute = AdminSectionRouteImport.update({
-  id: '/admin_/$section',
-  path: '/admin/$section',
+const AdminSplatRoute = AdminSplatRouteImport.update({
+  id: '/admin_/$',
+  path: '/admin/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BlueprintIdRoute = BlueprintIdRouteImport.update({
@@ -152,27 +148,6 @@ const WorkspaceIdRoute = WorkspaceIdRouteImport.update({
   path: '/workspace/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminChannelsChannelRoute = AdminChannelsChannelRouteImport.update({
-  id: '/admin_/channels/$channel',
-  path: '/admin/channels/$channel',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AdminConnectorsVendorIdRoute = AdminConnectorsVendorIdRouteImport.update({
-  id: '/admin_/connectors/$vendorId',
-  path: '/admin/connectors/$vendorId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AdminIntegrationsVendorIdRoute =
-  AdminIntegrationsVendorIdRouteImport.update({
-    id: '/admin_/integrations/$vendorId',
-    path: '/admin/integrations/$vendorId',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const AdminSkillsSkillNameRoute = AdminSkillsSkillNameRouteImport.update({
-  id: '/admin_/skills/$skillName',
-  path: '/admin/skills/$skillName',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -192,16 +167,12 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/theme': typeof ThemeRoute
   '/workspaces': typeof WorkspacesRoute
-  '/admin/$section': typeof AdminSectionRoute
+  '/admin/$': typeof AdminSplatRoute
   '/blueprint/$id': typeof BlueprintIdRoute
   '/gadget/$id': typeof GadgetIdRoute
   '/gatekeepers/$appId': typeof GatekeepersAppIdRoute
   '/integrations/$appId': typeof IntegrationsAppIdRoute
   '/workspace/$id': typeof WorkspaceIdRoute
-  '/admin/channels/$channel': typeof AdminChannelsChannelRoute
-  '/admin/connectors/$vendorId': typeof AdminConnectorsVendorIdRoute
-  '/admin/integrations/$vendorId': typeof AdminIntegrationsVendorIdRoute
-  '/admin/skills/$skillName': typeof AdminSkillsSkillNameRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -221,16 +192,12 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/theme': typeof ThemeRoute
   '/workspaces': typeof WorkspacesRoute
-  '/admin/$section': typeof AdminSectionRoute
+  '/admin/$': typeof AdminSplatRoute
   '/blueprint/$id': typeof BlueprintIdRoute
   '/gadget/$id': typeof GadgetIdRoute
   '/gatekeepers/$appId': typeof GatekeepersAppIdRoute
   '/integrations/$appId': typeof IntegrationsAppIdRoute
   '/workspace/$id': typeof WorkspaceIdRoute
-  '/admin/channels/$channel': typeof AdminChannelsChannelRoute
-  '/admin/connectors/$vendorId': typeof AdminConnectorsVendorIdRoute
-  '/admin/integrations/$vendorId': typeof AdminIntegrationsVendorIdRoute
-  '/admin/skills/$skillName': typeof AdminSkillsSkillNameRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -251,16 +218,12 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/theme': typeof ThemeRoute
   '/workspaces': typeof WorkspacesRoute
-  '/admin_/$section': typeof AdminSectionRoute
+  '/admin_/$': typeof AdminSplatRoute
   '/blueprint/$id': typeof BlueprintIdRoute
   '/gadget/$id': typeof GadgetIdRoute
   '/gatekeepers_/$appId': typeof GatekeepersAppIdRoute
   '/integrations_/$appId': typeof IntegrationsAppIdRoute
   '/workspace/$id': typeof WorkspaceIdRoute
-  '/admin_/channels/$channel': typeof AdminChannelsChannelRoute
-  '/admin_/connectors/$vendorId': typeof AdminConnectorsVendorIdRoute
-  '/admin_/integrations/$vendorId': typeof AdminIntegrationsVendorIdRoute
-  '/admin_/skills/$skillName': typeof AdminSkillsSkillNameRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -282,16 +245,12 @@ export interface FileRouteTypes {
     | '/signup'
     | '/theme'
     | '/workspaces'
-    | '/admin/$section'
+    | '/admin/$'
     | '/blueprint/$id'
     | '/gadget/$id'
     | '/gatekeepers/$appId'
     | '/integrations/$appId'
     | '/workspace/$id'
-    | '/admin/channels/$channel'
-    | '/admin/connectors/$vendorId'
-    | '/admin/integrations/$vendorId'
-    | '/admin/skills/$skillName'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -311,16 +270,12 @@ export interface FileRouteTypes {
     | '/signup'
     | '/theme'
     | '/workspaces'
-    | '/admin/$section'
+    | '/admin/$'
     | '/blueprint/$id'
     | '/gadget/$id'
     | '/gatekeepers/$appId'
     | '/integrations/$appId'
     | '/workspace/$id'
-    | '/admin/channels/$channel'
-    | '/admin/connectors/$vendorId'
-    | '/admin/integrations/$vendorId'
-    | '/admin/skills/$skillName'
   id:
     | '__root__'
     | '/'
@@ -340,16 +295,12 @@ export interface FileRouteTypes {
     | '/signup'
     | '/theme'
     | '/workspaces'
-    | '/admin_/$section'
+    | '/admin_/$'
     | '/blueprint/$id'
     | '/gadget/$id'
     | '/gatekeepers_/$appId'
     | '/integrations_/$appId'
     | '/workspace/$id'
-    | '/admin_/channels/$channel'
-    | '/admin_/connectors/$vendorId'
-    | '/admin_/integrations/$vendorId'
-    | '/admin_/skills/$skillName'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -370,16 +321,12 @@ export interface RootRouteChildren {
   SignupRoute: typeof SignupRoute
   ThemeRoute: typeof ThemeRoute
   WorkspacesRoute: typeof WorkspacesRoute
-  AdminSectionRoute: typeof AdminSectionRoute
+  AdminSplatRoute: typeof AdminSplatRoute
   BlueprintIdRoute: typeof BlueprintIdRoute
   GadgetIdRoute: typeof GadgetIdRoute
   GatekeepersAppIdRoute: typeof GatekeepersAppIdRoute
   IntegrationsAppIdRoute: typeof IntegrationsAppIdRoute
   WorkspaceIdRoute: typeof WorkspaceIdRoute
-  AdminChannelsChannelRoute: typeof AdminChannelsChannelRoute
-  AdminConnectorsVendorIdRoute: typeof AdminConnectorsVendorIdRoute
-  AdminIntegrationsVendorIdRoute: typeof AdminIntegrationsVendorIdRoute
-  AdminSkillsSkillNameRoute: typeof AdminSkillsSkillNameRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -503,11 +450,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspacesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin_/$section': {
-      id: '/admin_/$section'
-      path: '/admin/$section'
-      fullPath: '/admin/$section'
-      preLoaderRoute: typeof AdminSectionRouteImport
+    '/admin_/$': {
+      id: '/admin_/$'
+      path: '/admin/$'
+      fullPath: '/admin/$'
+      preLoaderRoute: typeof AdminSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/blueprint/$id': {
@@ -545,34 +492,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin_/channels/$channel': {
-      id: '/admin_/channels/$channel'
-      path: '/admin/channels/$channel'
-      fullPath: '/admin/channels/$channel'
-      preLoaderRoute: typeof AdminChannelsChannelRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/admin_/connectors/$vendorId': {
-      id: '/admin_/connectors/$vendorId'
-      path: '/admin/connectors/$vendorId'
-      fullPath: '/admin/connectors/$vendorId'
-      preLoaderRoute: typeof AdminConnectorsVendorIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/admin_/integrations/$vendorId': {
-      id: '/admin_/integrations/$vendorId'
-      path: '/admin/integrations/$vendorId'
-      fullPath: '/admin/integrations/$vendorId'
-      preLoaderRoute: typeof AdminIntegrationsVendorIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/admin_/skills/$skillName': {
-      id: '/admin_/skills/$skillName'
-      path: '/admin/skills/$skillName'
-      fullPath: '/admin/skills/$skillName'
-      preLoaderRoute: typeof AdminSkillsSkillNameRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -594,16 +513,12 @@ const rootRouteChildren: RootRouteChildren = {
   SignupRoute: SignupRoute,
   ThemeRoute: ThemeRoute,
   WorkspacesRoute: WorkspacesRoute,
-  AdminSectionRoute: AdminSectionRoute,
+  AdminSplatRoute: AdminSplatRoute,
   BlueprintIdRoute: BlueprintIdRoute,
   GadgetIdRoute: GadgetIdRoute,
   GatekeepersAppIdRoute: GatekeepersAppIdRoute,
   IntegrationsAppIdRoute: IntegrationsAppIdRoute,
   WorkspaceIdRoute: WorkspaceIdRoute,
-  AdminChannelsChannelRoute: AdminChannelsChannelRoute,
-  AdminConnectorsVendorIdRoute: AdminConnectorsVendorIdRoute,
-  AdminIntegrationsVendorIdRoute: AdminIntegrationsVendorIdRoute,
-  AdminSkillsSkillNameRoute: AdminSkillsSkillNameRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

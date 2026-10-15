@@ -66,5 +66,3 @@ export function applyAccentColor(color: string | null | undefined): void {
   applyAccentColorToStyle(document.documentElement.style, color)
 }
 
-// The base/default accent, shown in the admin picker when no custom color is set.
-export const DEFAULT_ACCENT_COLOR = '#0a0a0a'

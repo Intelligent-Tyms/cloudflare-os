@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { SignJWT, exportSPKI, generateKeyPair } from "jose";
 import { CENTRAL_ADMIN_METHODS, handleCentralAdmin, parseCentralAdminClaims } from "../src/central-admin";
-import { AdminApiImpl } from "../src/admin-settings";
+import { CentralAdminApi } from "../src/admin-settings";
 
 describe("central admin claims", () => {
   const call = { purpose: "admin", sub: "Owner@Acme.com", method: "provisionIntelligence", args: ["data"] };
@@ -17,15 +17,15 @@ describe("central admin claims", () => {
     expect(parseCentralAdminClaims({ ...call, purpose: "signout" })).toBeNull();
     expect(parseCentralAdminClaims({ ...call, purpose: undefined })).toBeNull();
     expect(parseCentralAdminClaims({ ...call, sub: "owner" })).toBeNull();
-    expect(parseCentralAdminClaims({ ...call, method: "setSiteName" })).toBeNull();
+    expect(parseCentralAdminClaims({ ...call, method: "getSettings" })).toBeNull();
     expect(parseCentralAdminClaims({ ...call, method: "toString" })).toBeNull();
     expect(parseCentralAdminClaims({ ...call, args: ["data", "more"] })).toBeNull();
     expect(parseCentralAdminClaims({ ...call, args: "data" })).toBeNull();
   });
 
-  it("only list methods the admin API has", () => {
+  it("only list methods the central admin API has", () => {
     for (const method of Object.keys(CENTRAL_ADMIN_METHODS)) {
-      expect(typeof (AdminApiImpl.prototype as unknown as Record<string, unknown>)[method], method).toBe("function");
+      expect(typeof (CentralAdminApi.prototype as unknown as Record<string, unknown>)[method], method).toBe("function");
     }
   });
 });
@@ -73,7 +73,7 @@ describe("handleCentralAdmin", () => {
       await token({ purpose: "admin", method: "getIntelligenceOverview" }, "globex"),
       await token({ purpose: "admin", method: "getIntelligenceOverview" }, "acme", other),
       await token({ purpose: "signout" }),
-      await token({ purpose: "admin", method: "setSiteName", args: ["x"] }),
+      await token({ purpose: "admin", method: "getSettings", args: ["x"] }),
     ]) {
       expect((await post({ token: t })).status).toBe(403);
     }

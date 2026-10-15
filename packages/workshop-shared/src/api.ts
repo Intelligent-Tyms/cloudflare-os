@@ -26,7 +26,7 @@
 import { RpcCompatible, RpcStub, RpcTarget } from "capnweb";
 import { AccountDescription, ActionKind, ActionDescription, AvatarImage, CredentialScope, GatekeeperUiFrame, IntegrationDepartment, ObservationDescription, ResourceDescription, ResourceConfiguratorFrame, SupportedResource, VendorDescription, VendorSetup, HookDescription } from "./gatekeeper.js";
 import type { UiFeatureFlags } from "./feature-flags.js";
-import type { ChannelsDescription, EmailInbox, TelegramBinding, TelegramLinkCode, UserChannelsView } from "./channels-admin.js";
+import type { TelegramLinkCode, UserChannelsView } from "./channels-admin.js";
 
 export type { ChannelsDescription, EmailInbox, TelegramBinding, TelegramLinkCode, UserChannelsView } from "./channels-admin.js";
 
@@ -439,15 +439,15 @@ export interface AuthenticatedApi extends RpcTarget {
   logout(): Promise<void>;
 
   /**
-   * List the AI models available on this deployment (gateway built-ins plus admin-configured
-   * models). The catalog itself is admin-managed; see AdminApi.addModel()/deleteModel().
+   * List the AI models available on this deployment.
+   * The catalog is the platform AI Gateway list minus the models switched off on the admin portal.
    *
    * Note that the list returned here could be different from a particular gadget's Overseer,
    * especially if the gadget is owned by someone else.
    */
   listModels(): Promise<AiChatAuthorInfo[]>;
 
-  /** Get the deployment's quick model setting (see AdminApi.setQuickModel()). */
+  /** Get the deployment's quick model (used for lightweight tasks like chat titles). */
   getQuickModel(): Promise<null | string>;
 
   /**
@@ -488,7 +488,7 @@ export interface AuthenticatedApi extends RpcTarget {
   getMyChannels(): Promise<UserChannelsView | null>;
 
   // Mint a one-time Telegram deep link that binds the tapping Telegram account to the
-  // caller's own email — the self-service twin of AdminApi.mintTelegramLinkCode, safe for
+  // caller's own email — the self-service twin of the admin portal's link codes, safe for
   // any user because it can only ever link the caller. Throws when the deployment has no
   // channels worker or Telegram isn't configured.
   linkMyTelegram(): Promise<TelegramLinkCode>;
@@ -801,21 +801,23 @@ export interface AuthenticatedApi extends RpcTarget {
    */
   getGatekeeperApp(id: string): Promise<GatekeeperUiFrame | null>;
 
-  // --- Deployment admin ---
+  // --- Workspace admins ---
 
   /**
-   * Whether the current user is a deployment admin. Used by the client to decide whether to show
-   * the admin UI.
+   * Whether the current user is an owner or admin of the workspace (their central role). Workspace
+   * administration is on the admin portal; this decides admin-only actions on this deployment's
+   * own content and the copy around them.
    */
   amIAdmin(): Promise<boolean>;
 
   /**
-   * Returns a capability for managing deployment-wide admin settings, or null when the caller is not
-   * an admin. The access check happens once here, so the returned stub's methods need no per-call
-   * checks. (Authentication config — sign-in providers, password login — is intentionally not
-   * managed here; it stays env-var driven.)
+   * Whether a blueprint is featured (offered to everyone), or null when the caller isn't an
+   * admin or the blueprint can't be featured (a deployment-installed one).
    */
-  getAdminApi(): Promise<RpcStub<AdminApi> | null>;
+  isBlueprintFeatured(blueprintId: string): Promise<boolean | null>;
+
+  /** Feature a blueprint for everyone, or stop. Admins only; throws for others. */
+  setBlueprintFeatured(blueprintId: string, featured: boolean): Promise<void>;
 
   // --- Central billing (all users) ---
 
@@ -1053,39 +1055,7 @@ export const MAX_SITE_LOGO_BYTES = 256 * 1024;
 /** Maximum width or height of an admin-uploaded site logo in pixels. */
 export const MAX_SITE_LOGO_DIMENSION = 512;
 
-/** All admin-managed deployment settings, returned by AdminApi.getSettings() for the admin UI. */
-export type AdminSettingsView = {
-  /** Whether new account signups are allowed. */
-  signupsEnabled: boolean;
-  /** Site name shown next to the top-bar logo ("" falls back to DEFAULT_SITE_NAME). */
-  siteName: string;
-  /** Custom deployment logo, or undefined to use the default Cloudflare OS mark. */
-  siteLogo?: AvatarImage;
-  /** Agent system-prompt instructions ("" when unset). */
-  instanceInstructions: string;
-  /** Organization context added to every agent's system prompt ("" when unset). */
-  organizationProfile: string;
-  /** Top-bar notice text ("" when unset). */
-  announcement: string;
-  /** Full-width banner (text + accent color). */
-  banner: BannerConfig;
-  /** Accent color hex, or "" for the default theme. */
-  accentColor: string;
-  /** Every bound gatekeeper and its resource types, with enabled state (not hidden when disabled). */
-  resourceVendors: AdminResourceVendor[];
-  /** The blueprints promoted as standard output formats, in menu order (including disabled ones). */
-  formats: AdminFormat[];
-  // Every deployment-wide agent skill, with enabled state (not hidden when disabled).
-  skills: AdminSkill[];
-  // The platform AI Gateway model catalog with enabled state (not hidden when disabled), or null
-  // outside gateway mode (BYOK deployments manage models by adding/removing them instead).
-  models: AdminModel[] | null;
-  // Which messaging channels the deployment's channels worker has configured, or null when
-  // no channels worker is bound (the admin page then shows setup steps instead).
-  channels: ChannelsDescription | null;
-};
-
-// One deployment-wide agent skill, as the admin Skills panel sees it: the skill's own metadata
+// One deployment-wide agent skill, as the admin portal sees it: the skill's own metadata
 // joined with the deployment's curation. Skills are authored as SKILL.md files in shared (public)
 // Knowledge folders; this panel only curates which ones are offered.
 export type AdminSkill = {
@@ -1137,7 +1107,7 @@ export type AdminModel = {
 // One installable package in the deployment's skill marketplace (a catalog curated by the fleet
 // operator and served from the URL the deployment is configured with).
 export type SkillMarketplaceEntry = {
-  // Catalog id, passed to AdminApi.installSkillPackage().
+  // Catalog id, passed to installSkillPackage() (an admin call from the portal).
   id: string;
   // Human title, also the shared Knowledge folder name an install creates.
   name: string;
@@ -1149,7 +1119,7 @@ export type SkillMarketplaceEntry = {
 };
 
 /**
- * One promoted blueprint, as the admin Formats panel sees it: the deployment's curation plus
+ * One promoted blueprint, as the admin portal sees it: the deployment's curation plus
  * enough of the blueprint to show what is being curated.
  */
 export type AdminFormat = {
@@ -1191,275 +1161,6 @@ export type AdminFormat = {
   bundled: boolean;
 };
 
-/**
- * Capability for managing deployment-wide admin settings, obtained via
- * AuthenticatedApi.getAdminApi() (which is null for non-admins). The access check happens when the
- * capability is minted, so these methods don't re-check. Covers branding, agent instructions, and
- * which gatekeeper integrations/resources are offered — NOT authentication config (that's env-var
- * driven). Each setter throws on invalid input.
- */
-export interface AdminApi {
-  /** Read all admin-managed settings for the admin UI in one call. */
-  getSettings(): Promise<AdminSettingsView>;
-
-  /**
-   * The connector catalog alone (AdminSettingsView.resourceVendors), without the skills,
-   * formats, models and channels getSettings() also gathers.
-   */
-  getConnectors(): Promise<AdminResourceVendor[]>;
-
-  /**
-   * The standard formats (AdminSettingsView.formats) and the deployment-wide blueprints that
-   * could be promoted to one, for the admin portal.
-   */
-  getFormats(): Promise<AdminFormatsView>;
-
-  /** Enable or disable new account signups. Existing users can still log in while signups are closed. */
-  setSignupsEnabled(enabled: boolean): Promise<void>;
-
-  /**
-   * Set the site name shown next to the top-bar logo. Pass "" to reset to DEFAULT_SITE_NAME.
-   * Rejects over MAX_SITE_NAME_LENGTH.
-   */
-  setSiteName(name: string): Promise<void>;
-
-  /** Set the deployment logo from browser-rasterized PNG bytes and return its canonical public
-   * image, or undefined after reset. Pass null to restore the default Cloudflare OS mark. The
-   * caller must supply decodable PNG data; the server enforces its header, size, and dimensions. */
-  setSiteLogo(data: Uint8Array | null): Promise<AvatarImage | undefined>;
-
-  /** Replace the agent system-prompt instructions. Pass "" to clear. Rejects over MAX_INSTANCE_INSTRUCTIONS_LENGTH. */
-  setInstanceInstructions(text: string): Promise<void>;
-
-  /**
-   * Replace the organization profile added to every agent's system prompt (what the org does,
-   * its terminology, key facts). Pass "" to clear. Rejects over MAX_ORGANIZATION_PROFILE_LENGTH.
-   */
-  setOrganizationProfile(text: string): Promise<void>;
-
-  /**
-   * Enable or disable a single gatekeeper resource type, keyed by vendor id + resource urlPattern.
-   * Soft enforcement: disabling hides the resource from the connect UI, the resource picker, and the
-   * agent; it doesn't revoke a capability a gadget already holds.
-   */
-  setResourceEnabled(vendorId: string, urlPattern: string, enabled: boolean): Promise<void>;
-
-  /**
-   * Set a gatekeeper's availability. For an auto-provisioning ("ambient") gatekeeper, `mode` is the
-   * full three-state (disabled / optional / enabled); for an ordinary gatekeeper only 'disabled' /
-   * 'enabled' are valid ('optional' is rejected). Soft enforcement: it doesn't revoke a capability a
-   * gadget already holds, and 'disabled' leaves an ambient account's data dormant rather than deleting
-   * it.
-   */
-  setGatekeeperMode(vendorId: string, mode: AmbientGatekeeperMode): Promise<void>;
-
-  /**
-   * The vendor's deployment-level setup state: its input schema, this deployment's OAuth
-   * redirect URI, and which values are stored (presence and timestamps only — never secret
-   * values). Only valid for vendors whose description sets supportsAdminSetup.
-   */
-  getIntegrationSetup(vendorId: string): Promise<VendorSetup>;
-
-  /**
-   * Store admin-entered setup values for the vendor (e.g. its OAuth app client ID/secret).
-   * Partial updates are allowed for rotation. The values transit this API once and are stored
-   * by the vendor worker itself — the Workshop persists no credentials.
-   */
-  applyIntegrationSetup(vendorId: string, values: Record<string, string>): Promise<void>;
-
-  /**
-   * Delete the vendor's admin-entered setup: all of it, or only the inputs `names` when given
-   * (one presented connector's key, leaving the others). It falls back to deploy-time secrets
-   * when those exist, and otherwise hides from users until set up again.
-   */
-  clearIntegrationSetup(vendorId: string, names?: string[]): Promise<void>;
-
-  /**
-   * Set the top-bar notice (centered text in the top navigation bar). Pass "" to clear. Rejects over
-   * MAX_ANNOUNCEMENT_LENGTH.
-   */
-  setAnnouncement(text: string): Promise<void>;
-
-  /**
-   * Set the full-width banner. Pass an empty text to hide it. Rejects over MAX_ANNOUNCEMENT_LENGTH or
-   * an invalid color.
-   */
-  setBanner(text: string, color: BannerColor): Promise<void>;
-
-  /**
-   * Set the deployment accent color (hex, e.g. "#3b82f6"). Pass "" to reset to the default theme.
-   * Rejects an invalid hex color.
-   */
-  setAccentColor(color: string): Promise<void>;
-
-  /**
-   * Returns whether the blueprint is featured on the deployment. Returns null when the blueprint
-   * can't be featured (e.g. it isn't a listable blueprint).
-   */
-  isBlueprintFeatured(blueprintId: string): Promise<boolean | null>;
-
-  /** Mark or unmark a blueprint as featured on the deployment. */
-  setBlueprintFeatured(blueprintId: string, featured: boolean): Promise<void>;
-
-  // --- Standard output formats ---
-  //
-  // Promotion is what makes a blueprint one of the deployment's standard formats: offered in the
-  // "New ..." menu and listed first for the agent. A blueprint declaring what it produces is
-  // presentation, and never enough on its own.
-
-  /**
-   * Offer a blueprint as a standard format, appended last in menu order. Throws if the blueprint
-   * doesn't exist. Promoting one that already is leaves its curation and menu position alone, so
-   * that retrying a promotion whose mirror write failed repairs it rather than being refused.
-   */
-  promoteFormat(blueprintId: string): Promise<void>;
-
-  /**
-   * Stop offering a blueprint as a standard format, and forget the deployment's curation of it.
-   * The blueprint itself is untouched.
-   *
-   * Refused for a bundled blueprint (see `AdminFormat.bundled`), which the deployment installed
-   * and will reinstall: `enabled: false` withdraws it without discarding the admin's overrides,
-   * hint and menu position.
-   */
-  removeFormat(blueprintId: string): Promise<void>;
-
-  /**
-   * Update one promoted format. Only the provided fields change. `agentHint: ""` clears the hint;
-   * an `overrides` field set to null reverts that field to the blueprint's own declaration.
-   */
-  updateFormat(blueprintId: string, patch: AdminFormatPatch): Promise<void>;
-
-  /** Reorder the menu. `blueprintIds` must be a permutation of the currently promoted ids. */
-  setFormatOrder(blueprintIds: string[]): Promise<void>;
-
-  // --- Agent skills ---
-
-  // Enable or disable one agent skill, by name, for the whole deployment. Skills are enabled by
-  // default; disabling hides the skill from the slash-command picker and the agent's catalog, and
-  // refuses its invocation. Soft enforcement, like resources: a chat that already read the skill's
-  // text keeps it. Re-enabling a `missing` skill simply clears the stale curation entry.
-  setSkillEnabled(name: string, enabled: boolean): Promise<void>;
-
-  // --- AI models (platform AI Gateway mode only) ---
-
-  // Enable or disable one platform-catalog model, by id, for the whole deployment. Models are
-  // enabled by default; disabling hides the model from every picker and refuses it at resolve
-  // time (existing chats and gadget bindings included -- hard enforcement, unlike skills).
-  // Re-enabling a `missing` model simply clears the stale curation entry. Throws outside AI
-  // Gateway mode.
-  setModelEnabled(id: string, enabled: boolean): Promise<void>;
-
-  // The deployment's skill marketplace catalog, or null when this deployment has no marketplace
-  // configured. Fetched live from the configured catalog URL.
-  listSkillMarketplace(): Promise<SkillMarketplaceEntry[] | null>;
-
-  // Install one marketplace package: fetch its files from the marketplace and persist them as a
-  // shared skill folder, after which its skills surface (and can be curated) like any others.
-  // Throws if the marketplace isn't configured, the package doesn't validate, or a package with
-  // the same title is already installed. Uninstalling is deleting the folder in Knowledge.
-  installSkillPackage(id: string): Promise<void>;
-
-  // --- Messaging channels ---
-  //
-  // Deployments with a channels worker (the Telegram/Slack bridge) manage Telegram links here;
-  // each method proxies to that worker and throws when none is configured (see
-  // AdminSettingsView.channels to know before calling). Slack needs no links: users are
-  // identified by their Slack profile email.
-
-  // Which channels are configured, as AdminSettingsView.channels reports them, without the
-  // rest of the settings view; null when no channels worker is bound.
-  getChannels(): Promise<ChannelsDescription | null>;
-
-  // Connect Telegram from a BotFather bot token alone: the token is verified with Telegram
-  // (which yields the bot's username) and the webhook registers itself. The token transits
-  // this call once and is stored only in the channels worker.
-  setupTelegram(botToken: string): Promise<{ botUserName: string }>;
-
-  // Remove admin-entered Telegram credentials (deploy-time env credentials are untouched).
-  clearTelegramSetup(): Promise<boolean>;
-
-  // Connect email from an AgentMail API key (+ optional custom domain verified on that
-  // account). Validated and webhook-registered before anything is stored; the key transits
-  // this call once and is stored only in the channels worker.
-  setupEmail(apiKey: string, domain?: string): Promise<void>;
-
-  // Remove admin-entered email credentials (deploy-time env credentials are untouched).
-  clearEmailSetup(): Promise<boolean>;
-
-  // Mint a one-time Telegram deep link; whoever taps it links their Telegram account to email.
-  mintTelegramLinkCode(email: string): Promise<TelegramLinkCode>;
-
-  // The Telegram accounts currently linked to deployment emails.
-  listTelegramBindings(): Promise<TelegramBinding[]>;
-
-  // Remove the Telegram link for email; returns false when none exists.
-  unlinkTelegram(email: string): Promise<boolean>;
-
-  // Create (or return the existing) assistant email inbox for a teammate. `username`
-  // overrides the address local part, which otherwise derives from the teammate's email.
-  provisionEmailInbox(userEmail: string, username?: string): Promise<EmailInbox>;
-
-  // The assistant email inboxes provisioned on this deployment.
-  listEmailInboxes(): Promise<EmailInbox[]>;
-
-  // Delete a teammate's assistant inbox (provider-side too); false when none exists.
-  deleteEmailInbox(userEmail: string): Promise<boolean>;
-
-  // --- Deployment AI models ---
-  //
-  // The model catalog is deployment-wide: admins configure it here, every user reads it via
-  // AuthenticatedApi.listModels() and picks from it.
-
-  // Add a model to the deployment catalog. The ID must be unique among configured models.
-  addModel(profile: AiChatAuthorInfo, config: AiModelConfig): Promise<void>;
-
-  // Delete a configured model. Refused for built-in gateway models in AI Gateway mode.
-  deleteModel(id: string): Promise<void>;
-
-  // Set the model used for simple quick tasks, like generating chat titles. Set null to disable
-  // quick model use (e.g. chats will be titled "New Chat"). Ignored in AI Gateway mode, which has
-  // a built-in quick model.
-  setQuickModel(id: string | null): Promise<void>;
-
-  // --- Intelligence (Admin → Intelligence; see intelligence-directory.ts) ---
-  //
-  // Tyms Intelligence products are per-tenant instances on their cells: Organization (the wiki
-  // on the OI cell) and Data (the data workbench on the DI cell). The control plane provisions
-  // them (never by hand against a cell); the workshop keeps each product's MCP endpoint and
-  // preissued assistant key in its connector's setup store, which makes the product an ambient
-  // capability of every assistant here.
-
-  /**
-   * Entitlement, credit pool, and each product's instance and connector state, or null when
-   * this deployment has no central directory configured.
-   */
-  getIntelligenceOverview(): Promise<IntelligenceOverview | null>;
-
-  /**
-   * Provision (or resume) a product for this workspace and connect the assistant. Throws with
-   * an actionable message when the plan does not include it or the cell refused. When the cell
-   * hands the assistant key over but storing it fails, the returned overview reports
-   * `connector: "missing-key"` for that product and reconnectIntelligence() fixes it.
-   */
-  provisionIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview>;
-
-  /** Suspend the product (data kept for 30 days, then purged) and disconnect the assistant. */
-  deprovisionIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview>;
-
-  /** Rotate the product's assistant key on the cell and store the new one; the old key stops working. */
-  reconnectIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview>;
-
-  /**
-   * A signed-in URL into the product's own console (the wiki or the workbench) for the
-   * requesting admin, landing on `next` (a path on the product host; the product's home when
-   * omitted or unsafe). The URL carries a single-use token that expires within a minute, so
-   * request it on the click that opens it, never ahead of time. Throws when the product is
-   * not active.
-   */
-  openIntelligence(kind: IntelligenceProductKind, next?: string): Promise<{ url: string }>;
-}
-
 /** The products that can be provisioned today (each has a cell); Market and Process follow. */
 export type IntelligenceProductKind = "organization" | "data";
 /** Every provisionable product, in display order. */
@@ -1487,7 +1188,7 @@ export type IntelligenceInstanceView = {
 };
 
 /**
- * One product on the Admin → Intelligence page: its instance (null until first provisioned),
+ * One product on the admin portal's Products page: its instance (null until first provisioned),
  * whether the assistant is connected, and where a person opens it while active. `connector` is
  * "connected" when the product's gatekeeper holds the endpoint and key, "missing-key" when the
  * instance is active but the key is not stored here (reconnect to fix), "off" otherwise.
@@ -1499,7 +1200,7 @@ export type IntelligenceProductOverview = {
 };
 
 /**
- * The Admin → Intelligence snapshot: the Intelligence credit pool the products share and each
+ * The admin portal's Intelligence snapshot: the Intelligence credit pool the products share and each
  * product's state. Every plan may use the products; the pool is the only budget.
  */
 export type IntelligenceOverview = {
@@ -1561,7 +1262,7 @@ export type TeamView = {
   members: TeamMember[];
 };
 
-/** The result of `AdminApi.getFormats()`. */
+/** The result of `getFormats()` (an admin call from the portal). */
 export type AdminFormatsView = {
   /** The promoted blueprints in menu order, disabled and missing ones included. */
   formats: AdminFormat[];
@@ -1684,12 +1385,6 @@ export type ServerConfig = {
    * opens payment details.
    */
   billingPortalUrl?: string;
-
-  /**
-   * The organization profile, instructions, site name, accent color, notice and banner are
-   * edited on the admin portal (adminPortalUrl) rather than this deployment's /admin.
-   */
-  settingsManagedCentrally: boolean;
 };
 
 /**

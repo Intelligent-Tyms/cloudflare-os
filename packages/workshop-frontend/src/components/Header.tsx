@@ -3,7 +3,8 @@ import { Hexagon, Menu, X } from 'lucide-react'
 import { useOptionalAuthenticatedApi } from '../AuthContext'
 import { useGatekeeperApps } from '../useGatekeeperApps'
 import { useMyChannels } from '../useMyChannels'
-import { useSiteName } from '../ServerConfigContext'
+import { useServerConfig, useSiteName } from '../ServerConfigContext'
+import { portalLink } from '../portalLinks'
 import { useState, useEffect, useRef } from 'react'
 import UserMenu from './UserMenu'
 import TopBarNotice from '../TopBarNotice'
@@ -11,6 +12,8 @@ import SiteLogo from './SiteLogo'
 
 export default function Header() {
   const auth = useOptionalAuthenticatedApi()
+  // Workspace administration is on the admin portal.
+  const adminPortal = portalLink(useServerConfig(), 'admin')
   const gatekeeperApps = useGatekeeperApps()
   const myChannels = useMyChannels()
   const siteName = useSiteName()
@@ -189,15 +192,10 @@ export default function Header() {
                     Channels
                   </Link>
                 )}
-                {auth.isAdmin && (
-                  <Link
-                    to="/admin"
-                    onClick={closeMobileMenu}
-                    className={navLinkClass}
-                    activeProps={{ className: navLinkActiveClass }}
-                  >
+                {auth.isAdmin && adminPortal && (
+                  <a href={adminPortal} onClick={closeMobileMenu} className={navLinkClass}>
                     Admin
-                  </Link>
+                  </a>
                 )}
                 <button
                   onClick={() => { closeMobileMenu(); auth.logout() }}

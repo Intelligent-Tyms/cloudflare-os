@@ -8,7 +8,7 @@ A sibling of `gatekeeper-intelligence` and deliberately the same shape, in one l
 
 - **Configured per tenant.** `DATA_INTELLIGENCE_MCP_URL`, `DATA_INTELLIGENCE_CONSOLE_URL`
   (optional) and `DATA_INTELLIGENCE_ASSISTANT_KEY` (secret) live in the `VendorSetupStore` keyed
-  by the tenant from the binding props. Admin → Intelligence writes them after provisioning
+  by the tenant from the binding props. The admin portal writes them (through the Workshop) after provisioning
   through `applySetup` (the names are mirrored in `workshop-backend/src/intelligence-setup.ts`);
   an admin can also paste a console-minted `dik_` key. There is no deploy-time fallback.
 - **Ambient.** Once configured, `describe()` reports `autoProvisionsAccount`, the Workshop mints

@@ -1,7 +1,7 @@
 import { RpcStub, RpcTarget, newHttpBatchRpcResponse, newWebSocketRpcSession, RpcSessionOptions } from "capnweb";
 import { validateRpc } from "capnweb-validate";
 import type { JWTPayload } from "jose";
-import { PublicApi, AuthenticatedApi, Overseer, GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiGatewayInfo, AiModelProvider, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, ObserverConfigCallback, BlueprintLibrarySummary, BlueprintPublicInfo, BlueprintUserSummary, BlueprintBindingAssignment, AgentSpawnerConfig, WorkpieceId, BLUEPRINT_SCREENSHOT_PATH_PREFIX, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ServerConfig, CloudflareUsageInfo, CloudflareAccountOption, LoginAttempt, GatekeeperAppInfo, AdminApi, GatekeeperVendorInfo, OutputFormatOffer, ListOutputsResult, createOpenGadgetError, getOpenGadgetErrorCode, OPEN_GADGET_ERROR_CODES, AUTH_ERROR_CODES, createAuthError, AssistantProfile, BillingGateInfo, UserChannelsView, TelegramLinkCode, TeamChatSession, TeamChatTeammate, TeamChatChannelChanges } from '@gadgets/workshop-shared/api';
+import { PublicApi, AuthenticatedApi, Overseer, GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiGatewayInfo, AiModelProvider, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, ObserverConfigCallback, BlueprintLibrarySummary, BlueprintPublicInfo, BlueprintUserSummary, BlueprintBindingAssignment, AgentSpawnerConfig, WorkpieceId, BLUEPRINT_SCREENSHOT_PATH_PREFIX, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ServerConfig, CloudflareUsageInfo, CloudflareAccountOption, LoginAttempt, GatekeeperAppInfo, GatekeeperVendorInfo, OutputFormatOffer, ListOutputsResult, createOpenGadgetError, getOpenGadgetErrorCode, OPEN_GADGET_ERROR_CODES, AUTH_ERROR_CODES, createAuthError, AssistantProfile, BillingGateInfo, UserChannelsView, TelegramLinkCode, TeamChatSession, TeamChatTeammate, TeamChatChannelChanges } from '@gadgets/workshop-shared/api';
 import type { UiFeatureFlags } from "@gadgets/workshop-shared/feature-flags";
 import { getServerConfig } from "./deployment-config.js";
 import { isPasswordAuthEnabled, getAuthGatekeeperAllowlist, hasCentralLogin } from "./auth/config.js";
@@ -19,7 +19,7 @@ import { hasBillingDirectory, requestUpgrade } from "./billing-directory.js";
 import { GatekeeperUiFrame } from "@gadgets/workshop-shared/gatekeeper";
 import { LanguageModelGatekeeper } from "./ai-models";
 import { getAiGatewayConfig } from "./ai-gateway.js";
-import { AdminSettings, AdminApiImpl } from "./admin-settings.js";
+import { AdminSettings } from "./admin-settings.js";
 import { BlueprintKvRecord, buildBlueprintArchiveStream, sanitizeBlueprintOutput, parseBlueprintArchive, randomBlueprintId, readBlueprintContent, readBlueprintKvRecord } from "./blueprint-archive.js";
 import { listFeaturedWithCatalog, readBlueprintKvRecordViaCatalog } from "./template-catalog.js";
 import { GatekeeperConnectCallbackImpl, normalizeUsername, UserDurableObject, CLOUDFLARE_VENDOR_ID } from "./user";
@@ -107,31 +107,11 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     return wrapDoStubForTelemetry(this.users.get(this.#userId));
   }
 
-  #isAdmin(): boolean {
-    let name = this.#userId.name;
-    let admins = this.env.ADMINS;
-
-    if (!name || !admins) return false;
-
-    if (typeof admins === "string") {
-      // Admins should be a JSON binding of array type, but `.env` doesn't actually let you
-      // specify JSON bindings, so we also support a string that parses as JSON array.
-      admins = JSON.parse(admins);
-    }
-
-    if (!Array.isArray(admins)) {
-      throw new TypeError("ADMINS must be configured as an array of usernames.");
-    }
-
-    return admins.includes(name);
-  }
-
-  // Full admin check: the deploy-time ADMINS list, or (on central-login deployments) an
-  // "owner"/"admin" central role carried in the signed handoff token and stored on the user
-  // at sign-in. The role isn't admin-mutable state on this deployment — the central service
-  // asserts it — so this stays consistent with keeping auth config out of AdminConfig.
+  // Admin here means an "owner"/"admin" central role, carried in the signed handoff token and
+  // stored on the user at sign-in. Workspace administration is on the admin portal; what this
+  // unlocks is admin-only actions on this deployment's own content (featuring templates,
+  // company Knowledge collections, admin-only connector resources).
   async #isAdminUser(): Promise<boolean> {
-    if (this.#isAdmin()) return true;
     if (!hasCentralLogin(this.env)) return false;
     let role = await retryOnDoReset(() => this.#user.getCentralRole());
     return role === "owner" || role === "admin";
@@ -710,15 +690,14 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     return this.#isAdminUser();
   }
 
-  async getAdminApi(): Promise<RpcStub<AdminApi> | null> {
+  async isBlueprintFeatured(blueprintId: string): Promise<boolean | null> {
     if (!(await this.#isAdminUser())) return null;
-    // Admin users always have a non-empty user id name (email or username). Forwarded to
-    // gatekeepers when listing the resource catalog so RBAC-gated ones still surface for
-    // this admin.
-    let adminUserId = this.#userId.name!;
-    // @ts-expect-error Cap'n Web RPC stubs and native RPC targets are compatible but the type
-    //     system doesn't know this.
-    return new AdminApiImpl(this.adminSettings.getByName(""), adminUserId, this.env);
+    return this.adminSettings.getByName("").isBlueprintFeatured(blueprintId);
+  }
+
+  async setBlueprintFeatured(blueprintId: string, featured: boolean): Promise<void> {
+    if (!(await this.#isAdminUser())) throw new Error("Only administrators can feature templates.");
+    await this.adminSettings.getByName("").setBlueprintFeatured(blueprintId, featured);
   }
 
   // --- Central billing (all users) ---
@@ -879,7 +858,7 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
     let userId = this.users.idFromName(email);
     let stub = this.users.get(userId);
     let signupsEnabled = (await readAdminConfig(this.env)).signupsEnabled;
-    // Central role claim ("owner"/"admin" unlock this deployment's /admin area). Unknown
+    // Central role claim ("owner"/"admin" make the user an admin here; see #isAdminUser). Unknown
     // values are dropped rather than stored — a future central service can add roles
     // without old workshops mistaking them for privileges.
     let role = payload.role === "owner" || payload.role === "admin" || payload.role === "member"

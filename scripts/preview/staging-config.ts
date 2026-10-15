@@ -247,22 +247,6 @@ export function previewPullRequestNumber(previewName: string): number | undefine
 }
 
 /**
- * The deployment admins seeded into the preview's ADMINS secret, from comma-separated
- * PREVIEW_ADMINS. These are Cloudflare Access identities — an email each, since that is what
- * {@link resolveAccess} makes the account name — so an entry that is not an email matches nobody.
- */
-export function resolveAdmins(
-  { list = process.env.PREVIEW_ADMINS }: { list?: string } = {},
-): string[] {
-  const admins = (list ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-  if (admins.length === 0) {
-    console.warn("PREVIEW_ADMINS is unset: the preview will have no deployment admins, so the " +
-        "/admin panel will be unreachable.");
-  }
-  return admins;
-}
-
-/**
  * Strip ids, names and other account-specific config from a resource binding list, leaving only
  * the binding name — which is how Wrangler is told to provision a fresh resource.
  */
@@ -651,19 +635,13 @@ export function resolveAiGateway({
  * `createAccount()` both throw once CF_ACCESS_AUD is set — so DISABLE_PASSWORD_AUTH is not needed.
  */
 export function backendSecrets({
-  admins = resolveAdmins(),
   access = resolveAccess(),
   aiGateway = resolveAiGateway(),
 }: {
-  admins?: string[];
   access?: AccessConfig;
   aiGateway?: Record<string, string>;
 } = {}): Record<string, string> {
   return {
-    // A secret is always text, so the array goes over as JSON. `#isAdmin()` already accepts that
-    // form: ".env doesn't actually let you specify JSON bindings, so we also support a string that
-    // parses as JSON array".
-    ADMINS: JSON.stringify(admins),
     CF_ACCESS_AUD: access.aud,
     CF_ACCESS_ISS: access.iss,
     // The gateway name and its account are not secret in the way the token is, but they travel the

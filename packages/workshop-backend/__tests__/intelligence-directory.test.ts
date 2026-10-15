@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   deprovisionInstance,
   fetchIntelligence,
-  handoffUrl,
   hasIntelligenceDirectory,
   instanceOf,
   intelligenceErrorMessage,
@@ -77,21 +76,13 @@ describe("intelligence directory", () => {
 
   it("maps the control plane's refusal codes to administrator-ready messages", async () => {
     stubFetch(() => Response.json({ error: "not_provisioned" }, { status: 404 }));
-    await expect(handoffUrl(configured, "organization", { email: "a@acme.com", role: "admin" })).rejects.toThrow(/Organization Intelligence is not provisioned/);
+    await expect(rotateAssistantKey(configured, "organization")).rejects.toThrow(/Organization Intelligence is not provisioned/);
     stubFetch(() => Response.json({ error: "already_active" }, { status: 409 }));
     await expect(provisionInstance(configured, "data")).rejects.toThrow(/Data Intelligence is already provisioned/);
     stubFetch(() => new Response("gateway down", { status: 502 }));
     await expect(deprovisionInstance(configured, "organization")).rejects.toThrow(/unavailable \(502\)/);
     expect(intelligenceErrorMessage("a valid email is required", 400)).toBe("a valid email is required");
     expect(intelligenceErrorMessage("cell_unreachable", 502, "data")).toMatch(/could not be reached/);
-  });
-
-  it("mints a signed-in console URL for the vouched admin, landing on the requested page", async () => {
-    const calls = stubFetch(() => Response.json({ url: "https://acme-co.data.example.com/login?handoff=t&next=%2Fconnections" }));
-    const url = await handoffUrl(configured, "data", { email: "a@acme.com", role: "admin" }, "/connections");
-    expect(url).toContain("/login?handoff=");
-    expect(calls[0].url).toBe("https://control.example.com/tenant-api/intelligence/data/handoff");
-    expect(calls[0].body).toEqual({ email: "a@acme.com", role: "admin", next: "/connections" });
   });
 
   it("rotates the key through the control plane, never the cell", async () => {
