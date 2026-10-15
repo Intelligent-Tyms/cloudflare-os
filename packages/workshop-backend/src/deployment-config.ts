@@ -62,5 +62,15 @@ export async function getServerConfig(env: Cloudflare.Env): Promise<ServerConfig
     // Fleet identity for display and citation rendering; both absent on standalone deployments.
     tenantSlug: env.CF_AI_GATEWAY_TENANT?.trim() || undefined,
     intelligenceBaseDomain: env.INTELLIGENCE_BASE_DOMAIN?.trim() || undefined,
+    adminPortalUrl: portalUrl(env.ADMIN_PORTAL_URL),
+    billingPortalUrl: portalUrl(env.BILLING_PORTAL_URL),
   };
+}
+
+/** A portal page URL from a var: https only, no trailing slash; anything else is no portal. */
+export function portalUrl(value: string | undefined): string | undefined {
+  let v = value?.trim().replace(/\/+$/, "");
+  if (!v) return undefined;
+  let parsed = URL.parse(v);
+  return parsed?.protocol === "https:" && !parsed.search && !parsed.hash ? v : undefined;
 }

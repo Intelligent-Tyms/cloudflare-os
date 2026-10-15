@@ -105,11 +105,17 @@ declare global {
       HANDOFF_AUDIENCE?: string;
 
       // Central team directory (multi-tenant installations with central login): base URL and
-      // bearer token for the identity service's tenant-scoped team API. When both are set,
-      // Admin → Teammates manages membership and invitations through it; the workshop keeps no
-      // member list of its own. Both unset = no team directory (the admin page explains).
+      // bearer token for the identity service's tenant-scoped API (team directory, billing,
+      // intelligence). The workshop keeps no member list of its own. Both unset = none.
       CENTRAL_TEAM_API_URL?: string;
       CENTRAL_TEAM_API_TOKEN?: string;
+
+      // This workspace's pages on the central admin and billing portals (e.g.
+      // "https://admin.tyms.ai/acme", "https://billing.tyms.ai/acme"). Teammates, plans and
+      // billing are managed there, not in this deployment's /admin; the client links to them.
+      // Unset = no portal, and those links are hidden.
+      ADMIN_PORTAL_URL?: string;
+      BILLING_PORTAL_URL?: string;
 
       // Base domain of the Organization Intelligence cell (e.g. "organization.tyms.ai"). The
       // client renders links onto it as wiki citations; the connector itself is configured

@@ -4483,7 +4483,7 @@ class OverseerImpl implements AgentHooks {
           } else if (billing.freeDailyLlmCalls == null && billing.tier !== "enterprise"
               && billing.aiBalanceMicroUsd <= 0) {
             blockMessage = "This workspace is out of AI credits. An admin can top up under " +
-                "Admin → Billing and usage, and your monthly allowance renews automatically.";
+                "the billing portal, and your monthly allowance renews automatically.";
           }
           if (blockMessage) {
             this.postAgentErrorMessage(chatId, aiModel.profile, blockMessage, "usage_limit");

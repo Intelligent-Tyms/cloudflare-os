@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router'
 import { Switch, Textarea, Input, Button, useKumoToastManager } from '@cloudflare/kumo'
 import {
   ArrowLeft,
+  ArrowUpRight,
   BookOpenCheck,
   Bot,
   Building2,
@@ -11,7 +12,6 @@ import {
   Database,
   FileText,
   Hexagon,
-  Layers,
   Megaphone,
   MessagesSquare,
   Palette,
@@ -33,14 +33,12 @@ import { applyAccentColor, DEFAULT_ACCENT_COLOR } from './theme'
 import { cacheBustSiteLogoUrl, prepareSiteLogo } from './siteLogoUtils'
 import SiteLogo from './components/SiteLogo'
 import { useDocumentTitle } from './useDocumentTitle'
-import AdminBillingPanel from './components/AdminBillingPanel'
+import { portalLink, type Portal } from './portalLinks'
 import AdminChannelsPanel from './components/AdminChannelsPanel'
-import AdminPlansPanel from './components/AdminPlansPanel'
 import AdminFormatsPanel from './components/format/AdminFormatsPanel'
 import AdminIntelligencePanel, { AdminIntelligenceComingSoon } from './components/AdminIntelligencePanel'
 import AdminProvidersPanel from './components/AdminProvidersPanel'
 import AdminSkillsPanel from './components/AdminSkillsPanel'
-import AdminTeamPanel from './components/AdminTeamPanel'
 
 // Preset accent colors offered in the Theme section ('' = default brand).
 const ACCENT_PRESETS: { label: string; value: string }[] = [
@@ -58,9 +56,6 @@ const ACCENT_PRESETS: { label: string; value: string }[] = [
 // here (in `description`) instead of repeating it inside the card.
 export type AdminSectionId =
   | 'organization'
-  | 'teammates'
-  | 'plans'
-  | 'billing'
   | 'brand'
   | 'announcements'
   | 'access'
@@ -75,14 +70,20 @@ export type AdminSectionId =
   | 'market-intelligence'
   | 'process-intelligence'
 
+// Cards for what is managed on the central portals (admin.tyms.ai, billing.tyms.ai) rather
+// than here. They open the portal page for this workspace and have no detail page of their own.
+type PortalSectionId = 'teammates' | 'billing'
+
 type AdminSection = {
-  id: AdminSectionId
+  id: AdminSectionId | PortalSectionId
   title: string
   blurb: string
   description: string
   icon: ReactNode
   /** Not built yet: the hub card says so, and the detail page is a placeholder. */
   comingSoon?: boolean
+  /** Managed on a central portal: the card links to this page of it instead. */
+  portal?: { portal: Portal; path: string }
 }
 
 const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
@@ -100,26 +101,18 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       {
         id: 'teammates',
         title: 'Teammates',
-        blurb: 'Invite people to this workspace and manage who has access.',
-        description:
-          'Invite teammates by email, see who hasn’t joined yet, and remove members. Membership controls who can sign in to this workspace.',
+        blurb: 'Invite people to this workspace and manage who has access. Opens the admin portal.',
+        description: '',
         icon: <Users size={18} />,
-      },
-      {
-        id: 'plans',
-        title: 'Plans',
-        blurb: 'Compare plans and change your workspace plan.',
-        description:
-          'Compare plans and switch your workspace to a new one. Upgrades take effect immediately with a prorated charge; downgrades apply immediately and reduce your credit allowances.',
-        icon: <Layers size={18} />,
+        portal: { portal: 'admin', path: '/teammates' },
       },
       {
         id: 'billing',
-        title: 'Billing & usage',
-        blurb: 'Your plan, credit balances, usage, invoices, and payment details.',
-        description:
-          'Your workspace plan, credit balances, usage for the current period, invoices, and payment details. Top up credits any time; monthly allowances renew automatically.',
+        title: 'Plans & billing',
+        blurb: 'Your plan, credits, invoices, and payment details. Opens the billing portal.',
+        description: '',
         icon: <CreditCard size={18} />,
+        portal: { portal: 'billing', path: '' },
       },
       {
         id: 'brand',
@@ -253,7 +246,7 @@ const INTELLIGENCE_SECTION_IDS: readonly AdminSectionId[] = [
 const ADMIN_SECTIONS = ADMIN_GROUPS.flatMap((g) => g.sections)
 
 export function isAdminSectionId(value: string): value is AdminSectionId {
-  return ADMIN_SECTIONS.some((s) => s.id === value)
+  return ADMIN_SECTIONS.some((s) => s.id === value && !s.portal)
 }
 
 // Swatch background per banner color, matching AnnouncementBanner's accent styles.
@@ -269,9 +262,10 @@ const BANNER_SWATCH: Record<BannerColor, string> = {
 export default function AdminPage({ section }: { section?: AdminSectionId }) {
   const { authenticatedApi, isAdmin } = useAuthenticatedApi()
   const toasts = useKumoToastManager()
-  // Teammate membership lives in the central team directory, not this deployment; the hub
-  // hides the Teammates card entirely when central login isn't configured.
-  const centralLoginUrl = useServerConfig()?.centralLoginUrl
+  // Intelligence lives in the central directory; the hub hides its cards when central login
+  // isn't configured. Teammates and billing are on the portals; their cards need the links.
+  const serverConfig = useServerConfig()
+  const centralLoginUrl = serverConfig?.centralLoginUrl
   const sectionMeta = section ? ADMIN_SECTIONS.find((s) => s.id === section) : undefined
   useDocumentTitle(sectionMeta ? `${sectionMeta.title} · Admin` : 'Admin')
 
@@ -579,43 +573,50 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
         <div className="mt-8 flex flex-col gap-9">
           {ADMIN_GROUPS.map((group) => ({
             ...group,
-            // Teammates and Intelligence live in the central directory; without central login
-            // there is nothing behind them, so their cards (and an emptied group) are hidden.
-            sections: group.sections.filter(
-              (s) => (s.id !== 'teammates' && !INTELLIGENCE_SECTION_IDS.includes(s.id)) || Boolean(centralLoginUrl),
-            ),
+            // Intelligence lives in the central directory and portal cards need their portal;
+            // without them there is nothing behind a card, so it (and an emptied group) is hidden.
+            sections: group.sections.filter((s) =>
+              s.portal ? Boolean(portalLink(serverConfig, s.portal.portal, s.portal.path))
+                : !INTELLIGENCE_SECTION_IDS.includes(s.id as AdminSectionId) || Boolean(centralLoginUrl)),
           })).filter((group) => group.sections.length > 0).map((group) => (
             <section key={group.label} className="flex flex-col gap-3">
               <h2 className="px-1 text-[12px] font-medium uppercase tracking-[0.08em] text-kumo-inactive">
                 {group.label}
               </h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {group.sections
-                  .map((s) => (
-                  <Link
-                    key={s.id}
-                    to="/admin/$section"
-                    params={{ section: s.id }}
-                    className="group flex items-start gap-4 rounded-xl border border-kumo-line bg-kumo-elevated p-5 transition-colors hover:bg-kumo-tint"
-                  >
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-kumo-tint text-kumo-default transition-colors group-hover:bg-kumo-fill">
-                      {s.icon}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.25px] text-kumo-strong">
-                        {s.title}
-                        {s.comingSoon && (
-                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-kumo-tint text-kumo-subtle border border-kumo-line">
-                            Coming later
-                          </span>
-                        )}
+                {group.sections.map((s) => {
+                  const cardClass = 'group flex items-start gap-4 rounded-xl border border-kumo-line bg-kumo-elevated p-5 transition-colors hover:bg-kumo-tint'
+                  const body = (
+                    <>
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-kumo-tint text-kumo-default transition-colors group-hover:bg-kumo-fill">
+                        {s.icon}
                       </span>
-                      <span className="mt-1 block text-[13px] leading-[18px] tracking-[-0.2px] text-kumo-subtle">
-                        {s.blurb}
+                      <span className="min-w-0">
+                        <span className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.25px] text-kumo-strong">
+                          {s.title}
+                          {s.portal && <ArrowUpRight size={14} className="text-kumo-subtle" aria-hidden />}
+                          {s.comingSoon && (
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-kumo-tint text-kumo-subtle border border-kumo-line">
+                              Coming later
+                            </span>
+                          )}
+                        </span>
+                        <span className="mt-1 block text-[13px] leading-[18px] tracking-[-0.2px] text-kumo-subtle">
+                          {s.blurb}
+                        </span>
                       </span>
-                    </span>
-                  </Link>
-                ))}
+                    </>
+                  )
+                  return s.portal ? (
+                    <a key={s.id} href={portalLink(serverConfig, s.portal.portal, s.portal.path)} className={cardClass}>
+                      {body}
+                    </a>
+                  ) : (
+                    <Link key={s.id} to="/admin/$section" params={{ section: s.id as AdminSectionId }} className={cardClass}>
+                      {body}
+                    </Link>
+                  )
+                })}
               </div>
             </section>
           ))}
@@ -677,12 +678,6 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
 
       {/* Messaging channels */}
       {section === 'channels' && <AdminChannelsPanel channels={channels} />}
-
-      {/* Plans */}
-      {section === 'plans' && admin && <AdminPlansPanel admin={admin.api} />}
-
-      {/* Billing & usage */}
-      {section === 'billing' && admin && <AdminBillingPanel admin={admin.api} />}
 
       {/* Sign-ups */}
       {section === 'access' && (
@@ -1102,7 +1097,6 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
       )}
 
       {/* Teammates: full management, proxied to the central team directory. */}
-      {section === 'teammates' && admin && <AdminTeamPanel admin={admin.api} />}
 
       {/* Intelligence: one page per product. Organization and Data provision here (proxied to
           the control plane); Market and Process are placeholders until their cells exist. */}
