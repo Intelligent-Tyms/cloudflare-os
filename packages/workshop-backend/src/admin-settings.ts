@@ -1,11 +1,11 @@
-import { AdminApi, AdminFormat, AdminFormatPatch, AdminModel, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, INTELLIGENCE_PRODUCT_KINDS, INTELLIGENCE_PRODUCT_NAMES, IntelligenceInstanceView, IntelligenceOverview, IntelligenceProductKind, IntelligenceProductOverview, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { AdminApi, AdminFormat, AdminFormatPatch, AdminFormatsView, AdminModel, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, INTELLIGENCE_PRODUCT_KINDS, INTELLIGENCE_PRODUCT_NAMES, IntelligenceInstanceView, IntelligenceOverview, IntelligenceProductKind, IntelligenceProductOverview, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor, SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES, SkillPackage, SkillPackageFile, VendorSetup } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
 import { validateRpc } from 'capnweb-validate';
 import { collection, createTypedStorage } from '@gadgets/typed-storage';
 import { createWorkshopLogger } from "./observability";
-import { buildTemplateArchive, catalogMetadata, fetchCatalogPackage } from "./template-catalog.js";
+import { buildTemplateArchive, catalogMetadata, fetchCatalogPackage, listFeaturedWithCatalog } from "./template-catalog.js";
 import { ADMIN_CONFIG_KEY, FEATURED_BLUEPRINTS_KEY, isReservedBlueprintKey, parseBlueprintKvRecord, readBlueprintKvRecord, sanitizeBlueprintOutput, serializeFeaturedBlueprints } from './blueprint-archive.js';
 import { AdminConfig, DEFAULT_ADMIN_CONFIG, FormatCuration, MAX_AGENT_HINT, defaultOutputFormatId, listPromotedFormats, reorderFormats, sanitizeOutputOverrides, serializeAdminConfig } from './admin-config.js';
 import { SITE_LOGO_R2_KEY, siteLogoImage, validateSiteLogo } from './site-logo.js';
@@ -521,6 +521,28 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
   /** The connector catalog alone, for callers that need nothing else from getSettings(). */
   async getConnectors(adminUserId: string): Promise<AdminResourceVendor[]> {
     return this.#listResourceConfig(this.#config(), adminUserId);
+  }
+
+  /**
+   * The standard formats and the blueprints that could become one, for the admin portal. Only
+   * deployment-wide (featured and catalog) blueprints are offered: an admin's own published ones
+   * belong to their Jamaa account, and featuring one there makes it available here.
+   */
+  async getFormats(): Promise<AdminFormatsView> {
+    let [formats, featured] = await Promise.all([
+      this.#listFormatConfig(this.#config()),
+      listFeaturedWithCatalog(this.env),
+    ]);
+    let promoted = new Set(formats.map(f => f.blueprintId));
+    return {
+      formats,
+      candidates: featured.filter(b => !promoted.has(b.id)).map(b => ({
+        blueprintId: b.id,
+        title: b.metadata.title,
+        description: b.metadata.description ?? "",
+        declared: b.metadata.output,
+      })),
+    };
   }
 
   // --- Deployment AI models ---
@@ -1122,6 +1144,10 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
 
   getConnectors(): Promise<AdminResourceVendor[]> {
     return this.admin.getConnectors(this.adminUserId);
+  }
+
+  getFormats(): Promise<AdminFormatsView> {
+    return this.admin.getFormats();
   }
 
   async setSignupsEnabled(enabled: boolean): Promise<void> {

@@ -47,6 +47,12 @@ export const CENTRAL_ADMIN_METHODS = {
   getIntegrationSetup: 1,
   applyIntegrationSetup: 2,
   clearIntegrationSetup: 2,
+  // Standard output formats: which blueprints are offered by name, in what order, and how.
+  getFormats: 0,
+  promoteFormat: 1,
+  removeFormat: 1,
+  updateFormat: 2,
+  setFormatOrder: 1,
 } as const satisfies Partial<Record<keyof AdminApiImpl, number>>;
 
 export type CentralAdminMethod = keyof typeof CENTRAL_ADMIN_METHODS;
