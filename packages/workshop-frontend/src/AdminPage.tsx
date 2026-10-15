@@ -72,7 +72,7 @@ export type AdminSectionId =
 
 // Cards for what is managed on the central portals (admin.tyms.ai, billing.tyms.ai) rather
 // than here. They open the portal page for this workspace and have no detail page of their own.
-type PortalSectionId = 'teammates' | 'billing' | 'assistant-settings'
+type PortalSectionId = 'teammates' | 'billing' | 'assistant-settings' | 'intelligence-products'
 
 type AdminSection = {
   id: AdminSectionId | PortalSectionId
@@ -217,7 +217,17 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
     label: 'Intelligence',
     sections: [
       {
+        id: 'intelligence-products',
+        title: 'Intelligence products',
+        blurb: 'Set up, reconnect and open Organization and Data Intelligence. Opens the admin portal.',
+        description: '',
+        icon: <BookOpenCheck size={18} />,
+        portal: { portal: 'admin', path: '/products' },
+        central: true,
+      },
+      {
         id: 'organization-intelligence',
+        central: true,
         title: 'Organization intelligence',
         blurb: 'Your own documents, synthesized into a reviewed wiki the assistant answers from and cites.',
         description:
@@ -226,6 +236,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
       {
         id: 'data-intelligence',
+        central: true,
         title: 'Data intelligence',
         blurb: 'Connect your databases read-only for analysts and the assistant.',
         description:
@@ -234,6 +245,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
       {
         id: 'market-intelligence',
+        central: true,
         title: 'Market intelligence',
         blurb: 'Competitive insight and industry trends for the market you operate in.',
         description:
@@ -243,6 +255,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
       {
         id: 'process-intelligence',
+        central: true,
         title: 'Process intelligence',
         blurb: 'Process metrics, workflows, and performance across the business.',
         description:
@@ -656,11 +669,13 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
 
   // A bookmark or old link onto a page the admin portal now owns.
   if (managed && sectionMeta.central) {
+    const portalPageUrl = INTELLIGENCE_SECTION_IDS.includes(sectionMeta.id as AdminSectionId)
+      ? portalLink(serverConfig, 'admin', '/products') : centralSettingsUrl
     return (
       <div className="mx-auto w-full max-w-[1040px] px-4 sm:px-8 py-16 text-center">
-        <p className="text-sm text-kumo-default">{sectionMeta.title} is now set on the admin portal.</p>
-        {centralSettingsUrl && (
-          <a href={centralSettingsUrl} className="text-kumo-brand mt-2 inline-block text-sm underline">
+        <p className="text-sm text-kumo-default">{sectionMeta.title} is now managed on the admin portal.</p>
+        {portalPageUrl && (
+          <a href={portalPageUrl} className="text-kumo-brand mt-2 inline-block text-sm underline">
             Open the admin portal
           </a>
         )}
