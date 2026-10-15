@@ -27,6 +27,18 @@ export const CENTRAL_ADMIN_METHODS = {
   provisionIntelligence: 1,
   deprovisionIntelligence: 1,
   reconnectIntelligence: 1,
+  // Messaging channels: the channels worker is per tenant, reachable only from here.
+  getChannels: 0,
+  setupTelegram: 1,
+  clearTelegramSetup: 0,
+  setupEmail: 2,
+  clearEmailSetup: 0,
+  mintTelegramLinkCode: 1,
+  listTelegramBindings: 0,
+  unlinkTelegram: 1,
+  provisionEmailInbox: 2,
+  listEmailInboxes: 0,
+  deleteEmailInbox: 1,
 } as const satisfies Partial<Record<keyof AdminApiImpl, number>>;
 
 export type CentralAdminMethod = keyof typeof CENTRAL_ADMIN_METHODS;

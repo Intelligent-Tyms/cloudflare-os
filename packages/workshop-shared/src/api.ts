@@ -1355,6 +1355,10 @@ export interface AdminApi {
   // AdminSettingsView.channels to know before calling). Slack needs no links: users are
   // identified by their Slack profile email.
 
+  // Which channels are configured, as AdminSettingsView.channels reports them, without the
+  // rest of the settings view; null when no channels worker is bound.
+  getChannels(): Promise<ChannelsDescription | null>;
+
   // Connect Telegram from a BotFather bot token alone: the token is verified with Telegram
   // (which yields the bot's username) and the webhook registers itself. The token transits
   // this call once and is stored only in the channels worker.
