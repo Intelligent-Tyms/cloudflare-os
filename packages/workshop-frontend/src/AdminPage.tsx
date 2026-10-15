@@ -72,7 +72,7 @@ export type AdminSectionId =
 
 // Cards for what is managed on the central portals (admin.tyms.ai, billing.tyms.ai) rather
 // than here. They open the portal page for this workspace and have no detail page of their own.
-type PortalSectionId = 'teammates' | 'billing' | 'assistant-settings' | 'intelligence-products' | 'channels-portal'
+type PortalSectionId = 'teammates' | 'billing' | 'assistant-settings' | 'intelligence-products' | 'channels-portal' | 'connectors-portal'
 
 type AdminSection = {
   id: AdminSectionId | PortalSectionId
@@ -206,11 +206,21 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
       {
         id: 'connectors',
+        central: true,
         title: 'Connectors',
         blurb: 'The services assistants can reach: set up company credentials and choose what people can connect.',
         description:
           'Everything assistants can reach outside this deployment. Company connectors run on a credential you enter once; personal ones are signed in to by each person. Open a connector to set it up, turn it on or off, or choose which of its resources are offered. Changes are soft: they don’t revoke access an app already holds.',
         icon: <Plug size={18} />,
+      },
+      {
+        id: 'connectors-portal',
+        title: 'Connectors',
+        blurb: 'The services assistants can reach: company credentials and what people can connect. Opens the admin portal.',
+        description: '',
+        icon: <Plug size={18} />,
+        portal: { portal: 'admin', path: '/connectors' },
+        central: true,
       },
       {
         id: 'providers',
@@ -682,6 +692,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
     const portalPageUrl = INTELLIGENCE_SECTION_IDS.includes(sectionMeta.id as AdminSectionId)
       ? portalLink(serverConfig, 'admin', '/products')
       : sectionMeta.id === 'channels' ? portalLink(serverConfig, 'admin', '/channels')
+      : sectionMeta.id === 'connectors' ? portalLink(serverConfig, 'admin', '/connectors')
       : centralSettingsUrl
     return (
       <div className="mx-auto w-full max-w-[1040px] px-4 sm:px-8 py-16 text-center">

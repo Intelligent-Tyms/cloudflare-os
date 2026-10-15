@@ -23,7 +23,8 @@ import {
 } from '@gadgets/workshop-shared/gatekeeper'
 import { GatekeeperVendorInfo } from '@gadgets/workshop-shared/api'
 import { useDocumentTitle } from '../useDocumentTitle'
-import { useSiteName } from '../ServerConfigContext'
+import { useServerConfig, useSiteName } from '../ServerConfigContext'
+import { centralConnectorsLink } from '../portalLinks'
 import { AccountsSubscriberAdapter } from '../accountsSubscriber'
 
 // Legacy path: the Integrations page now lives at /integrations (see routes/integrations.tsx,
@@ -514,6 +515,9 @@ type ModalTarget =
 export function ConnectorsPage() {
   useDocumentTitle('Connectors')
   const siteName = useSiteName()
+  // Where administrators add and set up connectors: the admin portal once it manages them.
+  const serverConfig = useServerConfig()
+  const portalConnectors = centralConnectorsLink(serverConfig)
 
   const { authenticatedApi, isAdmin } = useAuthenticatedApi()
   const toasts = useKumoToastManager()
@@ -821,7 +825,15 @@ export function ConnectorsPage() {
                 ? 'The apps and accounts your team’s workspaces can use. You add them for the company; people sign in only where a connector uses their own account.'
                 : 'The apps and accounts your company has added. Sign in where a connector uses your own account. The rest are ready to use.'}
             </p>
-            {isAdmin && (
+            {isAdmin && (portalConnectors ? (
+              <a
+                href={portalConnectors}
+                className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-full border border-kumo-line bg-kumo-base px-4 text-[13px] leading-4 font-medium tracking-[-0.2px] text-kumo-default transition-[background-color,border-color] duration-150 ease-out hover:border-kumo-fill hover:bg-kumo-tint"
+              >
+                <Plus size={14} strokeWidth={2.5} />
+                Add or manage connectors
+              </a>
+            ) : (
               <Link
                 to="/admin/$section"
                 params={{ section: 'connectors' }}
@@ -830,7 +842,7 @@ export function ConnectorsPage() {
                 <Plus size={14} strokeWidth={2.5} />
                 Add or manage connectors
               </Link>
-            )}
+            ))}
           </div>
           <ConnectorsHeroDiagram accounts={accounts} vendors={vendors} siteName={siteName} />
         </header>
@@ -942,7 +954,9 @@ export function ConnectorsPage() {
                     state="available"
                     onClick={() => {
                       if (adminsToAdd) {
-                        void navigate({ to: '/admin/connectors/$vendorId', params: { vendorId: vendor.id } })
+                        const portalUrl = centralConnectorsLink(serverConfig, vendor.id)
+                        if (portalUrl) window.location.assign(portalUrl)
+                        else void navigate({ to: '/admin/connectors/$vendorId', params: { vendorId: vendor.id } })
                       } else {
                         handleOpenConnect(vendor.id)
                       }
@@ -975,7 +989,9 @@ export function ConnectorsPage() {
                 search
                   ? "We couldn't find anything matching your search."
                   : isAdmin
-                    ? 'Add connectors for your team under Admin → Connectors.'
+                    ? portalConnectors
+                      ? 'Add connectors for your team on the admin portal.'
+                      : 'Add connectors for your team under Admin → Connectors.'
                     : 'Connectors appear here once an administrator adds them for your company.'
               }
               icon={Unplug}

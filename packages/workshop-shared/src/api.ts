@@ -1202,6 +1202,12 @@ export interface AdminApi {
   /** Read all admin-managed settings for the admin UI in one call. */
   getSettings(): Promise<AdminSettingsView>;
 
+  /**
+   * The connector catalog alone (AdminSettingsView.resourceVendors), without the skills,
+   * formats, models and channels getSettings() also gathers.
+   */
+  getConnectors(): Promise<AdminResourceVendor[]>;
+
   /** Enable or disable new account signups. Existing users can still log in while signups are closed. */
   setSignupsEnabled(enabled: boolean): Promise<void>;
 

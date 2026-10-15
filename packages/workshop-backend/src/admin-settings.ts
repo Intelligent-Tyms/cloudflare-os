@@ -518,6 +518,11 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
     };
   }
 
+  /** The connector catalog alone, for callers that need nothing else from getSettings(). */
+  async getConnectors(adminUserId: string): Promise<AdminResourceVendor[]> {
+    return this.#listResourceConfig(this.#config(), adminUserId);
+  }
+
   // --- Deployment AI models ---
 
   // The model catalog offered to every user. Several callers treat the first entry as the
@@ -1113,6 +1118,10 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
 
   getSettings(): Promise<AdminSettingsView> {
     return this.admin.getSettings(this.adminUserId);
+  }
+
+  getConnectors(): Promise<AdminResourceVendor[]> {
+    return this.admin.getConnectors(this.adminUserId);
   }
 
   async setSignupsEnabled(enabled: boolean): Promise<void> {

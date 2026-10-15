@@ -15,6 +15,18 @@ export type Portal = 'admin' | 'billing'
 export const CENTRAL_SETTINGS_PATH = '/jamaa'
 
 /**
+ * Where an administrator manages connectors (one of them, given its id) when the admin portal
+ * does, or undefined when they are managed here in /admin.
+ */
+export function centralConnectorsLink(
+  config: Pick<ServerConfig, 'adminPortalUrl' | 'settingsManagedCentrally'> | null | undefined,
+  vendorId?: string,
+): string | undefined {
+  if (!config?.settingsManagedCentrally) return undefined
+  return portalLink(config, 'admin', vendorId ? `/connectors/${encodeURIComponent(vendorId)}` : '/connectors')
+}
+
+/**
  * A page on one of the portals for this workspace (`path` like '/plans' or '?tab=payment'),
  * or undefined when the deployment has no such portal.
  */

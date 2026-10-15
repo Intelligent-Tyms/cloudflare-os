@@ -39,6 +39,14 @@ export const CENTRAL_ADMIN_METHODS = {
   provisionEmailInbox: 2,
   listEmailInboxes: 0,
   deleteEmailInbox: 1,
+  // Connectors: their switches, resource choices and admin-entered setup (company
+  // credentials, OAuth apps, company MCP servers), kept in each connector's own store.
+  getConnectors: 0,
+  setGatekeeperMode: 2,
+  setResourceEnabled: 3,
+  getIntegrationSetup: 1,
+  applyIntegrationSetup: 2,
+  clearIntegrationSetup: 2,
 } as const satisfies Partial<Record<keyof AdminApiImpl, number>>;
 
 export type CentralAdminMethod = keyof typeof CENTRAL_ADMIN_METHODS;
