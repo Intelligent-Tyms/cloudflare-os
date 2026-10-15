@@ -16,14 +16,16 @@ import { getAiGatewayConfig } from './ai-gateway.js';
 import { formatBlueprintsManifestVersion, installBlueprintArchive, installFormatBlueprints } from './format-blueprints.js';
 import { FORMAT_BLUEPRINTS } from './generated/format-blueprints.js';
 import * as intelligenceDirectory from './intelligence-directory.js';
-import { CENTRAL_SETTINGS_POLL_MS, CentralSettings, centralSettingsOf, hasCentralSettings, pullCentralSettings, seedCentralSettings } from './central-settings.js';
+import { CENTRAL_CATALOG_CHECK_MS, CENTRAL_CATALOG_REFRESH_MS, CENTRAL_SETTINGS_POLL_MS, CentralCatalog, CentralSettings, CentralSettingsPull, adoptCentralSettings, catalogFingerprint, centralSettingsOf, fetchCentralLogo, hasCentralSettings, pullCentralSettings, reportCatalog, seedCentralSettings } from './central-settings.js';
 import { INTELLIGENCE_CONNECTORS, type IntelligenceConnectorSetup } from './intelligence-setup.js';
 
 const logger = createWorkshopLogger("workshop.admin.settings");
 
 // The AdminConfig fields the admin portal owns once central settings are applied.
 const CENTRAL_SETTING_KEYS = new Set<keyof CentralSettings>(
-    ["organizationProfile", "instanceInstructions", "siteName", "accentColor", "announcement", "banner"]);
+    ["organizationProfile", "instanceInstructions", "siteName", "accentColor", "announcement", "banner",
+      "disabledSkills", "disabledModels"]);
+const MANAGED_ON_PORTAL = "This setting is managed on the admin portal.";
 
 // listDeploymentSkills/installSkillPackage are optional on GatekeeperVendor (like createAccount):
 // callers gate on the VendorDescription flags and view the stub through the Required shape, since
@@ -92,6 +94,10 @@ function makeAdminSettingsStorage(storage: DurableObjectStorage) {
       // Deployment-wide quick model (used for lightweight tasks like chat title generation),
       // referencing an aiModels entry by id. Ignored in AI Gateway mode, which hardcodes its own.
       quickModel: <string | null>null,
+
+      // The catalog last reported to the control plane (central-settings.ts reportCatalog):
+      // its fingerprint, when it was sent, and when it was last listed to compare.
+      centralCatalogReport: { fingerprint: "", sentAt: 0, checkedAt: 0 },
     },
   });
 }
@@ -389,7 +395,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
     return this.#mutateAdminConfig(config => {
       if (config.centralSettingsVersion > 0
           && Object.keys(patch).some(key => CENTRAL_SETTING_KEYS.has(key as keyof CentralSettings))) {
-        throw new Error("This setting is managed on the admin portal.");
+        throw new Error(MANAGED_ON_PORTAL);
       }
       return { ...config, ...patch };
     });
@@ -423,13 +429,65 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
    * and seeds them with this deployment's own values, which then come back as version 1.
    */
   async syncCentralSettings(): Promise<void> {
-    let applied = this.#config().centralSettingsVersion;
-    let pull = await pullCentralSettings(this.env, applied);
-    if (pull.kind === "absent") pull = await seedCentralSettings(this.env, centralSettingsOf(this.#config()));
-    if (pull.kind !== "settings" || pull.version === applied) return;
-    let { version, settings } = pull;
-    await this.#mutateAdminConfig(config => ({ ...config, ...settings, centralSettingsVersion: version }));
+    let config = this.#config();
+    let applied = config.centralSettingsVersion;
+    let pull: CentralSettingsPull = await pullCentralSettings(this.env, applied);
+    if (pull.kind === "absent") {
+      pull = await seedCentralSettings(this.env, centralSettingsOf(config), await this.#localLogo());
+    } else if (pull.kind === "settings" && pull.missing.length > 0) {
+      // The control plane's copy predates some fields: hand over ours for exactly those.
+      pull = await adoptCentralSettings(this.env, centralSettingsOf(config),
+          pull.missing.includes("logo") ? await this.#localLogo() : null);
+    }
+    if (pull.kind === "settings" && pull.version !== applied) await this.#applyCentralSettings(pull);
+    await this.#maybeReportCatalog();
+  }
+
+  // This deployment's own logo, for the first hand-over; null when it has none.
+  async #localLogo(): Promise<Uint8Array | null> {
+    if (!this.#config().siteLogoConfigured) return null;
+    let object = await this.env.BLUEPRINT_CONTENT.get(SITE_LOGO_R2_KEY);
+    return object ? new Uint8Array(await object.arrayBuffer()) : null;
+  }
+
+  async #applyCentralSettings(pull: Extract<CentralSettingsPull, { kind: "settings" }>): Promise<void> {
+    let { version, settings: { logo, ...settings } } = pull;
+    if (logo !== this.#config().centralLogoSha) {
+      if (logo === "") {
+        await this.setSiteLogo(null);
+      } else {
+        let fetched = await fetchCentralLogo(this.env);
+        // A newer upload landed between the pull and the fetch: the next pull names it.
+        if (fetched.sha256 !== logo) throw new Error("The central logo changed while fetching it.");
+        validateSiteLogo(fetched.png);
+        await this.setSiteLogo(fetched.png);
+      }
+    }
+    await this.#mutateAdminConfig(config => ({
+      ...config, ...settings, centralSettingsVersion: version, centralLogoSha: logo,
+    }));
     logger.info("applied central settings", { event: "central_settings.applied", sequence: version });
+  }
+
+  // Report what can be switched off when it changed (checked every few minutes, not on every
+  // pull: listing skills asks each skills vendor), and now and then regardless.
+  async #maybeReportCatalog(): Promise<void> {
+    let report = this.storage.centralCatalogReport.get();
+    let now = Date.now();
+    if (now - report.checkedAt < CENTRAL_CATALOG_CHECK_MS) return;
+    let config = this.#config();
+    let catalog: CentralCatalog = {
+      skills: (await this.#listSkillConfig(config)).filter(s => !s.missing)
+          .map(({ name, description, sources }) => ({ name, description, sources })),
+      models: this.#listModelConfig(config)?.filter(m => !m.missing)
+          .map(({ id, name, provider, freePlan }) => ({ id, name, provider, freePlan })) ?? null,
+    };
+    let fingerprint = await catalogFingerprint(catalog);
+    // Checked now whatever the report does, so a failing one waits for the next check.
+    this.storage.centralCatalogReport.put({ ...report, checkedAt: now });
+    if (fingerprint === report.fingerprint && now - report.sentAt < CENTRAL_CATALOG_REFRESH_MS) return;
+    await reportCatalog(this.env, catalog);
+    this.storage.centralCatalogReport.put({ fingerprint, sentAt: now, checkedAt: now });
   }
 
   /**
@@ -520,6 +578,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
       throw new Error("Model curation requires AI Gateway mode.");
     }
     await this.#mutateAdminConfig(config => {
+      if (config.centralSettingsVersion > 0) throw new Error(MANAGED_ON_PORTAL);
       let disabled = new Set(config.disabledModels);
       if (enabled) disabled.delete(id); else disabled.add(id);
       return { ...config, disabledModels: [...disabled] };
@@ -723,6 +782,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
   // also how a stale (`missing`) curation entry is cleared: the disabled set is the whole state.
   async setSkillEnabled(name: string, enabled: boolean): Promise<void> {
     await this.#mutateAdminConfig(config => {
+      if (config.centralSettingsVersion > 0) throw new Error(MANAGED_ON_PORTAL);
       let disabled = new Set(config.disabledSkills);
       if (enabled) disabled.delete(name); else disabled.add(name);
       return { ...config, disabledSkills: [...disabled] };
@@ -1067,6 +1127,7 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
   }
 
   async setSiteLogo(data: Uint8Array | null): Promise<AdminSettingsView['siteLogo']> {
+    if ((await this.admin.getAdminConfig()).centralSettingsVersion > 0) throw new Error(MANAGED_ON_PORTAL);
     if (data !== null) validateSiteLogo(data);
     return siteLogoImage(await this.admin.setSiteLogo(data));
   }

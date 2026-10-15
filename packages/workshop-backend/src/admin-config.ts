@@ -85,6 +85,9 @@ export type AdminConfig = {
    * color, notice and banner are edited on the admin portal, not here.
    */
   centralSettingsVersion: number;
+
+  /** SHA-256 of the central logo applied to R2, or "" for none (central-settings.ts). */
+  centralLogoSha: string;
 };
 
 /**
@@ -126,6 +129,7 @@ export const DEFAULT_ADMIN_CONFIG: AdminConfig = {
   disabledModels: [],
   formats: [],
   centralSettingsVersion: 0,
+  centralLogoSha: "",
 };
 
 /**
@@ -354,6 +358,8 @@ export function parseAdminConfig(raw: string | null): AdminConfig {
       centralSettingsVersion: typeof p.centralSettingsVersion === "number"
           && Number.isInteger(p.centralSettingsVersion) && p.centralSettingsVersion > 0
           ? p.centralSettingsVersion : 0,
+      centralLogoSha: typeof p.centralLogoSha === "string" && /^[0-9a-f]{64}$/.test(p.centralLogoSha)
+          ? p.centralLogoSha : "",
     };
   } catch {
     return { ...DEFAULT_ADMIN_CONFIG };

@@ -33,7 +33,7 @@ import { applyAccentColor, DEFAULT_ACCENT_COLOR } from './theme'
 import { cacheBustSiteLogoUrl, prepareSiteLogo } from './siteLogoUtils'
 import SiteLogo from './components/SiteLogo'
 import { useDocumentTitle } from './useDocumentTitle'
-import { portalLink, type Portal } from './portalLinks'
+import { CENTRAL_SETTINGS_PATH, portalLink, type Portal } from './portalLinks'
 import AdminChannelsPanel from './components/AdminChannelsPanel'
 import AdminFormatsPanel from './components/format/AdminFormatsPanel'
 import AdminIntelligencePanel, { AdminIntelligenceComingSoon } from './components/AdminIntelligencePanel'
@@ -94,8 +94,6 @@ type AdminSection = {
   localSignInOnly?: boolean
 }
 
-// The admin portal page for this deployment's centrally managed settings.
-const CENTRAL_SETTINGS_PATH = '/jamaa'
 
 const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
   {
@@ -103,8 +101,8 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
     sections: [
       {
         id: 'assistant-settings',
-        title: 'Organization, instructions & brand',
-        blurb: 'What every assistant is told, the site name and color, and notices. Opens the admin portal.',
+        title: 'Organization, brand & offerings',
+        blurb: 'What every assistant is told, the brand, notices, and which skills and AI models are offered. Opens the admin portal.',
         description: '',
         icon: <Building2 size={18} />,
         portal: { portal: 'admin', path: CENTRAL_SETTINGS_PATH },
@@ -137,6 +135,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
       {
         id: 'brand',
+        central: true,
         title: 'Brand',
         blurb: 'Site name, logo, and accent color shown across the app.',
         description: 'Site name, logo, and accent color shown across the app. Changes apply to everyone on their next connection.',
@@ -205,6 +204,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
       {
         id: 'providers',
+        central: true,
         title: 'AI models',
         blurb: 'Choose which AI models everyone on this deployment can use.',
         description:
@@ -745,14 +745,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
       )}
 
       {/* Site name */}
-      {section === 'brand' && managed && (
-        <p className="text-sm text-kumo-subtle">
-          The site name and accent color are set on the{' '}
-          {centralSettingsUrl ? <a href={centralSettingsUrl} className="text-kumo-brand underline">admin portal</a> : 'admin portal'}.
-        </p>
-      )}
-
-      {section === 'brand' && !managed && (
+      {section === 'brand' && (
         <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
           <h2 className="text-lg font-semibold text-kumo-strong mb-1">Site name</h2>
           <p className="text-sm text-kumo-subtle mb-5">
@@ -841,7 +834,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
       )}
 
       {/* Theme / accent color */}
-      {section === 'brand' && !managed && (
+      {section === 'brand' && (
         <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
           <h2 className="text-lg font-semibold text-kumo-strong mb-1">Theme</h2>
           <p className="text-sm text-kumo-subtle mb-5">
