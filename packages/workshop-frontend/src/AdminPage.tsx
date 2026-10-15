@@ -72,7 +72,7 @@ export type AdminSectionId =
 
 // Cards for what is managed on the central portals (admin.tyms.ai, billing.tyms.ai) rather
 // than here. They open the portal page for this workspace and have no detail page of their own.
-type PortalSectionId = 'teammates' | 'billing'
+type PortalSectionId = 'teammates' | 'billing' | 'assistant-settings'
 
 type AdminSection = {
   id: AdminSectionId | PortalSectionId
@@ -84,14 +84,35 @@ type AdminSection = {
   comingSoon?: boolean
   /** Managed on a central portal: the card links to this page of it instead. */
   portal?: { portal: Portal; path: string }
+  /**
+   * Edited on the admin portal once the deployment takes its settings from there
+   * (ServerConfig.settingsManagedCentrally): the card is hidden and the page points there.
+   * A portal card with this set is the opposite: shown only then.
+   */
+  central?: boolean
+  /** Meaningless with central sign-in (accounts are created centrally): hidden then. */
+  localSignInOnly?: boolean
 }
+
+// The admin portal page for this deployment's centrally managed settings.
+const CENTRAL_SETTINGS_PATH = '/jamaa'
 
 const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
   {
     label: 'Workspace',
     sections: [
       {
+        id: 'assistant-settings',
+        title: 'Organization, instructions & brand',
+        blurb: 'What every assistant is told, the site name and color, and notices. Opens the admin portal.',
+        description: '',
+        icon: <Building2 size={18} />,
+        portal: { portal: 'admin', path: CENTRAL_SETTINGS_PATH },
+        central: true,
+      },
+      {
         id: 'organization',
+        central: true,
         title: 'Organization',
         blurb: 'Tell your assistants what your organization does, your terminology, and key facts.',
         description:
@@ -123,6 +144,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
       {
         id: 'announcements',
+        central: true,
         title: 'Announcements',
         blurb: 'Banner and top-bar notices shown to everyone.',
         description: 'The full-width banner and the top-bar notice shown to everyone using this deployment.',
@@ -130,6 +152,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
       {
         id: 'access',
+        localSignInOnly: true,
         title: 'Access',
         blurb: 'Control whether new accounts can be created.',
         description: 'Control who can create an account on this deployment.',
@@ -142,6 +165,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
     sections: [
       {
         id: 'instructions',
+        central: true,
         title: 'Assistant instructions',
         blurb: 'Deployment-wide instructions added to every assistant.',
         description:
@@ -266,6 +290,8 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
   // isn't configured. Teammates and billing are on the portals; their cards need the links.
   const serverConfig = useServerConfig()
   const centralLoginUrl = serverConfig?.centralLoginUrl
+  const managed = Boolean(serverConfig?.settingsManagedCentrally)
+  const centralSettingsUrl = portalLink(serverConfig, 'admin', CENTRAL_SETTINGS_PATH)
   const sectionMeta = section ? ADMIN_SECTIONS.find((s) => s.id === section) : undefined
   useDocumentTitle(sectionMeta ? `${sectionMeta.title} · Admin` : 'Admin')
 
@@ -575,9 +601,12 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
             ...group,
             // Intelligence lives in the central directory and portal cards need their portal;
             // without them there is nothing behind a card, so it (and an emptied group) is hidden.
+            // Centrally managed settings swap their cards for the one portal card.
             sections: group.sections.filter((s) =>
-              s.portal ? Boolean(portalLink(serverConfig, s.portal.portal, s.portal.path))
-                : !INTELLIGENCE_SECTION_IDS.includes(s.id as AdminSectionId) || Boolean(centralLoginUrl)),
+              (s.portal ? Boolean(portalLink(serverConfig, s.portal.portal, s.portal.path))
+                : !INTELLIGENCE_SECTION_IDS.includes(s.id as AdminSectionId) || Boolean(centralLoginUrl))
+              && (!s.central || (s.portal ? managed : !managed))
+              && !(s.localSignInOnly && centralLoginUrl)),
           })).filter((group) => group.sections.length > 0).map((group) => (
             <section key={group.label} className="flex flex-col gap-3">
               <h2 className="px-1 text-[12px] font-medium uppercase tracking-[0.08em] text-kumo-inactive">
@@ -621,6 +650,20 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
             </section>
           ))}
         </div>
+      </div>
+    )
+  }
+
+  // A bookmark or old link onto a page the admin portal now owns.
+  if (managed && sectionMeta.central) {
+    return (
+      <div className="mx-auto w-full max-w-[1040px] px-4 sm:px-8 py-16 text-center">
+        <p className="text-sm text-kumo-default">{sectionMeta.title} is now set on the admin portal.</p>
+        {centralSettingsUrl && (
+          <a href={centralSettingsUrl} className="text-kumo-brand mt-2 inline-block text-sm underline">
+            Open the admin portal
+          </a>
+        )}
       </div>
     )
   }
@@ -702,7 +745,14 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
       )}
 
       {/* Site name */}
-      {section === 'brand' && (
+      {section === 'brand' && managed && (
+        <p className="text-sm text-kumo-subtle">
+          The site name and accent color are set on the{' '}
+          {centralSettingsUrl ? <a href={centralSettingsUrl} className="text-kumo-brand underline">admin portal</a> : 'admin portal'}.
+        </p>
+      )}
+
+      {section === 'brand' && !managed && (
         <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
           <h2 className="text-lg font-semibold text-kumo-strong mb-1">Site name</h2>
           <p className="text-sm text-kumo-subtle mb-5">
@@ -791,7 +841,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
       )}
 
       {/* Theme / accent color */}
-      {section === 'brand' && (
+      {section === 'brand' && !managed && (
         <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
           <h2 className="text-lg font-semibold text-kumo-strong mb-1">Theme</h2>
           <p className="text-sm text-kumo-subtle mb-5">
