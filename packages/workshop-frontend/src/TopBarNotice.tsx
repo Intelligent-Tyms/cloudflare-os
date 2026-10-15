@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Link } from '@tanstack/react-router'
 import { useServerConfig } from './ServerConfigContext'
 import { useOptionalAuthenticatedApi } from './AuthContext'
 import type { BillingGateInfo } from '@gadgets/workshop-shared/api'
 import { credits } from './components/billing/billingFormat'
+import { portalLink } from './portalLinks'
 
 /**
  * Centered text in the top bar. Shows the deployment's admin-configured notice (rendered as inline
@@ -14,9 +14,10 @@ import { credits } from './components/billing/billingFormat'
  * members just see the plan. While a paid plan is on its free trial it shows the days left
  * (admins get a link to Plans, where cancelling lives, or to Payment details when the trial
  * started without a card and needs one to continue). On a paid plan it warns admins when AI credits are running
- * low (under a fifth of the period's credits, or out), with a link to Billing & usage where the
+ * low (under a fifth of the period's credits, or out), with a link to the billing portal where the
  * top-up is, so nobody learns the workspace is dry from a blocked turn. An admin-set announcement
- * always wins over the fallbacks.
+ * always wins over the fallbacks. Every link goes to the billing portal; without one, the notices
+ * show without links.
  *
  * Designed to be placed inside a flex container that has `position: relative`; it absolutely-centers
  * itself so it doesn't affect the left/right layout. Hidden below the `lg` breakpoint where it would
@@ -55,8 +56,19 @@ function lowCredits(gate: BillingGateInfo | null): LowCredits | null {
   return balance / grant < LOW_CREDITS_FRACTION ? { balanceMicroUsd: balance, out: false } : null
 }
 
+// A link in the notice: a full page load onto the billing portal.
+function PortalLink({ href, children }: { href: string | undefined; children: string }) {
+  if (!href) return null
+  return (
+    <a href={href} className="text-kumo-brand hover:underline pointer-events-auto">
+      {children}
+    </a>
+  )
+}
+
 export default function TopBarNotice() {
-  const notice = (useServerConfig()?.announcement ?? '').trim()
+  const serverConfig = useServerConfig()
+  const notice = (serverConfig?.announcement ?? '').trim()
   const auth = useOptionalAuthenticatedApi()
   const [freePlan, setFreePlan] = useState(false)
   const [trialEndsAt, setTrialEndsAt] = useState<number | null>(null)
@@ -85,13 +97,11 @@ export default function TopBarNotice() {
 
   // Days until the trial's first charge. With a card on file this is information, not a
   // nudge, and admins get the link to where cancelling lives; without one, admins are asked
-  // to add a card (Payment details, a full page load so the tab opens).
+  // to add a card (Payment details).
   const trialDaysLeft = trialEndsAt == null ? null : Math.max(0, Math.ceil((trialEndsAt - Date.now()) / 86_400_000))
-  const addCard = (
-    <a href="/admin/billing?tab=payment" className="text-kumo-brand hover:underline pointer-events-auto">
-      Add card
-    </a>
-  )
+  const billingPage = portalLink(serverConfig, 'billing')
+  const plansPage = portalLink(serverConfig, 'billing', '/plans')
+  const addCard = <PortalLink href={portalLink(serverConfig, 'billing', '?tab=payment')}>Add card</PortalLink>
   const trialLabel = trialDaysLeft == null ? ''
     : trialDaysLeft === 0 ? 'Free trial ends today.'
     : trialDaysLeft === 1 ? 'Free trial ends tomorrow.'
@@ -114,24 +124,12 @@ export default function TopBarNotice() {
                 ? cardless ? 'Out of trial credits.' : 'Out of AI credits.'
                 : `${cardless ? 'Trial credits' : 'AI credits'} low: ${credits(low.balanceMicroUsd)} left.`}
             </span>{' '}
-            {cardless ? addCard : <Link
-              to="/admin/$section"
-              params={{ section: 'billing' }}
-              className="text-kumo-brand hover:underline pointer-events-auto"
-            >
-              Top up
-            </Link>}
+            {cardless ? addCard : <PortalLink href={billingPage}>Top up</PortalLink>}
           </>
         ) : cardExpiring ? (
           <>
             <span className="text-kumo-warning">Your card on file expires before the next payment.</span>{' '}
-            <Link
-              to="/admin/$section"
-              params={{ section: 'billing' }}
-              className="text-kumo-brand hover:underline pointer-events-auto"
-            >
-              Update card
-            </Link>
+            <PortalLink href={portalLink(serverConfig, 'billing', '?tab=payment')}>Update card</PortalLink>
           </>
         ) : trialEndsAt != null ? (
           <>
@@ -139,15 +137,7 @@ export default function TopBarNotice() {
             {auth?.isAdmin && (
               <>
                 {' '}
-                {cardless ? addCard : (
-                  <Link
-                    to="/admin/$section"
-                    params={{ section: 'plans' }}
-                    className="text-kumo-brand hover:underline pointer-events-auto"
-                  >
-                    Manage plan
-                  </Link>
-                )}
+                {cardless ? addCard : <PortalLink href={plansPage}>Manage plan</PortalLink>}
               </>
             )}
           </>
@@ -157,13 +147,7 @@ export default function TopBarNotice() {
             {auth?.isAdmin && (
               <>
                 {' '}
-                <Link
-                  to="/admin/$section"
-                  params={{ section: 'plans' }}
-                  className="text-kumo-brand hover:underline pointer-events-auto"
-                >
-                  Upgrade
-                </Link>
+                <PortalLink href={plansPage}>Upgrade</PortalLink>
               </>
             )}
           </>

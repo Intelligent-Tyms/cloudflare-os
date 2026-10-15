@@ -654,7 +654,7 @@ export function NewConversation({
         {teammates.error && <div className="px-4 py-6 text-sm text-kumo-danger">{teammates.error}</div>}
         {list !== null && visible.length === 0 && (
           <div className="px-4 py-6 text-sm text-kumo-subtle">
-            {list.length === 0 ? 'No teammates yet. Invite people from Admin → Teammates.' : 'No matches.'}
+            {list.length === 0 ? 'No teammates yet. Admins invite people from the admin portal.' : 'No matches.'}
           </div>
         )}
         {visible.map((t) => {

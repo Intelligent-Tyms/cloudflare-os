@@ -1,4 +1,4 @@
-import { AdminApi, AdminFormat, AdminFormatPatch, AdminModel, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BillingCreditType, BillingInvoice, BillingOverview, BillingPaymentDetails, BillingPlanChangeResult, BillingPlanOption, BlueprintPublicInfo, INTELLIGENCE_PRODUCT_KINDS, INTELLIGENCE_PRODUCT_NAMES, IntelligenceInstanceView, IntelligenceOverview, IntelligenceProductKind, IntelligenceProductOverview, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { AdminApi, AdminFormat, AdminFormatPatch, AdminModel, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, INTELLIGENCE_PRODUCT_KINDS, INTELLIGENCE_PRODUCT_NAMES, IntelligenceInstanceView, IntelligenceOverview, IntelligenceProductKind, IntelligenceProductOverview, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor, SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES, SkillPackage, SkillPackageFile, VendorSetup } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
@@ -15,11 +15,8 @@ import { UserDurableObject, type UserAiModelRecord } from './user.js';
 import { getAiGatewayConfig } from './ai-gateway.js';
 import { formatBlueprintsManifestVersion, installBlueprintArchive, installFormatBlueprints } from './format-blueprints.js';
 import { FORMAT_BLUEPRINTS } from './generated/format-blueprints.js';
-import * as teamDirectory from './team-directory.js';
-import * as billingDirectory from './billing-directory.js';
 import * as intelligenceDirectory from './intelligence-directory.js';
 import { INTELLIGENCE_CONNECTORS, type IntelligenceConnectorSetup } from './intelligence-setup.js';
-import type { UsageCollectorDurableObject } from './usage-collector.js';
 
 const logger = createWorkshopLogger("workshop.admin.settings");
 
@@ -997,13 +994,12 @@ async function isAmbientOnly(vendor: Service<GatekeeperVendor>): Promise<boolean
 export class AdminApiImpl extends RpcTarget implements AdminApi {
   /**
    * `adminUserId` is the requesting admin's identity, forwarded to gatekeepers when listing the
-   * resource catalog (some are RBAC-gated per user) and to the central team directory as the
-   * acting admin. It's plain data — not a user-DO dependency. `env` is needed for the team
-   * directory client only.
+   * resource catalog (some are RBAC-gated per user) and to the control plane as the acting
+   * admin. It's plain data — not a user-DO dependency. `env` reaches the control plane,
+   * channels and gatekeeper bindings.
    */
   constructor(private admin: DurableObjectStub<AdminSettings>, private adminUserId: string,
-      private env: Cloudflare.Env,
-      private usageCollector?: DurableObjectStub<UsageCollectorDurableObject>) {
+      private env: Cloudflare.Env) {
     super();
   }
 
@@ -1247,144 +1243,6 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
 
   setQuickModel(id: string | null): Promise<void> {
     return this.admin.setQuickModel(id);
-  }
-
-  // --- Teammates (central team directory; see team-directory.ts) ---
-
-  #requireTeamDirectory(): void {
-    if (!teamDirectory.hasTeamDirectory(this.env)) {
-      throw new Error("This deployment has no central team directory configured.");
-    }
-  }
-
-  async getTeam(): Promise<TeamView | null> {
-    if (!teamDirectory.hasTeamDirectory(this.env)) return null;
-    return teamDirectory.fetchTeam(this.env);
-  }
-
-  async inviteTeammate(email: string, role: TeamRole): Promise<TeamView> {
-    this.#requireTeamDirectory();
-    let normalized = email.trim().toLowerCase();
-    if (!normalized.includes("@")) throw new Error("A valid email address is required.");
-    if (role !== "member" && role !== "admin") throw new Error(`Invalid role: ${role}`);
-    return teamDirectory.createTeamInvitation(this.env, normalized, role, this.adminUserId);
-  }
-
-  async revokeTeamInvitation(invitationId: string): Promise<TeamView> {
-    this.#requireTeamDirectory();
-    return teamDirectory.revokeTeamInvitation(this.env, invitationId);
-  }
-
-  async resendTeamInvitation(invitationId: string): Promise<TeamView> {
-    this.#requireTeamDirectory();
-    return teamDirectory.resendTeamInvitation(this.env, invitationId);
-  }
-
-  async removeTeammate(email: string): Promise<TeamView> {
-    this.#requireTeamDirectory();
-    return teamDirectory.removeTeamMember(this.env, email.trim().toLowerCase(), this.adminUserId);
-  }
-
-  // --- Billing (central billing directory; see billing-directory.ts) ---
-
-  async getBillingOverview(): Promise<BillingOverview | null> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) return null;
-    let {entitlements, usage} = await billingDirectory.fetchBillingSummary(this.env);
-    // The summary carries a fresh entitlements snapshot; pushing it into the usage
-    // collector's cache means whatever this page shows (a plan change or top-up that just
-    // landed via webhook) is also live at the enforcement gates, not stale for the TTL.
-    await this.usageCollector?.acceptEntitlements(entitlements).catch(() => {});
-    return {
-      ...entitlements,
-      trialEndsAt: entitlements.trialEndsAt ?? null,
-      cancelAt: entitlements.cancelAt ?? null,
-      card: entitlements.card ?? null,
-      cardExpiresBeforeNextCharge: entitlements.cardExpiresBeforeNextCharge ?? false,
-      usage: usage.rows,
-    };
-  }
-
-  async cancelPlan(): Promise<{cancelAt: number | null}> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) {
-      throw new Error("This deployment has no central billing configured.");
-    }
-    return billingDirectory.cancelPlan(this.env);
-  }
-
-  async resumePlan(): Promise<{cancelAt: number | null}> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) {
-      throw new Error("This deployment has no central billing configured.");
-    }
-    return billingDirectory.resumePlan(this.env);
-  }
-
-  async createTopupCheckout(creditType: BillingCreditType, amountCents: number,
-                            successUrl: string, cancelUrl: string): Promise<string> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) {
-      throw new Error("This deployment has no central billing configured.");
-    }
-    if (creditType !== "ai" && creditType !== "messaging") {
-      throw new Error(`Invalid credit type: ${creditType}`);
-    }
-    if (!Number.isInteger(amountCents) || amountCents <= 0) {
-      throw new Error("The top-up amount must be a positive whole number of cents.");
-    }
-    for (let url of [successUrl, cancelUrl]) {
-      let parsed = URL.parse(url);
-      if (!parsed || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
-        throw new Error("Return URLs must be http(s) URLs.");
-      }
-    }
-    // Amount bounds are enforced by the billing directory, which owns the policy.
-    return billingDirectory.createTopupCheckout(
-        this.env, {creditType, amountCents, successUrl, cancelUrl});
-  }
-
-  async listBillingPlans(): Promise<BillingPlanOption[]> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) return [];
-    return billingDirectory.fetchPlans(this.env);
-  }
-
-  async changePlan(planCode: string, billingPeriod: "monthly" | "annual",
-                   successUrl: string, cancelUrl: string): Promise<BillingPlanChangeResult> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) {
-      throw new Error("This deployment has no central billing configured.");
-    }
-    if (!planCode.trim()) throw new Error("A plan code is required.");
-    if (billingPeriod !== "monthly" && billingPeriod !== "annual") {
-      throw new Error(`Invalid billing period: ${billingPeriod}`);
-    }
-    for (let url of [successUrl, cancelUrl]) {
-      let parsed = URL.parse(url);
-      if (!parsed || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
-        throw new Error("Return URLs must be http(s) URLs.");
-      }
-    }
-    // Eligibility (seat fit, purchasability, tier) is enforced by the billing directory,
-    // which owns the policy; its refusals are end-user-ready messages.
-    return billingDirectory.changePlan(
-        this.env, {planCode: planCode.trim(), billingPeriod, successUrl, cancelUrl});
-  }
-
-  async listBillingInvoices(): Promise<BillingInvoice[]> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) return [];
-    return billingDirectory.fetchInvoices(this.env);
-  }
-
-  async getBillingPaymentDetails(): Promise<BillingPaymentDetails | null> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) return null;
-    return billingDirectory.fetchPaymentDetails(this.env);
-  }
-
-  async createBillingPortalSession(returnUrl: string): Promise<string> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) {
-      throw new Error("This deployment has no central billing configured.");
-    }
-    let parsed = URL.parse(returnUrl);
-    if (!parsed || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
-      throw new Error("Return URLs must be http(s) URLs.");
-    }
-    return billingDirectory.createBillingPortalSession(this.env, returnUrl);
   }
 
   // --- Intelligence (control plane + each product's gatekeeper setup store) ---

@@ -133,7 +133,7 @@ export class ExternalMessageGateway extends WorkerEntrypoint<Cloudflare.Env, Ext
       return {
         accepted: false,
         message: "This workspace is out of messaging credits. " +
-            "Ask a workspace admin to top up under Admin → Billing and usage.",
+            "Ask a workspace admin to top up on the billing portal.",
       };
     }
 

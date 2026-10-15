@@ -1406,72 +1406,6 @@ export interface AdminApi {
   // a built-in quick model.
   setQuickModel(id: string | null): Promise<void>;
 
-  // --- Teammates ---
-  //
-  // On deployments with a central team directory (see TeamView), membership and invitations are
-  // managed there; these methods proxy to it. Every mutation returns the fresh team view.
-
-  // The current team, or null when this deployment has no central team directory configured.
-  getTeam(): Promise<TeamView | null>;
-
-  // Invite someone by email. Throws if they are already a member, already invited, or the
-  // deployment's seat limit is reached. The directory emails them an invitation link.
-  inviteTeammate(email: string, role: TeamRole): Promise<TeamView>;
-
-  // Revoke a pending invitation; its emailed link stops working immediately.
-  revokeTeamInvitation(invitationId: string): Promise<TeamView>;
-
-  // Re-send a pending invitation with a fresh link and expiry; the old link stops working.
-  resendTeamInvitation(invitationId: string): Promise<TeamView>;
-
-  // Remove a member. Refused for the workspace owner and for the calling admin themselves.
-  // Removal blocks new sign-ins; an already-open session ends on its own schedule.
-  removeTeammate(email: string): Promise<TeamView>;
-
-  // --- Billing ---
-  //
-  // On deployments with a central billing directory, the plan, credit balances, and usage
-  // live there; these methods proxy to it (Admin → Billing and usage).
-
-  // Plan, credit balances, and usage for the current credit period, or null when this
-  // deployment has no central billing configured.
-  getBillingOverview(): Promise<BillingOverview | null>;
-
-  // Start a Stripe Checkout for a one-time credit top-up and return the checkout URL to
-  // send the browser to. Amounts are whole USD cents.
-  createTopupCheckout(creditType: BillingCreditType, amountCents: number,
-                      successUrl: string, cancelUrl: string): Promise<string>;
-
-  // The self-serve plan catalog for the plan picker (standard tier, purchasable).
-  listBillingPlans(): Promise<BillingPlanOption[]>;
-
-  // Change this workspace's plan. Paid↔paid applies immediately (applied: true); a
-  // workspace without a Stripe subscription gets a Stripe Checkout URL and the change
-  // applies once payment completes. Throws with an actionable message when refused (e.g.
-  // too many teammates for the target plan's seats).
-  changePlan(planCode: string, billingPeriod: "monthly" | "annual",
-             successUrl: string, cancelUrl: string): Promise<BillingPlanChangeResult>;
-
-  // Cancel the plan at the end of the paid period (or of the trial, which then never
-  // charges). Returns when the plan ends. There is no free plan to fall back to: the
-  // workspace is suspended at that date and removed after a retention window.
-  cancelPlan(): Promise<{cancelAt: number | null}>;
-
-  // Undo a scheduled cancellation while the plan is still running.
-  resumePlan(): Promise<{cancelAt: number | null}>;
-
-  // Invoice history from the billing provider, newest first. Empty when this deployment
-  // has no central billing configured or the workspace has never paid.
-  listBillingInvoices(): Promise<BillingInvoice[]>;
-
-  // The billing email and default card on file, or null when there is no billing profile
-  // (no central billing, or the workspace has never paid).
-  getBillingPaymentDetails(): Promise<BillingPaymentDetails | null>;
-
-  // Start a billing-portal session (update card, billing email, address, tax ids) and
-  // return the URL to send the browser to. Throws when there is no billing profile.
-  createBillingPortalSession(returnUrl: string): Promise<string>;
-
   // --- Intelligence (Admin → Intelligence; see intelligence-directory.ts) ---
   //
   // Tyms Intelligence products are per-tenant instances on their cells: Organization (the wiki
@@ -1558,52 +1492,6 @@ export type IntelligenceOverview = {
   data: IntelligenceProductOverview;
 };
 
-// One entry in the self-serve plan picker. Prices are the billed amounts in cents:
-// priceCents per month, annualPriceCents per year (null when no annual price exists).
-export type BillingPlanOption = {
-  code: string;
-  name: string;
-  description: string | null;
-  // Free-trial length new subscriptions to this plan get (0 = none).
-  trialDays: number;
-  priceCents: number;
-  annualPriceCents: number | null;
-  seatLimit: number | null;
-  agentLimit: number | null;
-  aiCreditCentsMonthly: number;
-  messagingCreditCentsMonthly: number;
-  annualAvailable: boolean;
-};
-
-export type BillingPlanChangeResult = {
-  applied: boolean;
-  // Set when payment is needed first (no Stripe subscription yet): send the browser here.
-  checkoutUrl: string | null;
-};
-
-// One invoice from the billing provider. Amounts are cents in `currency`; createdAt is
-// ms since epoch. hostedUrl opens the invoice in the browser, pdfUrl downloads it.
-export type BillingInvoice = {
-  id: string;
-  number: string | null;
-  createdAt: number;
-  description: string | null;
-  amountCents: number;
-  currency: string;
-  status: string;
-  hostedUrl: string | null;
-  pdfUrl: string | null;
-};
-
-// The billing email and default card on file with the billing provider.
-export type BillingPaymentDetails = {
-  billingEmail: string | null;
-  card: {brand: string; last4: string; expMonth: number; expYear: number} | null;
-};
-
-// The two credit pools a workspace plan grants monthly.
-export type BillingCreditType = "ai" | "messaging";
-
 // One credit pool: the plan's monthly allowance (expires at each credit-period rollover)
 // plus purchased top-ups (roll over). All amounts are integer micro-USD (1e-6 USD).
 export type BillingCreditBucket = {
@@ -1612,54 +1500,6 @@ export type BillingCreditBucket = {
   topupMicroUsd: number;
   balanceMicroUsd: number;
 };
-
-// Aggregated usage for the current credit period, grouped by kind/channel/direction.
-export type BillingUsageRow = {
-  kind: string;
-  channel: string | null;
-  direction: string | null;
-  events: number;
-  quantity: number;
-  costMicroUsd: number;
-};
-
-// The Admin → Billing and usage snapshot, assembled from the central billing directory.
-export type BillingOverview = {
-  planCode: string;
-  planName: string;
-  // 'enterprise' plans have custom volumes and are exempt from credit enforcement.
-  tier: string;
-  subscriptionStatus: string;
-  // While trialing: when the trial ends and the card is charged (ms since epoch); else null.
-  trialEndsAt: number | null;
-  // A scheduled cancellation: when the plan ends (ms since epoch); null unless cancelled.
-  cancelAt: number | null;
-  // The card Stripe charges next, as mirrored by the control plane; null when none is on file.
-  card: {brand: string; last4: string; expMonth: number; expYear: number} | null;
-  // That card expires before the next charge (trial end or renewal), so the payment will fail
-  // unless it is updated under Payment details.
-  cardExpiresBeforeNextCharge: boolean;
-  billingPeriod: string;
-  // What the subscription bills (per month or per year, per billingPeriod); cents.
-  priceCents: number | null;
-  seatLimit: number | null;
-  agentLimit: number | null;
-  ai: BillingCreditBucket;
-  messaging: BillingCreditBucket;
-  // Current credit period (ms since epoch); allowances reset at periodEnd.
-  periodStart: number;
-  periodEnd: number;
-  // Per-message rates by channel (micro-USD); channels at 0 never consume credits.
-  channelRatesMicroUsd: {[channel: string]: number};
-  // Non-null on the free plan: AI turns per user per UTC day instead of credits.
-  freeDailyLlmCalls: number | null;
-  usage: BillingUsageRow[];
-};
-
-// Role an invited teammate gets in the central team directory. "admin" also unlocks this
-// deployment's /admin area: the directory asserts the role in its signed sign-in handoff,
-// and role changes take effect on the member's next sign-in.
-export type TeamRole = "member" | "admin";
 
 // A workspace member as recorded by the central team directory.
 export type TeamMember = {
@@ -1699,24 +1539,10 @@ export type TeamChatChannelChanges = {
   removeMembers?: string[];
 };
 
-// A pending invitation in the central team directory.
-export type TeamInvitation = {
-  id: string;
-  email: string;
-  role: string;
-  // Email of the admin who sent it, when recorded.
-  invitedBy: string | null;
-  // Expiry (ms since epoch); `expired` saves the caller the clock comparison.
-  expiresAt: number;
-  expired: boolean;
-  createdAt: number;
-};
-
 // Membership and pending invitations for this deployment, as reported by the central team
 // directory (multi-tenant installations). The workshop keeps no member list of its own.
 export type TeamView = {
   members: TeamMember[];
-  invitations: TeamInvitation[];
 };
 
 /** A partial edit to one promoted format. Absent fields are left alone. */
@@ -1815,6 +1641,19 @@ export type ServerConfig = {
    * host ends with it render as wiki citations in chat. Undefined when the fleet has no cell.
    */
   intelligenceBaseDomain?: string;
+
+  /**
+   * This workspace's page on the central admin portal (teammates, products, the workspace
+   * itself), or undefined when there is none. Admins manage membership there.
+   */
+  adminPortalUrl?: string;
+
+  /**
+   * This workspace's page on the central billing portal (plan, credits, invoices, payment),
+   * or undefined when there is none. `/plans` under it is the plan picker; `?tab=payment`
+   * opens payment details.
+   */
+  billingPortalUrl?: string;
 };
 
 /**

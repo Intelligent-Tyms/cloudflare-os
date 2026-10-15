@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
 import { Dialog, Button, Loader } from '@cloudflare/kumo'
 import { Zap } from 'lucide-react'
 import { BillingGateInfo } from '@gadgets/workshop-shared/api'
 import { useOptionalAuthenticatedApi } from '../../AuthContext'
+import { useServerConfig } from '../../ServerConfigContext'
+import { portalLink } from '../../portalLinks'
 
 interface UpgradeModalProps {
   open: boolean
@@ -12,12 +13,12 @@ interface UpgradeModalProps {
 
 // Shown when an agent turn is blocked with a `usage_limit` error on a centrally billed
 // deployment: the free plan's daily allowance ran out, or a paid workspace is out of AI
-// credits. Admins get a straight path to where the fix is (Billing & usage for a top-up on
-// a paid plan, the plan picker on free); members get a one-click way to ask their admins (throttled per workspace server-side). The legacy Cloudflare-limits
+// credits. Admins get a straight path to where the fix is on the billing portal (the
+// overview for a top-up on a paid plan, the plan picker on free); members get a one-click way to ask their admins (throttled per workspace server-side). The legacy Cloudflare-limits
 // deployments show OutOfCreditsModal instead — ChatInterface picks by server config.
 export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   const auth = useOptionalAuthenticatedApi()
-  const navigate = useNavigate()
+  const serverConfig = useServerConfig()
   // undefined = loading; null = no central billing configured.
   const [gate, setGate] = useState<BillingGateInfo | null | undefined>(undefined)
   const [requestState, setRequestState] =
@@ -32,19 +33,17 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
       .catch(() => setGate(null))
   }, [open, auth])
 
-  // A paid workspace that ran dry wants a top-up, and top-ups live on Billing & usage (which
-  // also links to the plan picker). The free plan's only way forward is a plan, so it goes to Plans.
-  // A trial started without a card ran through its capped credits: adding a card lifts the cap.
+  // A paid workspace that ran dry wants a top-up, and top-ups live on the billing overview
+  // (which also links to the plan picker). The free plan's only way forward is a plan, so it
+  // goes to Plans. A trial started without a card ran through its capped credits: adding a
+  // card lifts the cap.
   const cardless = gate != null && gate.trialEndsAt != null && gate.hasCard === false
+  const fixUrl = portalLink(serverConfig, 'billing',
+    cardless ? '?tab=payment' : gate?.isFreePlan === false ? '' : '/plans')
 
   const openFix = () => {
     onClose()
-    if (cardless) {
-      window.location.assign('/admin/billing?tab=payment')
-      return
-    }
-    const section = gate?.isFreePlan === false ? 'billing' : 'plans'
-    void navigate({ to: '/admin/$section', params: { section } })
+    if (fixUrl) window.location.assign(fixUrl)
   }
 
   const requestUpgrade = async () => {
@@ -114,7 +113,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
               <Button variant="secondary" onClick={onClose}>
                 {gate !== null && (isAdmin || requestState === 'idle') ? 'Maybe later' : 'Close'}
               </Button>
-              {gate !== null && isAdmin && (
+              {gate !== null && isAdmin && fixUrl && (
                 <Button variant="primary" onClick={openFix}>
                   {cardless ? 'Add card' : gate.isFreePlan ? 'View plans' : 'Top up'}
                 </Button>
