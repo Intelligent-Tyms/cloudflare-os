@@ -4467,8 +4467,7 @@ class OverseerImpl implements AgentHooks {
           if (billing.freeDailyLlmCalls != null && this.ownerId) {
             // Free plan, platform gateway mode: only the low-cost models are included
             // (inference is platform-funded there). Checked before the daily counter so a
-            // blocked request never consumes quota. In BYOK mode (no gateway) the tenant pays
-            // with their own key, so no model restriction applies.
+            // blocked request never consumes quota.
             if (getAiGatewayConfig(this.env) && !isFreePlanModel(aiModel.config.model)) {
               blockMessage = `${aiModel.profile.name} isn't included in the free plan. ` +
                   `Upgrade for access to every model.`;

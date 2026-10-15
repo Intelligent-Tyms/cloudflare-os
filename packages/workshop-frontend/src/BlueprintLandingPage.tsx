@@ -1385,7 +1385,7 @@ function BindingField({
         </Select>
         {models.length === 0 && (
           <p className="text-xs text-kumo-subtle mt-1">
-            No AI models are available yet. Add a model from AI Providers first.
+            No AI models are available on this workspace yet.
           </p>
         )}
       </div>

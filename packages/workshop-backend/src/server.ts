@@ -136,9 +136,6 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
   listModels(): Promise<AiChatAuthorInfo[]> {
     return retryOnDoReset(() => this.#user.listModels());
   }
-  getQuickModel(): Promise<null | string> {
-    return retryOnDoReset(() => this.#user.getQuickModel());
-  }
 
   getPreferredModel(): Promise<string | null> {
     return retryOnDoReset(() => this.#user.getPreferredModel());

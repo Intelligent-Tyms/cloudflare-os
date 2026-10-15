@@ -560,13 +560,12 @@ function getModelDirect(config: AiModelConfig, sessionAffinity?: string): ModelH
         sessionAffinity,
       });
     case "cloudflare": {
-      // Workers AI is fetch-only (no Workers-binding transport), so outside AI Gateway mode it's
-      // BYOK like every other provider: the user's own account ID and API token come from the
-      // model config. (The REST endpoint is account-scoped, hence the extra accountId field.)
+      // Workers AI is fetch-only (no Workers-binding transport): the account ID and API token come
+      // from the model config. (The REST endpoint is account-scoped, hence the extra accountId
+      // field.)
       if (!config.accountId || !config.apiToken) {
         throw new Error(
-            "This Workers AI model has no Cloudflare credentials. Re-add it with your " +
-            "Cloudflare account ID and an API token that permits Workers AI.");
+            "This Workers AI model has no Cloudflare credentials.");
       }
       return makeHandle({
         model: {

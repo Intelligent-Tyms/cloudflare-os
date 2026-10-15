@@ -68,9 +68,9 @@ function makeAdminSettingsStorage(storage: DurableObjectStorage) {
       featuredBlueprints: collection<BlueprintPublicInfo>()({
         primaryKey: 'id',
       }),
-      // Deployment-wide AI models, managed by admins and offered to every user. The stored record
-      // carries the provider API token, so raw records never leave the server: users see only the
-      // profiles via listModels().
+      // Retired: models admins added with their own provider keys, before every deployment's
+      // models came from the AI Gateway. Declared only so the constructor can purge them (the
+      // records carry API tokens); drop this and quickModel once the fleet has run the purge.
       aiModels: collection<UserAiModelRecord>()({
         primaryKey: record => record.profile.id,
       }),
@@ -91,8 +91,7 @@ function makeAdminSettingsStorage(storage: DurableObjectStorage) {
       // deployment that installed before curation existed still gets promoted.
       promotedFormatBlueprints: <string[]>[],
 
-      // Deployment-wide quick model (used for lightweight tasks like chat title generation),
-      // referencing an aiModels entry by id. Ignored in AI Gateway mode, which hardcodes its own.
+      // Retired with aiModels (see there): the id of the added model used for chat titles.
       quickModel: <string | null>null,
 
       // The catalog last reported to the control plane (central-settings.ts reportCatalog):
@@ -129,6 +128,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
     super(ctx, env);
 
     this.storage = makeAdminSettingsStorage(ctx.storage);
+    this.#purgeRetiredModels();
     this.users = this.ctx.exports.UserDurableObject;
     this.vendors = buildGatekeeperVendorMap(env);
   }
@@ -519,24 +519,24 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
 
   // --- Deployment AI models ---
 
-  // The model catalog offered to every user. Several callers treat the first entry as the
+  // Delete the models admins once added with their own provider keys (and the quick model that
+  // pointed at one). Synchronous storage, so the constructor can run it before any request.
+  #purgeRetiredModels(): void {
+    for (let model of [...this.storage.aiModels.list()]) this.storage.aiModels.delete(model.profile.id);
+    if (this.storage.quickModel.get() !== null) this.storage.quickModel.put(null);
+  }
+
+  // The model catalog offered to every user: the AI Gateway's, minus the models switched off on
+  // the admin portal; empty without a gateway. Several callers treat the first entry as the
   // default model, so ordering is part of the contract.
-  //
-  // Platform AI Gateway mode is platform-catalog-only: the curated gateway list is the whole
-  // catalog, and admin-added BYOK records are ignored entirely -- hidden here and refused at
-  // resolve (user.ts getChatContext) -- until the teardown release purges them. Outside gateway
-  // mode (self-hosted BYOK deployments), the admin-added records are the catalog.
   async listModels(): Promise<AiChatAuthorInfo[]> {
     let gwConfig = getAiGatewayConfig(this.env);
-    if (gwConfig) {
-      let disabled = new Set(this.#config().disabledModels);
-      return gwConfig.getModelList(disabled);
-    }
-    return [...this.storage.aiModels.list()].map(model => model.profile);
+    if (!gwConfig) return [];
+    return gwConfig.getModelList(new Set(this.#config().disabledModels));
   }
 
   // Admin view of the platform AI Gateway model catalog joined with the deployment's curation,
-  // or null outside gateway mode (the panel then manages BYOK models instead). Every catalog
+  // or null without a gateway (there is nothing to curate then). Every catalog
   // entry appears, disabled ones included; a disabled id that has since left the catalog is kept
   // and flagged `missing` so the admin can clear it. Catalog order is preserved (it is also the
   // picker order, and the first enabled entry is the default model).
@@ -569,24 +569,6 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
     return result;
   }
 
-  // Raw stored record, INCLUDING the provider API token. For server-side chat-context resolution
-  // only -- never exposed through AdminApiImpl.
-  async getModelRecord(id: string): Promise<UserAiModelRecord | null> {
-    return this.storage.aiModels.get(id) ?? null;
-  }
-
-  // The quick-model id, or null when unset or pointing at a since-deleted model.
-  async getQuickModelId(): Promise<string | null> {
-    let id = this.storage.quickModel.get();
-    return id && this.storage.aiModels.get(id) ? id : null;
-  }
-
-  // Resolved quick-model record (includes the API token) for chat-context assembly; server-side
-  // only, like getModelRecord.
-  async getQuickModelRecord(): Promise<UserAiModelRecord | null> {
-    let id = this.storage.quickModel.get();
-    return (id ? this.storage.aiModels.get(id) : undefined) ?? null;
-  }
 
   // --- Standard output formats ---
 

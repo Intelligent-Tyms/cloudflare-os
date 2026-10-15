@@ -63,8 +63,7 @@ export type AdminConfig = {
    * Disabled AI model ids from the platform AI Gateway catalog (SUGGESTED_MODELS). Models are
    * enabled by default, so newly shipped catalog entries surface without admin action; a disabled
    * model is hidden from every picker and refused at resolve time (stale client selections and
-   * crafted requests included). Only meaningful in AI Gateway mode -- BYOK deployments curate by
-   * adding/removing models instead. Hard enforcement, unlike skills: the next turn of an existing
+   * crafted requests included). Hard enforcement, unlike skills: the next turn of an existing
    * chat on a disabled model is refused.
    */
   disabledModels: string[];
