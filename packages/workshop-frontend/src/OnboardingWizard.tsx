@@ -1,4 +1,4 @@
-import { logRpcFailure } from './rpcErrors'
+import { failureTitle, logRpcFailure } from './rpcErrors'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useKumoToastManager } from '@cloudflare/kumo'
 import { useAuthenticatedApi } from './AuthContext'
@@ -169,11 +169,17 @@ export default function OnboardingWizard({
           urlToVendorId.set(v.description.url, v.id)
         }
         setVendors(
-          vendorList.map((v) => ({
-            id: v.id,
-            description: v.description,
-            logoKey: VENDOR_LOGO_MAP[v.id] ?? v.id.toLowerCase(),
-          })),
+          vendorList
+            // This step is for signing in to a service under its own name. A vendor whose
+            // resources are all connectors of their own (a catalog of servers behind one
+            // transport) or an administrator's to add has no card to show here; those are
+            // reached from the Connectors page.
+            .filter((v) => v.supportedResources.some((r) => !r.connector && r.connectableBy !== 'admin'))
+            .map((v) => ({
+              id: v.id,
+              description: v.description,
+              logoKey: VENDOR_LOGO_MAP[v.id] ?? v.id.toLowerCase(),
+            })),
         )
         // Resolve any accounts that arrived before the vendor list.
         if (pendingUrls.length > 0) refreshConnectedIds()
@@ -256,7 +262,7 @@ export default function OnboardingWizard({
       window.open(url, '_blank', 'noopener,noreferrer')
     } catch (err) {
       console.error('Failed to start connection:', err)
-      toasts.add({ title: 'Failed to start connection', variant: 'error' })
+      toasts.add({ title: failureTitle(err, 'Failed to start connection'), variant: 'error' })
     } finally {
       // Reset after a short delay — the subscription will update the UI when the connection completes
       setTimeout(() => setConnectingVendorId(null), 2000)

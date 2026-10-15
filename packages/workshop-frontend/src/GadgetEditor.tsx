@@ -20,7 +20,6 @@ import {
 } from 'lucide-react'
 import { RpcStub, RpcTarget } from 'capnweb'
 import { useAuthenticatedApi } from './AuthContext'
-import { usePoolMode } from './ServerConfigContext'
 import { useConnectionLost } from './RpcContext'
 import UserMenu from './components/UserMenu'
 import SiteLogo from './components/SiteLogo'
@@ -165,12 +164,6 @@ type WorkspaceView =
   // `appId` is absent only while lazily migrating the legacy "open" value.
   | { mode: 'app'; appId?: WorkpieceId }
   | { mode: 'activity' }
-
-function formatHeaderCost(cost: number) {
-  if (cost === 0) return '$0'
-  if (cost < 0.01) return '<$0.01'
-  return `$${cost.toFixed(2)}`
-}
 
 // The first tab is named after what the selected workpiece is ("Document" for a gadget built from
 // a document blueprint), falling back to "App" when it declares no format.
@@ -564,8 +557,6 @@ export default function GadgetEditor() {
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [discussShareOpen, setDiscussShareOpen] = useState(false)
   const discuss = useDiscuss()
-  // Free pools have no sharing and no template catalog (the server refuses both; see pool-mode.ts).
-  const poolMode = usePoolMode()
   const [blueprintModalOpen, setBlueprintModalOpen] = useState(false)
   const [previewMode, _setPreviewMode] = useState(false)
   const [workpieceRailExpanded, setWorkpieceRailExpanded] = useState(getInitialAppRailExpanded)
@@ -1394,14 +1385,24 @@ export default function GadgetEditor() {
 
   if (error?.kind === 'message') {
     return (
-      <div className="flex min-h-full items-center justify-center flex-col gap-4 bg-kumo-base">
+      <div className="flex min-h-full items-center justify-center flex-col gap-4 bg-kumo-base px-6">
         {/* Observer-verification denials list one line per failed connection, so preserve newlines. */}
         <p className="text-sm text-kumo-danger whitespace-pre-line text-center max-w-lg">
           {error.message}
         </p>
+        {/* Every message-kind denial is about the recipient's own connected accounts: they are
+            missing, expired, or don't reach what the workspace read. Connecting or reconnecting
+            them on the Connectors page is the fix in each case. */}
+        <p className="text-[13px] leading-[18px] text-kumo-subtle text-center max-w-lg">
+          Connect or reconnect your accounts for the services above, then try again. If your
+          access to one of them has changed, ask the workspace owner.
+        </p>
         <div className="flex items-center gap-2">
           <WorkshopButton tone="secondary" onClick={handleGoToWorkspaces}>
             Go to workspaces
+          </WorkshopButton>
+          <WorkshopButton tone="secondary" onClick={() => navigate({ to: '/integrations' })}>
+            Connect accounts
           </WorkshopButton>
           <WorkshopButton tone="primary" onClick={retryOpen}>
             Try again
@@ -1535,19 +1536,13 @@ export default function GadgetEditor() {
           )}
         </div>
 
-        {/* Right: presence, cost, workspace, share, blueprints */}
+        {/* Right: presence, workspace, share, blueprints */}
         <div className="hidden flex-shrink-0 items-center gap-1 md:flex">
           <GadgetPresence
             overseer={overseer.stub}
             authenticatedApi={authenticatedApi}
             currentUserId={userInfo?.id ?? null}
           />
-
-          {metadata.totalCost != null && (
-            <span className="ml-3 mr-2 text-[12px] leading-4 font-normal tracking-[-0.2px] text-kumo-subtle">
-              {formatHeaderCost(metadata.totalCost)}
-            </span>
-          )}
 
           <ActivityNotifications
             overseer={overseer.stub}
@@ -1567,15 +1562,13 @@ export default function GadgetEditor() {
             </WorkshopIconButton>
           )}
 
-          {!poolMode && (
-            <WorkshopIconButton
-              onClick={() => setShareModalOpen(true)}
-              title="Share workspace"
-              aria-label="Share workspace"
-            >
-              <Share2 size={15} />
-            </WorkshopIconButton>
-          )}
+          <WorkshopIconButton
+            onClick={() => setShareModalOpen(true)}
+            title="Share workspace"
+            aria-label="Share workspace"
+          >
+            <Share2 size={15} />
+          </WorkshopIconButton>
 
           {discuss && (
             <WorkshopIconButton
@@ -1587,16 +1580,14 @@ export default function GadgetEditor() {
             </WorkshopIconButton>
           )}
 
-          {!poolMode && (
-            <WorkshopIconButton
-              onClick={() => setBlueprintModalOpen(true)}
-              disabled={!selectedGadgetStub}
-              title="Templates"
-              aria-label="Templates"
-            >
-              <Blueprint size={16} />
-            </WorkshopIconButton>
-          )}
+          <WorkshopIconButton
+            onClick={() => setBlueprintModalOpen(true)}
+            disabled={!selectedGadgetStub}
+            title="Templates"
+            aria-label="Templates"
+          >
+            <Blueprint size={16} />
+          </WorkshopIconButton>
 
           {!metadata.owner && (
             <WorkshopIconButton
@@ -1703,20 +1694,16 @@ export default function GadgetEditor() {
             <DropdownMenu.Item onClick={() => setIsEditingTitle(true)} className={MENU_ITEM}>
               Rename workspace
             </DropdownMenu.Item>
-            {!poolMode && (
-              <DropdownMenu.Item onClick={() => setShareModalOpen(true)} className={MENU_ITEM}>
-                Share workspace
-              </DropdownMenu.Item>
-            )}
-            {!poolMode && (
-              <DropdownMenu.Item
-                disabled={!selectedGadgetStub}
-                onClick={() => setBlueprintModalOpen(true)}
-                className={MENU_ITEM}
-              >
-                Templates
-              </DropdownMenu.Item>
-            )}
+            <DropdownMenu.Item onClick={() => setShareModalOpen(true)} className={MENU_ITEM}>
+              Share workspace
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              disabled={!selectedGadgetStub}
+              onClick={() => setBlueprintModalOpen(true)}
+              className={MENU_ITEM}
+            >
+              Templates
+            </DropdownMenu.Item>
             <DropdownMenu.Item
               disabled={!mobilePreviewActive}
               onClick={enterGadgetFullscreen}

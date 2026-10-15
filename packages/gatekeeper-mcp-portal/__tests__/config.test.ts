@@ -6,6 +6,7 @@ import {
   portalAuthRequiresReconnect,
   portalServer,
   portalTokenFor,
+  portalSharing,
   portalTrust,
   readPortalConfig,
   requirePortalServerScope,
@@ -309,4 +310,13 @@ describe("toolGrantOptions", () => {
     }
   });
 
+});
+
+describe("portalSharing", () => {
+  it("keeps a portal owner-only unless the deployment names another policy", () => {
+    expect(portalSharing(env({ MCP_PORTAL_URL: "https://gw.example.com/mcp" }))).toBe("owner-only");
+    expect(portalSharing(env({ MCP_PORTAL_SHARING: "same-account" }))).toBe("same-account");
+    expect(portalSharing(env({ MCP_PORTAL_SHARING: "public" }))).toBe("public");
+    expect(portalSharing(env({ MCP_PORTAL_SHARING: "yes" }))).toBe("owner-only");
+  });
 });

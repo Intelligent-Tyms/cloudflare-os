@@ -1,4 +1,4 @@
-import { logRpcFailure } from './rpcErrors'
+import { failureTitle, logRpcFailure } from './rpcErrors'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Dialog, useKumoToastManager, type PortalContainer } from '@cloudflare/kumo'
 import {
@@ -101,6 +101,8 @@ type ConnectionType = {
   resourceUrlPattern?: string
   // Whether this resource type is independently grantable.
   grantable?: boolean
+  // The connector runs on a credential the company set up, reached through a provided account.
+  companyCredential?: boolean
 }
 
 type VendorOption = {
@@ -144,22 +146,26 @@ function platformConnectionTypes(siteName: string): ConnectionType[] {
 }
 
 function connectionForResource(vendor: VendorOption, resource: SupportedResource): ConnectionType {
+  // A resource presented as a connector of its own (a catalog MCP server) is its own group,
+  // named after the service rather than the vendor that fronts it.
+  const presented = resource.connector
   return {
     id: `resource:${vendor.id}:${resource.urlPattern}`,
     vendorId: vendor.id,
     // Group by stable vendor ID, not displayName, so two distinct vendors that
     // happen to share a display name don't get merged into the same group.
-    groupKey: `vendor:${vendor.id}`,
-    groupLabel: vendor.description.displayName,
+    groupKey: presented ? `vendor:${vendor.id}:${presented.id}` : `vendor:${vendor.id}`,
+    groupLabel: presented?.displayName ?? vendor.description.displayName,
     title: resource.title,
-    vendor: vendor.description.displayName,
+    vendor: presented?.displayName ?? vendor.description.displayName,
     description: resource.description,
     icon: Database,
     iconUrl: resource.icon?.url,
-    logoUrl: vendor.description.logo?.url,
-    accent: vendor.description.color,
+    logoUrl: presented?.logo?.url ?? vendor.description.logo?.url,
+    accent: presented?.color ?? vendor.description.color,
     resourceUrlPattern: resource.urlPattern,
     grantable: Boolean(resource.grantable),
+    companyCredential: presented?.credentialScope === 'organization',
   }
 }
 
@@ -603,7 +609,7 @@ export default function GatekeeperModal({
     } catch (error) {
       console.error('Failed to initiate connection:', error)
       reportIssue('gatekeeper.connect-start', error, { gatekeeperVendorId: vendorId })
-      toasts.add({ title: 'Failed to start connection flow', variant: 'error' })
+      toasts.add({ title: failureTitle(error, 'Failed to start connection flow'), variant: 'error' })
     } finally {
       setConnectingVendor(null)
     }
@@ -647,7 +653,7 @@ export default function GatekeeperModal({
       reportIssue('gatekeeper.reconnect-start', error, {
         gatekeeperVendorId: selectedConnection?.vendorId,
       })
-      toasts.add({ title: 'Failed to start reconnect flow', variant: 'error' })
+      toasts.add({ title: failureTitle(error, 'Failed to start reconnect flow'), variant: 'error' })
     } finally {
       setReconnectingAccountId(null)
     }
@@ -837,6 +843,7 @@ export default function GatekeeperModal({
                     reconnectingAccountId={reconnectingAccountId}
                     requiredResourceUrlPatterns={requiredResourceUrlPatterns(selectedConnection)}
                     grantingAccountId={grantingAccountId}
+                    companyCredential={selectedConnection.companyCredential}
                     onSelect={setSelectedAccountId}
                     onConnect={() => {
                       if (!selectedConnection.vendorId) return

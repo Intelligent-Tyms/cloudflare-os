@@ -24,7 +24,7 @@
 // Gadget a stub pointing to the Gadget's server-side Durable Object interface.
 
 import { RpcCompatible, RpcStub, RpcTarget } from "capnweb";
-import { AccountDescription, ActionKind, ActionDescription, AvatarImage, GatekeeperUiFrame, IntegrationDepartment, ObservationDescription, ResourceDescription, ResourceConfiguratorFrame, SupportedResource, VendorDescription, VendorSetup, HookDescription } from "./gatekeeper.js";
+import { AccountDescription, ActionKind, ActionDescription, AvatarImage, CredentialScope, GatekeeperUiFrame, IntegrationDepartment, ObservationDescription, ResourceDescription, ResourceConfiguratorFrame, SupportedResource, VendorDescription, VendorSetup, HookDescription } from "./gatekeeper.js";
 import type { UiFeatureFlags } from "./feature-flags.js";
 import type { ChannelsDescription, EmailInbox, TelegramBinding, TelegramLinkCode, UserChannelsView } from "./channels-admin.js";
 
@@ -149,9 +149,14 @@ export interface ConnectedAccountsSubscriber {
   /**
    * If `credentialsValid` is false, the account's credentials are known to be expired, and the
    * UI should call reconnectAccount() to fix this if the user tries to select this account.
+   *
+   * `provided` is true for an account the deployment created for the user (an auto-provisioned
+   * account, see VendorDescription.autoProvisionsAccount) rather than one they connected: it
+   * has no sign-in to redo and, while its vendor is forced on, cannot be disconnected.
    */
   add(id: number, description: AccountDescription, vendor: VendorDescription,
-      supportedResources: SupportedResource[], credentialsValid: boolean, vendorId: string): void;
+      supportedResources: SupportedResource[], credentialsValid: boolean, vendorId: string,
+      provided?: boolean): void;
   remove(id: number): void;
 
   /** Called after add() has been called for all accounts known so far. */
@@ -824,10 +829,6 @@ export interface AuthenticatedApi extends RpcTarget {
   // (false when a recent request already notified them).
   requestPlanUpgrade(): Promise<{ notified: boolean }>;
 
-  // Pool deployments only: the company workspace this user is upgrading to, while it builds
-  // and for a few days after it's ready (their pool seat lapses then). Null everywhere else.
-  getPendingWorkspace(): Promise<PendingWorkspaceInfo | null>;
-
   // TODO:
   // - Edit permissions on a connected account.
 }
@@ -839,16 +840,24 @@ export type BillingGateInfo = {
   isFreePlan: boolean;
   /** The daily request allowance on the free plan; null on paid plans. */
   freeDailyLlmCalls: number | null;
-};
-
-/** A pool member's company workspace on its way (see AuthenticatedApi.getPendingWorkspace). */
-export type PendingWorkspaceInfo = {
-  slug: string;
-  name: string;
-  /** provisioning = building; ready = live, go there; delayed = the build stalled, ops have it. */
-  status: "provisioning" | "ready" | "delayed";
-  /** The workspace's own origin. */
-  url: string;
+  /**
+   * AI credit position for the low-credits nudge, paid plans only (null on free, where credits
+   * don't apply). Balance is allowance plus rolled-over top-ups; the monthly grant is the plan's
+   * allowance per period.
+   */
+  aiBalanceMicroUsd: number | null;
+  aiMonthlyGrantMicroUsd: number | null;
+  /** When the monthly allowance renews (ms since epoch); null on the free plan. */
+  periodEnd: number | null;
+  /** While the subscription is trialing: when the trial ends and billing starts; else null. */
+  trialEndsAt: number | null;
+  /** The card on file expires before the next charge; admins are nudged to update it. */
+  cardExpiresBeforeNextCharge: boolean;
+  /**
+   * A card is on file. False on a trial started without one: its credits are capped lower and
+   * it ends unless a card is added, so admins are asked to add one.
+   */
+  hasCard: boolean;
 };
 
 /** Describes a gatekeeper's management app, for the Workshop nav + page. */
@@ -863,6 +872,11 @@ export type GatekeeperAppInfo = {
   title: string;
   /** Optional icon. */
   icon?: AvatarImage;
+  /**
+   * When set, the nav entry opens this URL in a new tab instead of routing to /gatekeepers/$id
+   * (e.g. the organization wiki, which lives on its own host).
+   */
+  externalUrl?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -937,6 +951,9 @@ export function isAmbientGatekeeperMode(value: unknown): value is AmbientGatekee
  * A bound gatekeeper in the admin gatekeeper-config UI, discriminated by `autoProvisions`:
  *   - an ordinary OAuth/resource gatekeeper has a binary `enabled` flag and `resources` to toggle;
  *   - an auto-provisioning ("ambient") gatekeeper has a three-state `ambientMode` and no resources.
+ * A vendor that auto-provisions an account *and* offers resources to bind (its auto-provisioned
+ * account is how people reach those resources) takes the ordinary shape: its on/off switch covers
+ * both, and its account is provisioned for everyone while it is on.
  */
 export type AdminResourceVendor = {
   vendorId: string;
@@ -948,15 +965,29 @@ export type AdminResourceVendor = {
   tagline?: string;
   description?: string;
   departments?: IntegrationDepartment[];
+  // Whose credential the vendor's connections run on (VendorDescription.credentialScope), so the
+  // panel can group and explain vendors: set up once by an admin versus signed in to by each
+  // person.
+  credentialScope?: CredentialScope;
+  // Present when the vendor accepts runtime admin setup (VendorDescription.supportsAdminSetup):
+  // its current setup status, so the panel can offer the setup flow. An unconfigured such vendor
+  // keeps its row (with no resources) — that row is where setup is entered.
+  // `addition` is set when this entry's setup is a form that adds something (VendorSetup.addition).
+  setup?: { status: VendorSetup["status"]; addition?: { noun: string } };
+  // The subset of the vendor's setup inputs this entry owns, when the vendor's setup was split
+  // between it and connectors presented from its resources (ResourceConnector.setupInputNames).
+  // Absent means every input.
+  setupInputNames?: string[];
+  // Present for an entry that is one of a vendor's resources presented as a connector of its own
+  // (see ResourceConnector). Its `vendorId` is `<parent>:<connector id>`, a listing key only: the
+  // panel switches it on and off with setResourceEnabled(parentVendorId, resourceUrlPattern) and
+  // reads and writes its setup through the parent, limited to setupInputNames.
+  virtual?: { parentVendorId: string; resourceUrlPattern: string };
 } & (
   | {
     autoProvisions: false;
     enabled: boolean;
     resources: AdminResource[];
-    // Present when the vendor accepts runtime admin setup (VendorDescription.supportsAdminSetup):
-    // its current setup status, so the panel can offer the setup flow. An unconfigured such
-    // vendor keeps its row (with no resources) — that row is where setup is entered.
-    setup?: { status: VendorSetup["status"] };
   }
   | { autoProvisions: true; ambientMode: AmbientGatekeeperMode }
 );
@@ -1171,6 +1202,12 @@ export interface AdminApi {
   /** Read all admin-managed settings for the admin UI in one call. */
   getSettings(): Promise<AdminSettingsView>;
 
+  /**
+   * The connector catalog alone (AdminSettingsView.resourceVendors), without the skills,
+   * formats, models and channels getSettings() also gathers.
+   */
+  getConnectors(): Promise<AdminResourceVendor[]>;
+
   /** Enable or disable new account signups. Existing users can still log in while signups are closed. */
   setSignupsEnabled(enabled: boolean): Promise<void>;
 
@@ -1225,10 +1262,11 @@ export interface AdminApi {
   applyIntegrationSetup(vendorId: string, values: Record<string, string>): Promise<void>;
 
   /**
-   * Delete the vendor's admin-entered setup. It falls back to deploy-time secrets when those
-   * exist, and otherwise hides from users until set up again.
+   * Delete the vendor's admin-entered setup: all of it, or only the inputs `names` when given
+   * (one presented connector's key, leaving the others). It falls back to deploy-time secrets
+   * when those exist, and otherwise hides from users until set up again.
    */
-  clearIntegrationSetup(vendorId: string): Promise<void>;
+  clearIntegrationSetup(vendorId: string, names?: string[]): Promise<void>;
 
   /**
    * Set the top-bar notice (centered text in the top navigation bar). Pass "" to clear. Rejects over
@@ -1323,6 +1361,10 @@ export interface AdminApi {
   // AdminSettingsView.channels to know before calling). Slack needs no links: users are
   // identified by their Slack profile email.
 
+  // Which channels are configured, as AdminSettingsView.channels reports them, without the
+  // rest of the settings view; null when no channels worker is bound.
+  getChannels(): Promise<ChannelsDescription | null>;
+
   // Connect Telegram from a BotFather bot token alone: the token is verified with Telegram
   // (which yields the bot's username) and the webhook registers itself. The token transits
   // this call once and is stored only in the channels worker.
@@ -1374,108 +1416,91 @@ export interface AdminApi {
   // a built-in quick model.
   setQuickModel(id: string | null): Promise<void>;
 
-  // --- Teammates ---
+  // --- Intelligence (Admin → Intelligence; see intelligence-directory.ts) ---
   //
-  // On deployments with a central team directory (see TeamView), membership and invitations are
-  // managed there; these methods proxy to it. Every mutation returns the fresh team view.
+  // Tyms Intelligence products are per-tenant instances on their cells: Organization (the wiki
+  // on the OI cell) and Data (the data workbench on the DI cell). The control plane provisions
+  // them (never by hand against a cell); the workshop keeps each product's MCP endpoint and
+  // preissued assistant key in its connector's setup store, which makes the product an ambient
+  // capability of every assistant here.
 
-  // The current team, or null when this deployment has no central team directory configured.
-  getTeam(): Promise<TeamView | null>;
+  /**
+   * Entitlement, credit pool, and each product's instance and connector state, or null when
+   * this deployment has no central directory configured.
+   */
+  getIntelligenceOverview(): Promise<IntelligenceOverview | null>;
 
-  // Invite someone by email. Throws if they are already a member, already invited, or the
-  // deployment's seat limit is reached. The directory emails them an invitation link.
-  inviteTeammate(email: string, role: TeamRole): Promise<TeamView>;
+  /**
+   * Provision (or resume) a product for this workspace and connect the assistant. Throws with
+   * an actionable message when the plan does not include it or the cell refused. When the cell
+   * hands the assistant key over but storing it fails, the returned overview reports
+   * `connector: "missing-key"` for that product and reconnectIntelligence() fixes it.
+   */
+  provisionIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview>;
 
-  // Revoke a pending invitation; its emailed link stops working immediately.
-  revokeTeamInvitation(invitationId: string): Promise<TeamView>;
+  /** Suspend the product (data kept for 30 days, then purged) and disconnect the assistant. */
+  deprovisionIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview>;
 
-  // Re-send a pending invitation with a fresh link and expiry; the old link stops working.
-  resendTeamInvitation(invitationId: string): Promise<TeamView>;
+  /** Rotate the product's assistant key on the cell and store the new one; the old key stops working. */
+  reconnectIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview>;
 
-  // Remove a member. Refused for the workspace owner and for the calling admin themselves.
-  // Removal blocks new sign-ins; an already-open session ends on its own schedule.
-  removeTeammate(email: string): Promise<TeamView>;
-
-  // --- Billing ---
-  //
-  // On deployments with a central billing directory, the plan, credit balances, and usage
-  // live there; these methods proxy to it (Admin → Billing and usage).
-
-  // Plan, credit balances, and usage for the current credit period, or null when this
-  // deployment has no central billing configured.
-  getBillingOverview(): Promise<BillingOverview | null>;
-
-  // Start a Stripe Checkout for a one-time credit top-up and return the checkout URL to
-  // send the browser to. Amounts are whole USD cents.
-  createTopupCheckout(creditType: BillingCreditType, amountCents: number,
-                      successUrl: string, cancelUrl: string): Promise<string>;
-
-  // The self-serve plan catalog for the plan picker (standard tier, purchasable or free).
-  listBillingPlans(): Promise<BillingPlanOption[]>;
-
-  // Change this workspace's plan. Paid↔paid and paid→free apply immediately
-  // (applied: true); free→paid returns a Stripe Checkout URL and applies once payment
-  // completes. Throws with an actionable message when refused (e.g. too many teammates
-  // for the target plan's seats).
-  changePlan(planCode: string, billingPeriod: "monthly" | "annual",
-             successUrl: string, cancelUrl: string): Promise<BillingPlanChangeResult>;
-
-  // Invoice history from the billing provider, newest first. Empty when this deployment
-  // has no central billing configured or the workspace has never paid.
-  listBillingInvoices(): Promise<BillingInvoice[]>;
-
-  // The billing email and default card on file, or null when there is no billing profile
-  // (no central billing, or the workspace has never paid).
-  getBillingPaymentDetails(): Promise<BillingPaymentDetails | null>;
-
-  // Start a billing-portal session (update card, billing email, address, tax ids) and
-  // return the URL to send the browser to. Throws when there is no billing profile.
-  createBillingPortalSession(returnUrl: string): Promise<string>;
+  /**
+   * A signed-in URL into the product's own console (the wiki or the workbench) for the
+   * requesting admin, landing on `next` (a path on the product host; the product's home when
+   * omitted or unsafe). The URL carries a single-use token that expires within a minute, so
+   * request it on the click that opens it, never ahead of time. Throws when the product is
+   * not active.
+   */
+  openIntelligence(kind: IntelligenceProductKind, next?: string): Promise<{ url: string }>;
 }
 
-// One entry in the self-serve plan picker. Prices are the billed amounts in cents:
-// priceCents per month, annualPriceCents per year (null when no annual price exists).
-export type BillingPlanOption = {
-  code: string;
-  name: string;
-  description: string | null;
-  priceCents: number;
-  annualPriceCents: number | null;
-  seatLimit: number | null;
-  agentLimit: number | null;
-  aiCreditCentsMonthly: number;
-  messagingCreditCentsMonthly: number;
-  annualAvailable: boolean;
+/** The products that can be provisioned today (each has a cell); Market and Process follow. */
+export type IntelligenceProductKind = "organization" | "data";
+/** Every provisionable product, in display order. */
+export const INTELLIGENCE_PRODUCT_KINDS: readonly IntelligenceProductKind[] = ["organization", "data"];
+/** The product names as administrators see them. */
+export const INTELLIGENCE_PRODUCT_NAMES: Record<IntelligenceProductKind, string> = {
+  organization: "Organization Intelligence",
+  data: "Data Intelligence",
 };
 
-export type BillingPlanChangeResult = {
-  applied: boolean;
-  // Set when payment is needed first (free → paid): send the browser here.
-  checkoutUrl: string | null;
+/**
+ * One Intelligence instance as the control plane reports it (mirrors InstanceView in
+ * apps/control-plane/src/intelligence.ts). Timestamps are ms since epoch. `wikiUrl` is where a
+ * person opens the product: the company wiki (organization) or the console (data).
+ */
+export type IntelligenceInstanceView = {
+  kind: "organization" | "market" | "data" | "process";
+  status: "provisioning" | "active" | "suspended" | "failed" | "decommissioned";
+  hostname: string;
+  wikiUrl: string | null;
+  mcpUrl: string | null;
+  provisionedAt: number | null;
+  suspendedAt: number | null;
+  lastError: string | null;
 };
 
-// One invoice from the billing provider. Amounts are cents in `currency`; createdAt is
-// ms since epoch. hostedUrl opens the invoice in the browser, pdfUrl downloads it.
-export type BillingInvoice = {
-  id: string;
-  number: string | null;
-  createdAt: number;
-  description: string | null;
-  amountCents: number;
-  currency: string;
-  status: string;
-  hostedUrl: string | null;
-  pdfUrl: string | null;
+/**
+ * One product on the Admin → Intelligence page: its instance (null until first provisioned),
+ * whether the assistant is connected, and where a person opens it while active. `connector` is
+ * "connected" when the product's gatekeeper holds the endpoint and key, "missing-key" when the
+ * instance is active but the key is not stored here (reconnect to fix), "off" otherwise.
+ */
+export type IntelligenceProductOverview = {
+  instance: IntelligenceInstanceView | null;
+  connector: "connected" | "missing-key" | "off";
+  url: string | null;
 };
 
-// The billing email and default card on file with the billing provider.
-export type BillingPaymentDetails = {
-  billingEmail: string | null;
-  card: {brand: string; last4: string; expMonth: number; expYear: number} | null;
+/**
+ * The Admin → Intelligence snapshot: the Intelligence credit pool the products share and each
+ * product's state. Every plan may use the products; the pool is the only budget.
+ */
+export type IntelligenceOverview = {
+  credits: BillingCreditBucket;
+  organization: IntelligenceProductOverview;
+  data: IntelligenceProductOverview;
 };
-
-// The two credit pools a workspace plan grants monthly.
-export type BillingCreditType = "ai" | "messaging";
 
 // One credit pool: the plan's monthly allowance (expires at each credit-period rollover)
 // plus purchased top-ups (roll over). All amounts are integer micro-USD (1e-6 USD).
@@ -1485,45 +1510,6 @@ export type BillingCreditBucket = {
   topupMicroUsd: number;
   balanceMicroUsd: number;
 };
-
-// Aggregated usage for the current credit period, grouped by kind/channel/direction.
-export type BillingUsageRow = {
-  kind: string;
-  channel: string | null;
-  direction: string | null;
-  events: number;
-  quantity: number;
-  costMicroUsd: number;
-};
-
-// The Admin → Billing and usage snapshot, assembled from the central billing directory.
-export type BillingOverview = {
-  planCode: string;
-  planName: string;
-  // 'enterprise' plans have custom volumes and are exempt from credit enforcement.
-  tier: string;
-  subscriptionStatus: string;
-  billingPeriod: string;
-  // What the subscription bills (per month or per year, per billingPeriod); cents.
-  priceCents: number | null;
-  seatLimit: number | null;
-  agentLimit: number | null;
-  ai: BillingCreditBucket;
-  messaging: BillingCreditBucket;
-  // Current credit period (ms since epoch); allowances reset at periodEnd.
-  periodStart: number;
-  periodEnd: number;
-  // Per-message rates by channel (micro-USD); channels at 0 never consume credits.
-  channelRatesMicroUsd: {[channel: string]: number};
-  // Non-null on the free plan: AI turns per user per UTC day instead of credits.
-  freeDailyLlmCalls: number | null;
-  usage: BillingUsageRow[];
-};
-
-// Role an invited teammate gets in the central team directory. "admin" also unlocks this
-// deployment's /admin area: the directory asserts the role in its signed sign-in handoff,
-// and role changes take effect on the member's next sign-in.
-export type TeamRole = "member" | "admin";
 
 // A workspace member as recorded by the central team directory.
 export type TeamMember = {
@@ -1563,24 +1549,10 @@ export type TeamChatChannelChanges = {
   removeMembers?: string[];
 };
 
-// A pending invitation in the central team directory.
-export type TeamInvitation = {
-  id: string;
-  email: string;
-  role: string;
-  // Email of the admin who sent it, when recorded.
-  invitedBy: string | null;
-  // Expiry (ms since epoch); `expired` saves the caller the clock comparison.
-  expiresAt: number;
-  expired: boolean;
-  createdAt: number;
-};
-
 // Membership and pending invitations for this deployment, as reported by the central team
 // directory (multi-tenant installations). The workshop keeps no member list of its own.
 export type TeamView = {
   members: TeamMember[];
-  invitations: TeamInvitation[];
 };
 
 /** A partial edit to one promoted format. Absent fields are left alone. */
@@ -1635,14 +1607,6 @@ export type ServerConfig = {
   centralLoginUrl?: string;
 
   /**
-   * True on a free pool: a Tyms-owned deployment hosting unrelated free users as plain members,
-   * chat only. The client hides everything cross-user or deployment-wide (Templates, Discover,
-   * sharing, Discuss) and points "upgrade" at the central account instead of the in-app plans
-   * page, since the pool's own plan belongs to Tyms.
-   */
-  poolMode: boolean;
-
-  /**
    * Whether the optional Cloudflare free-tier limits + top-up flow is enabled. When false (the
    * default, e.g. self-hosted), usage is unlimited and the credits UI is hidden.
    */
@@ -1675,6 +1639,37 @@ export type ServerConfig = {
    * overrides the brand CSS variables with this (and derived shades) at runtime.
    */
   accentColor: string;
+
+  /**
+   * This tenant's slug on a fleet deployment (the `<slug>` in `<slug>.os.tyms.ai`), or undefined
+   * on standalone deployments. Display only; nothing authorizes on it.
+   */
+  tenantSlug?: string;
+
+  /**
+   * Base domain of the Organization Intelligence cell (e.g. "organization.tyms.ai"): links whose
+   * host ends with it render as wiki citations in chat. Undefined when the fleet has no cell.
+   */
+  intelligenceBaseDomain?: string;
+
+  /**
+   * This workspace's page on the central admin portal (teammates, products, the workspace
+   * itself), or undefined when there is none. Admins manage membership there.
+   */
+  adminPortalUrl?: string;
+
+  /**
+   * This workspace's page on the central billing portal (plan, credits, invoices, payment),
+   * or undefined when there is none. `/plans` under it is the plan picker; `?tab=payment`
+   * opens payment details.
+   */
+  billingPortalUrl?: string;
+
+  /**
+   * The organization profile, instructions, site name, accent color, notice and banner are
+   * edited on the admin portal (adminPortalUrl) rather than this deployment's /admin.
+   */
+  settingsManagedCentrally: boolean;
 };
 
 /**

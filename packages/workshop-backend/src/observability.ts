@@ -5,6 +5,8 @@ import { createTracer } from "@gadgets/backend-utils/tracing";
 export type WorkshopObservabilityFields = {
   accountId: number;
   actionId: number | string;
+  /** The workpiece id of an app within its workspace (`gadgetId` names the workspace itself). */
+  appId: number;
   autoProvisioned: boolean;
   blueprintId: string;
   callbackInitiated: boolean;
@@ -17,13 +19,18 @@ export type WorkshopObservabilityFields = {
   failureCount: number;
   gadgetId: string;
   gatekeeperId: number | string;
+  /** How long something had gone unused when the logged event happened. */
+  idleMs: number;
   logBytes: number;
   modelId: string;
   observerId: string;
   operation: string;
   outcome: "ok" | "error" | "usage_limit" | "callbacks_stalled" | "no_email" | "signups_disabled";
   path: string;
+  /** What led to the logged event: a short slug, or an error message. */
+  reason: string;
   resourceTitle: string;
+  runningAgents: number;
   sequence: number;
   size: number;
   status: number;

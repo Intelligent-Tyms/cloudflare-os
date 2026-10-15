@@ -21,7 +21,8 @@ export default function GatekeeperAppPage({ appId, appLocation = null }: {
   const { authenticatedApi } = useAuthenticatedApi()
   // Wrap the frame in an object: it holds a `ui` RPC stub, and we never want useState's setter to
   // treat a stored value as an updater function.
-  const [state, setState] = useState<{ frame: GatekeeperUiFrame } | null>(null)
+  // `generation` counts the frames fetched so far: it keys the hosted app below.
+  const [state, setState] = useState<{ frame: GatekeeperUiFrame; generation: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -39,7 +40,7 @@ export default function GatekeeperAppPage({ appId, appLocation = null }: {
           return
         }
         acquired = frame
-        setState({ frame })
+        setState((prev) => ({ frame, generation: (prev?.generation ?? 0) + 1 }))
       })
       .catch((err) => {
         console.error('Failed to load gatekeeper app:', err)
@@ -66,7 +67,11 @@ export default function GatekeeperAppPage({ appId, appLocation = null }: {
   // Fill the routed area below the header so the embedded app can manage its own internal layout.
   return (
     <div className="h-full">
-      <SandboxedGatekeeperApp frame={state.frame} gatekeeperVendorId={appId} appLocation={appLocation} />
+      {/* A refetched frame (the API session reconnected) carries a fresh `ui` stub, and the running
+          iframe still holds a port to the old, disposed session: it handshakes only once, on load.
+          Keying on the generation remounts the iframe so the app reconnects instead of failing
+          every call until the page is refreshed. */}
+      <SandboxedGatekeeperApp key={state.generation} frame={state.frame} gatekeeperVendorId={appId} appLocation={appLocation} />
     </div>
   )
 }

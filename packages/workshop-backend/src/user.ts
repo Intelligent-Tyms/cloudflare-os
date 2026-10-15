@@ -13,7 +13,9 @@ import { getAiGatewayConfig } from "./ai-gateway.js";
 import { utcDayKey, nextUtcMidnightIso, DailyQuotaResult } from "./ai-gateway-billing/limits/config.js";
 import type { AdminSettings } from "./admin-settings.js";
 import { isReservedBlueprintKey, readBlueprintKvRecord } from "./blueprint-archive.js";
+import { readBlueprintKvRecordViaCatalog } from "./template-catalog.js";
 import { filterEnabledResources, isResourceDisabled, readAdminConfig } from "./admin-config.js";
+import { connectableResources, memberConnectPatterns, type ConnectorCaller } from "./connector-access.js";
 import { buildGatekeeperVendorMap } from "./auth/auth-vendors.js";
 import { validateAssistantProfile } from "./assistant-profile.js";
 
@@ -1193,7 +1195,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   }
 
   async addBlueprintToLibrary(id: string): Promise<void> {
-    let kvRecord = await readBlueprintKvRecord(this.env, id);
+    let kvRecord = await readBlueprintKvRecordViaCatalog(this.env, this.ctx.exports, id);
     if (!kvRecord) {
       throw new Error("Template not found.");
     }
@@ -1347,7 +1349,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     return result;
   }
 
-  async listGatekeeperVendors(filter: GatekeeperVendorFilter = {})
+  async listGatekeeperVendors(filter: GatekeeperVendorFilter = {}, caller: ConnectorCaller = {})
       : Promise<GatekeeperVendorInfo[]> {
     let options = {
       userId: this.storage.profile.get().id
@@ -1399,8 +1401,18 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
             vendor.describe(),
             vendor.getSupportedResources(options),
           ]);
+          // A member is offered only what a member may connect; the rest is an administrator's
+          // to add, and a vendor with nothing else has nothing to show them.
+          let offeredResources = connectableResources(supportedResources, caller);
+          if (offeredResources.length == 0 && supportedResources.length > 0) return null;
           let enabledResources =
-              filterEnabledResources(config, id, supportedResources);
+              filterEnabledResources(config, id, offeredResources);
+          if (filter.resourceUrl) {
+            // The vendor matched on some resource type; keep it only if one this caller can
+            // actually use matches too.
+            let url = filter.resourceUrl;
+            if (!enabledResources.some(r => new URLPattern(r.urlPattern).test(url))) return null;
+          }
           if (enabledResources.length == 0) {
             // Nothing connectable. Hidden by default; with includeHidden the row survives with
             // an explanatory state: a vendor that advertised resources the admin turned off is
@@ -1436,13 +1448,21 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     return (await Promise.all(promises)).filter(value => value !== null);
   }
 
-  async connectAccount(vendorId: string, resourceUrlPatterns?: string[]): Promise<{url: string}> {
+  async connectAccount(
+      vendorId: string, resourceUrlPatterns?: string[], caller: ConnectorCaller = {})
+      : Promise<{url: string}> {
     let vendor = this.vendors.get(vendorId);
     if (!vendor) {
       throw new Error("No such service: " + vendorId);
     }
-    if ((await readAdminConfig(this.env)).disabledGatekeepers.includes(vendorId.toLowerCase())) {
+    let config = await readAdminConfig(this.env);
+    if (config.disabledGatekeepers.includes(vendorId.toLowerCase())) {
       throw new Error(`The "${vendorId}" integration is disabled on this deployment.`);
+    }
+    if (!caller.admin) {
+      // A member signs in to a connector; they don't add one (see connector-access.ts).
+      let resources = await vendor.getSupportedResources({userId: this.storage.profile.get().id});
+      resourceUrlPatterns = memberConnectPatterns(config, vendorId, resources, resourceUrlPatterns);
     }
 
     let accountId = this.storage.nextAccountId.get();
@@ -1702,7 +1722,9 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   async subscribeConnectedAccounts(
       subscriber: RpcStub<ConnectedAccountsSubscriber>, filter?: ConnectedAccountsFilter)
       : Promise<RpcStub<{}>> {
-    if (filter?.includeForcedAutoProvisionedAccounts) await this.#ensureAutoProvisionedAccounts();
+    // Provisioned accounts that expose resources (a company's MCP servers) are listed to everyone,
+    // so they must exist before the listing runs; capsule-only ones are listed on request.
+    await this.#ensureAutoProvisionedAccounts();
 
     let connectedAccounts = this.storage.connectedAccounts;
     let vendors = this.vendors;
@@ -1721,12 +1743,15 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     async function notifyAdd(record: ConnectedAccountRecord) {
       // Ambient (auto-provisioned) accounts only appear in the Integrations list when their vendor is
       // "optional" — i.e. the user opted in and can manage/remove it. "enabled" (forced) accounts have
-      // nothing to manage, and "disabled" ones are dormant, so both are hidden.
-      // Forced accounts are included when observer verification explicitly requests them.
+      // nothing to manage, and "disabled" ones are dormant, so both are hidden — except a forced
+      // account that is not a capsule: it exists to be chosen for bindings (a company's MCP
+      // servers), so it is listed like any connected account, just not disconnectable.
+      // Forced capsules are included when observer verification explicitly requests them.
       if (record.autoProvisioned) {
         let mode = ambientGatekeeperMode(config, record.vendorId, env);
         if (mode === "disabled" ||
-            (mode === "enabled" && !filter?.includeForcedAutoProvisionedAccounts)) {
+            (mode === "enabled" && record.description.singleton &&
+             !filter?.includeForcedAutoProvisionedAccounts)) {
           return;
         }
       }
@@ -1782,7 +1807,8 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
 
       seenIds.add(record.id);
       subscriber.add(record.id, record.description, vendorDescription,
-          supportedResources, credentialsValid, record.vendorId).catch(unsubscribe)
+          supportedResources, credentialsValid, record.vendorId,
+          record.autoProvisioned === true).catch(unsubscribe)
     }
 
     let dbSubscriber = {

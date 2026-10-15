@@ -36,6 +36,8 @@ import { generateNonce } from "@gadgets/mcp-shared/connect-nonce";
 import { withClient, type ConnectionAccount } from "@gadgets/mcp-shared/connection";
 import { McpSessionBase } from "@gadgets/mcp-shared/session";
 import { McpFacetBase } from "@gadgets/mcp-shared/facet";
+import { McpVerifierBase, mcpVerifierAccount } from "@gadgets/mcp-shared/verifier";
+import type { McpSharingPolicy } from "@gadgets/mcp-shared/sharing-policy";
 import {
   looksLikePortal,
   parsePortalServers,
@@ -74,6 +76,8 @@ import {
   portalCatalogValidationMode,
   portalResource,
   portalServer,
+  PORTAL_SHARING_OPTIONS,
+  portalSharingFor,
   portalTrust,
   requirePortalServerScope,
   type PortalSetupValues,
@@ -251,7 +255,8 @@ async function continueConnect(
   env: Env,
   exports: Cloudflare.Exports,
 ): Promise<Response> {
-  const config = await loadPortalConfig(env, exports);
+  // The account knows its tenant; the URL deliberately does not.
+  const config = await loadPortalConfig(env, exports, await account.getTenant());
   if (!config) {
     return htmlResponse(errorPageHtml(
       "No MCP server portal is configured",
@@ -275,10 +280,20 @@ async function continueConnect(
 // ---------------------------------------------------------------------------
 // Vendor
 
+// Which tenant a call is for. A shared connector serves many workshops: each binds with
+// `props: { tenant }`, and admin-entered setup (the portal endpoint and token) is keyed by it.
+// A deployment running its own copy binds without props and keys by "". Accounts remember
+// their tenant, so the HTTP flow — which has no binding props — resolves the same portal.
+type VendorProps = { tenant?: string };
+
 @validateRpc()
-export class GatekeeperVendor extends WorkerEntrypoint<Env> implements GatekeeperVendorIface {
+export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> implements GatekeeperVendorIface {
+  get #tenant(): string {
+    return this.ctx.props?.tenant ?? "";
+  }
+
   async describe(): Promise<VendorDescription> {
-    const config = await loadPortalConfig(this.env, this.ctx.exports);
+    const config = await loadPortalConfig(this.env, this.ctx.exports, this.#tenant);
     return {
       displayName: config?.name ?? "Cloudflare MCP Server Portals",
       url: "https://developers.cloudflare.com/cloudflare-one/access-controls/ai-controls/mcp-portals/",
@@ -291,7 +306,29 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
         "Use the MCP servers this organization has approved, through its MCP server portal. Reads " +
         "happen straight away. Anything that writes waits for your approval.",
       supportsAdminSetup: true,
+      // A portal fronted by a preissued token (or none) is the company's credential: the
+      // Workshop provisions an account for every member and nobody signs in. One that signs
+      // each user in through OAuth is personal, like any other sign-in.
+      credentialScope: config?.auth === "oauth" ? "personal" : "organization",
+      autoProvisionsAccount: config !== null && config.auth !== "oauth",
     };
+  }
+
+  /**
+   * Mints a member's account for a token or public portal, connected here and now with the
+   * tenant's configured credential. Only meaningful while `autoProvisionsAccount` is on.
+   */
+  @skipRpcValidation()
+  async createAccount(): Promise<Fetcher<GatekeeperUser>> {
+    const config = await loadPortalConfig(this.env, this.ctx.exports, this.#tenant);
+    if (!config || config.auth === "oauth") {
+      throw new Error("This deployment's MCP server portal signs each user in; there is nothing to provision.");
+    }
+    const account = this.ctx.exports.McpAccount.get(this.ctx.exports.McpAccount.newUniqueId());
+    // The Durable Object hands back the account entrypoint stub it minted; the RPC wrapper's type
+    // is wider than the contract's Fetcher, as with every account minted through createAccount.
+    return await account.connectProvisioned(this.#tenant, portalServer(config)) as
+      unknown as Fetcher<GatekeeperUser>;
   }
 
   async connectAccount(
@@ -300,12 +337,14 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
   ): Promise<{ url: string }> {
     // Fail here rather than in the popup: an unconfigured portal should refuse the connect
     // attempt with a readable error instead of minting a URL that dead-ends.
-    if (!(await loadPortalConfig(this.env, this.ctx.exports))) {
-      throw new Error("No MCP server portal is set up on this deployment. An administrator can set one up under Admin → Integrations.");
+    if (!(await loadPortalConfig(this.env, this.ctx.exports, this.#tenant))) {
+      throw new Error("No MCP server portal is set up on this deployment. An administrator can set one up under Admin → Connectors.");
     }
     const accountId = this.ctx.exports.McpAccount.newUniqueId();
     const initiationNonce = generateNonce();
-    await this.ctx.exports.McpAccount.get(accountId).setCallback(callback, initiationNonce);
+    const account = this.ctx.exports.McpAccount.get(accountId);
+    await account.setTenant(this.#tenant);
+    await account.setCallback(callback, initiationNonce);
     return { url: `${getBaseUrl(this.env)}/${accountId.toString()}/${initiationNonce}` };
   }
 
@@ -315,7 +354,7 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
    * The admin panel keeps the row via supportsAdminSetup.
    */
   async getSupportedResources(): Promise<SupportedResource[]> {
-    const config = await loadPortalConfig(this.env, this.ctx.exports);
+    const config = await loadPortalConfig(this.env, this.ctx.exports, this.#tenant);
     return config ? [portalResource(config)] : [];
   }
 
@@ -327,7 +366,7 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
   }
 
   async describeSetup(): Promise<VendorSetup> {
-    const store = this.ctx.exports.VendorSetupStore.getByName("");
+    const store = this.ctx.exports.VendorSetupStore.getByName(this.#tenant);
     const [values, updatedAt] = await Promise.all([store.getValues(), store.getUpdatedAt()]);
     const secretNames = new Set(SETUP_INPUTS.filter((input) => input.kind === "secret")
         .map((input) => input.name));
@@ -338,7 +377,7 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
           updatedAt: updatedAt[name] ?? 0,
           ...(secretNames.has(name) ? {} : { value: values[name] }),
         }));
-    const usable = await loadPortalConfig(this.env, this.ctx.exports, { fresh: true }) !== null;
+    const usable = await loadPortalConfig(this.env, this.ctx.exports, this.#tenant, { fresh: true }) !== null;
     return {
       description: "Point this deployment at your organization's MCP server portal. Your team " +
           "then connects to the servers behind it; writes always wait for approval.",
@@ -361,7 +400,7 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
       }
     }
     const trimmed = Object.fromEntries(entries.map(([name, value]) => [name, value.trim()]));
-    const store = this.ctx.exports.VendorSetupStore.getByName("");
+    const store = this.ctx.exports.VendorSetupStore.getByName(this.#tenant);
     // Validate the merged result before storing, with reasons an administrator can act on —
     // parsePortalConfig's silent null is the right shape for hiding a misconfigured vendor,
     // not for rejecting a form.
@@ -388,6 +427,10 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
     if (auth !== undefined && !["oauth", "token", "none"].includes(auth)) {
       throw new Error('MCP_PORTAL_AUTH must be "oauth", "token", or "none".');
     }
+    const sharing = merged.MCP_PORTAL_SHARING?.trim().toLowerCase();
+    if (sharing !== undefined && !(PORTAL_SHARING_OPTIONS as readonly string[]).includes(sharing)) {
+      throw new Error(`MCP_PORTAL_SHARING must be one of ${PORTAL_SHARING_OPTIONS.join(", ")}.`);
+    }
     if (auth === "token" && !merged.MCP_PORTAL_TOKEN) {
       throw new Error('Authentication "token" needs a preissued bearer token.');
     }
@@ -395,12 +438,12 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
       throw new Error("The portal setup is not usable as entered.");
     }
     await store.apply(trimmed, ["MCP_PORTAL_URL"]);
-    invalidatePortalSetupCache();
+    invalidatePortalSetupCache(this.#tenant);
   }
 
   async clearSetup(): Promise<void> {
-    await this.ctx.exports.VendorSetupStore.getByName("").clear();
-    invalidatePortalSetupCache();
+    await this.ctx.exports.VendorSetupStore.getByName(this.#tenant).clear();
+    invalidatePortalSetupCache(this.#tenant);
   }
 }
 
@@ -422,10 +465,15 @@ const SETUP_INPUTS: VendorSetupInput[] = [
   { name: "MCP_PORTAL_NAME", kind: "var", label: "Display name", optional: true },
   { name: "MCP_PORTAL_AUTH", kind: "var", label: "Authentication", optional: true, options: ["oauth", "token", "none"] },
   { name: "MCP_PORTAL_TOKEN", kind: "secret", label: "Preissued bearer token", optional: true },
+  {
+    name: "MCP_PORTAL_SHARING", kind: "var", label: "Who can open a shared workspace that reads from it",
+    optional: true, options: [...PORTAL_SHARING_OPTIONS],
+  },
 ];
 const SETUP_VALUE_MAX_LENGTH = 2048;
 
-// Deployment-level admin-entered portal setup, one singleton instance addressed by name "".
+// Admin-entered portal setup, one instance per tenant addressed by the tenant key ("" for the
+// owning deployment).
 // Secret values never leave this worker except as presence + timestamps; non-secret values
 // (the endpoint URL, display name, auth mode) are shown back to administrators.
 export class VendorSetupStore extends DurableObject<Env> {
@@ -467,6 +515,20 @@ export class VendorSetupStore extends DurableObject<Env> {
  * real addition: a portal may be fronted by one instead of using OAuth.
  */
 export class McpAccount extends McpAccountBase<Env> {
+  // The tenant whose portal this account connects to, fixed at creation; "" (or unset, for
+  // accounts created before tenants existed) is the owning deployment's own portal.
+  #tenant(): string {
+    return this.ctx.storage.kv.get<string>("tenant") ?? "";
+  }
+
+  async getTenant(): Promise<string> {
+    return this.#tenant();
+  }
+
+  async setTenant(tenant: string): Promise<void> {
+    this.ctx.storage.kv.put("tenant", tenant);
+  }
+
   protected baseUrl(): string {
     return getBaseUrl(this.env);
   }
@@ -476,7 +538,7 @@ export class McpAccount extends McpAccountBase<Env> {
   }
 
   protected mintAccount(): Fetcher<GatekeeperUser> {
-    const props: McpGatekeeperUserProps = { accountObjectId: this.ctx.id.toString() };
+    const props: PortalUserProps = { accountObjectId: this.ctx.id.toString(), tenant: this.#tenant() };
     return this.ctx.exports.GatekeeperUserImpl({ props });
   }
 
@@ -485,17 +547,36 @@ export class McpAccount extends McpAccountBase<Env> {
    * today. The rule lives beside the configuration it guards, in `portalTokenOf`.
    */
   protected override staticToken(server: ConnectedServer): Promise<string | null> {
-    return loadPortalToken(this.env, this.ctx.exports, server.endpoint);
+    return loadPortalToken(this.env, this.ctx.exports, server.endpoint, this.#tenant());
+  }
+
+  /**
+   * Connects this fresh account to the tenant's portal with no browser round trip and hands the
+   * account capability back for the Workshop to keep (GatekeeperVendor.createAccount).
+   */
+  async connectProvisioned(tenant: string, server: ConnectedServer): Promise<Fetcher<GatekeeperUser>> {
+    this.ctx.storage.kv.put("tenant", tenant);
+    await this.connectDirect(server);
+    return this.mintAccount();
   }
 }
 
 // ---------------------------------------------------------------------------
 // Account-facing interface
 
+// The account capability carries its tenant so its own configuration reads need no round trip
+// to the account object. Absent on stubs minted before tenants existed: those are the owning
+// deployment's.
+type PortalUserProps = McpGatekeeperUserProps & { tenant?: string };
+
 @validateRpc()
 export class GatekeeperUserImpl
-  extends McpGatekeeperUserBase<Env>
+  extends McpGatekeeperUserBase<Env, PortalUserProps>
   implements GatekeeperUser {
+
+  get #tenant(): string {
+    return this.ctx.props.tenant ?? "";
+  }
 
   #account(): DurableObjectStub<McpAccount> {
     return this.ctx.exports.McpAccount.get(
@@ -512,7 +593,7 @@ export class GatekeeperUserImpl
    * endpoint, rather than as a Gadget quietly talking to a portal nobody chose.
    */
   async getSupportedResources(): Promise<SupportedResource[]> {
-    const config = await loadPortalConfig(this.env, this.ctx.exports);
+    const config = await loadPortalConfig(this.env, this.ctx.exports, this.#tenant);
     return config ? [portalResource(config)] : [];
   }
 
@@ -520,7 +601,7 @@ export class GatekeeperUserImpl
     class: DurableObjectClass<Gatekeeper<unknown>>;
     resource: SupportedResource;
   }> {
-    const config = await loadPortalConfig(this.env, this.ctx.exports);
+    const config = await loadPortalConfig(this.env, this.ctx.exports, this.#tenant);
     if (!config) {
       throw new Error("This deployment has no MCP server portal configured.");
     }
@@ -564,6 +645,7 @@ export class GatekeeperUserImpl
       serverName: config.name,
       scopeServerName: upstream?.name ?? scope.serverId,
       scope,
+      tenant: this.#tenant,
     };
     return { class: this.ctx.exports.McpGatekeeperImpl({ props }), resource };
   }
@@ -577,21 +659,26 @@ export class GatekeeperUserImpl
 
   @skipRpcValidation()
   async getVerifier(): Promise<Fetcher<GatekeeperUserVerifier>> {
-    return this.ctx.exports.McpPortalVerifier({});
+    const props: McpGatekeeperUserProps = { accountObjectId: this.ctx.props.accountObjectId };
+    return this.ctx.exports.McpPortalVerifier({ props });
   }
 }
 
 // ---------------------------------------------------------------------------
 // Verifier
 
-// Required by the `GatekeeperUser` contract but never interrogated, since `addObserver` refuses
-// everyone.
+// Minted by the *observer's* connected account and carries that account's id, so the facet's
+// `addObserver` can check the observer connected to the same portal and replay the Gadget's reads
+// on the observer's own credentials (see `McpFacetBase.addObserver`).
 @validateRpc()
 export class McpPortalVerifier
-  extends WorkerEntrypoint<Env>
+  extends McpVerifierBase<Env>
   implements GatekeeperUserVerifier
 {
-  verify(): void {}
+  protected [mcpVerifierAccount]() {
+    return this.ctx.exports.McpAccount.get(
+      this.ctx.exports.McpAccount.idFromString(this.ctx.props.accountObjectId));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -672,6 +759,9 @@ type McpGatekeeperImplProps = {
   scopeServerName?: string;
   // How much of one upstream server this binding may call.
   scope: ToolScope & { serverId: string };
+  // Whose portal setup governs this binding's sharing. Absent on facets minted before tenants
+  // carried it, which read the owning deployment's.
+  tenant?: string;
 };
 
 export class McpGatekeeperImpl
@@ -685,13 +775,24 @@ export class McpGatekeeperImpl
     });
   }
 
+  /** The owner's account, which every call this facet makes runs on. */
   protected account(): ConnectionAccount {
+    return this.accountById(this.ctx.props.accountObjectId);
+  }
+
+  /** Any account in this Worker's namespace, for replaying reads on an observer's own account. */
+  protected accountById(accountObjectId: string): ConnectionAccount {
     return this.ctx.exports.McpAccount.get(
-      this.ctx.exports.McpAccount.idFromString(this.ctx.props.accountObjectId));
+      this.ctx.exports.McpAccount.idFromString(accountObjectId));
   }
 
   protected get trust(): ServerTrust {
     return portalTrust(this.env);
+  }
+
+  /** The tenant's setting, like `trust`: `MCP_PORTAL_SHARING` from its setup, else owner-only. */
+  protected get sharing(): McpSharingPolicy {
+    return portalSharingFor(this.env, this.ctx.exports, this.ctx.props.tenant ?? "");
   }
 
   protected get sessionClass() {

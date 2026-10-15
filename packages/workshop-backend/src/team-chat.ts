@@ -9,7 +9,6 @@
 import { SignJWT } from "jose";
 import { TeamChatSession, TeamChatTeammate, TeamChatChannelChanges } from "@gadgets/workshop-shared/api";
 import { fetchTeam, hasTeamDirectory } from "./team-directory.js";
-import { isPoolMode } from "./pool-mode.js";
 
 const STREAM_API_URL = "https://chat.stream-io-api.com";
 const USER_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
@@ -28,9 +27,6 @@ export type UnreadDigest = {
 
 /** Whether this deployment can offer team chat. */
 export function hasTeamChat(env: StreamEnv): boolean {
-  // A pool's members are strangers to each other: no team, no chat (the deploy tooling also
-  // withholds the Stream credentials there; this guard makes the rule hold regardless).
-  if (isPoolMode(env)) return false;
   return Boolean(env.STREAM_API_KEY && env.STREAM_API_SECRET && teamOf(env) &&
       hasTeamDirectory(env));
 }

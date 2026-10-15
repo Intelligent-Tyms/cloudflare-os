@@ -1,7 +1,7 @@
 import { RpcStub, RpcTarget, newHttpBatchRpcResponse, newWebSocketRpcSession, RpcSessionOptions } from "capnweb";
 import { validateRpc } from "capnweb-validate";
 import type { JWTPayload } from "jose";
-import { PublicApi, AuthenticatedApi, Overseer, GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiGatewayInfo, AiModelProvider, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, ObserverConfigCallback, BlueprintLibrarySummary, BlueprintPublicInfo, BlueprintUserSummary, BlueprintBindingAssignment, AgentSpawnerConfig, WorkpieceId, BLUEPRINT_SCREENSHOT_PATH_PREFIX, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ServerConfig, CloudflareUsageInfo, CloudflareAccountOption, LoginAttempt, GatekeeperAppInfo, AdminApi, GatekeeperVendorInfo, OutputFormatOffer, ListOutputsResult, createOpenGadgetError, getOpenGadgetErrorCode, OPEN_GADGET_ERROR_CODES, AUTH_ERROR_CODES, createAuthError, AssistantProfile, BillingGateInfo, PendingWorkspaceInfo, UserChannelsView, TelegramLinkCode, TeamChatSession, TeamChatTeammate, TeamChatChannelChanges } from '@gadgets/workshop-shared/api';
+import { PublicApi, AuthenticatedApi, Overseer, GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiGatewayInfo, AiModelProvider, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, ObserverConfigCallback, BlueprintLibrarySummary, BlueprintPublicInfo, BlueprintUserSummary, BlueprintBindingAssignment, AgentSpawnerConfig, WorkpieceId, BLUEPRINT_SCREENSHOT_PATH_PREFIX, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ServerConfig, CloudflareUsageInfo, CloudflareAccountOption, LoginAttempt, GatekeeperAppInfo, AdminApi, GatekeeperVendorInfo, OutputFormatOffer, ListOutputsResult, createOpenGadgetError, getOpenGadgetErrorCode, OPEN_GADGET_ERROR_CODES, AUTH_ERROR_CODES, createAuthError, AssistantProfile, BillingGateInfo, UserChannelsView, TelegramLinkCode, TeamChatSession, TeamChatTeammate, TeamChatChannelChanges } from '@gadgets/workshop-shared/api';
 import type { UiFeatureFlags } from "@gadgets/workshop-shared/feature-flags";
 import { getServerConfig } from "./deployment-config.js";
 import { isPasswordAuthEnabled, getAuthGatekeeperAllowlist, hasCentralLogin } from "./auth/config.js";
@@ -15,12 +15,13 @@ import { deploymentOutputForBlueprint, listFormatOffers, readAdminConfig } from 
 export { PendingLogin, LoginConnectCallbackImpl };
 export { UsageCollectorDurableObject } from "./usage-collector.js";
 import { usageCollector } from "./usage-collector.js";
-import { hasBillingDirectory, requestUpgrade, fetchPendingWorkspace } from "./billing-directory.js";
+import { hasBillingDirectory, requestUpgrade } from "./billing-directory.js";
 import { GatekeeperUiFrame } from "@gadgets/workshop-shared/gatekeeper";
 import { LanguageModelGatekeeper } from "./ai-models";
 import { getAiGatewayConfig } from "./ai-gateway.js";
 import { AdminSettings, AdminApiImpl } from "./admin-settings.js";
-import { BlueprintKvRecord, buildBlueprintArchiveStream, sanitizeBlueprintOutput, listFeaturedBlueprintsFromKv, parseBlueprintArchive, randomBlueprintId, readBlueprintContent, readBlueprintKvRecord } from "./blueprint-archive.js";
+import { BlueprintKvRecord, buildBlueprintArchiveStream, sanitizeBlueprintOutput, parseBlueprintArchive, randomBlueprintId, readBlueprintContent, readBlueprintKvRecord } from "./blueprint-archive.js";
+import { listFeaturedWithCatalog, readBlueprintKvRecordViaCatalog } from "./template-catalog.js";
 import { GatekeeperConnectCallbackImpl, normalizeUsername, UserDurableObject, CLOUDFLARE_VENDOR_ID } from "./user";
 import { OverseerDurableObject, GatekeeperLoopback, CodeModeTailLoopback, AgentSpawnerGatekeeper, GatekeeperHookLoopback, GadgetTailLoopback, AgentSelfLoopback, TransientStubLoopback } from "./overseer";
 import { ExternalMessageGateway } from "./external-message-gateway";
@@ -29,18 +30,21 @@ import { recordAnalytics } from "./analytics";
 import { handleClientErrorRequest } from "./client-errors.js";
 import { verifyCfAccessJwt } from "./access.js";
 import { importSPKI, jwtVerify } from "jose";
+import { CENTRAL_ADMIN_PATH, handleCentralAdmin } from "./central-admin.js";
 import { resolveUiFeatureFlags } from "./feature-flags";
 import { serveSiteLogo, SITE_LOGO_PATH } from "./site-logo.js";
 import { createWorkshopLogger } from "./observability";
 import { retryOnDoReset, wrapDoStubForTelemetry } from "./do-retry";
 import { TeamChat } from "./team-chat.js";
-import { isPoolMode, poolModeRefusal } from "./pool-mode.js";
 
 const logger = createWorkshopLogger("workshop.server");
 
 // Set once we've asked the AdminSettings DO to install the bundled format blueprints (see the
 // fetch handler), so later requests skip the call. The DO holds the real answer.
 let formatBlueprintInstallStarted = false;
+
+// Set once we've asked the AdminSettings DO to keep its central settings pull running.
+let centralSettingsSyncStarted = false;
 
 function publicBlueprintInfo(id: string, metadata: BlueprintPublicInfo['metadata']): BlueprintPublicInfo {
   return {
@@ -245,8 +249,6 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     }
   }
   async getAvatar(userId: string): Promise<Uint8Array | null> {
-    // Pool members are unrelated people; nobody's avatar is anyone else's business there.
-    if (isPoolMode(this.env) && userId !== this.#userId.name) return null;
     let result = await this.env.AVATARS.get(userId, "arrayBuffer");
     if (!result) return null;
     return new Uint8Array(result);
@@ -365,12 +367,16 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     return offers.map(({agentHint: _agentHint, bindings: _bindings, ...offer}) => offer);
   }
 
-  listGatekeeperVendors(filter?: GatekeeperVendorFilter): Promise<GatekeeperVendorInfo[]> {
-    return retryOnDoReset(() => this.#user.listGatekeeperVendors(filter));
+  // Adding a connector is an administrator's job; a member only signs in to what the deployment
+  // offers them. The user object enforces that from the role passed here.
+  async listGatekeeperVendors(filter?: GatekeeperVendorFilter): Promise<GatekeeperVendorInfo[]> {
+    let caller = {admin: await this.#isAdminUser()};
+    return retryOnDoReset(() => this.#user.listGatekeeperVendors(filter, caller));
   }
 
-  connectAccount(vendorId: string, resourceUrlPatterns?: string[]): Promise<{url: string}> {
-    return this.#user.connectAccount(vendorId, resourceUrlPatterns);
+  async connectAccount(vendorId: string, resourceUrlPatterns?: string[]): Promise<{url: string}> {
+    let caller = {admin: await this.#isAdminUser()};
+    return this.#user.connectAccount(vendorId, resourceUrlPatterns, caller);
   }
 
   ensureAccountResources(accountId: number, resourceUrlPatterns: string[]): Promise<{url?: string}> {
@@ -430,8 +436,7 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
   }
 
   async listFeaturedBlueprints(): Promise<BlueprintPublicInfo[]> {
-    if (isPoolMode(this.env)) return [];
-    return (await listFeaturedBlueprintsFromKv(this.env)).map(
+    return (await listFeaturedWithCatalog(this.env)).map(
         blueprint => publicBlueprintInfo(blueprint.id, blueprint.metadata));
   }
 
@@ -448,8 +453,6 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
   }
 
   async importBlueprint(archive: ReadableStream<Uint8Array>): Promise<string> {
-    // The blueprint catalog (KV + R2) is deployment-wide, so a pool has none.
-    if (isPoolMode(this.env)) throw poolModeRefusal("Templates");
     let { metadata, contentLength, content } = await parseBlueprintArchive(archive);
     delete metadata.screenshot;
     let blueprintId = randomBlueprintId();
@@ -492,9 +495,8 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     blueprintId: string,
     bindings: Record<string, BlueprintBindingAssignment>
   ): Promise<RpcStub<Overseer>> {
-    if (isPoolMode(this.env)) throw poolModeRefusal("Templates");
-    // 1. Read blueprint from KV.
-    let kvRecord = await readBlueprintKvRecord(this.env, blueprintId);
+    // 1. Read blueprint from KV (installing it from the catalog first if that is where it lives).
+    let kvRecord = await readBlueprintKvRecordViaCatalog(this.env, this.ctx.exports, blueprintId);
     if (!kvRecord) throw new Error("Template not found.");
 
     // 2. Read gzip-compressed Yjs doc from R2 and decompress.
@@ -628,6 +630,8 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
           id: account.vendorId,
           title: account.description.providesUi!.title,
           icon: account.description.providesUi!.icon,
+          ...(account.description.providesUi!.externalUrl
+              ? { externalUrl: account.description.providesUi!.externalUrl } : {}),
         }));
   }
 
@@ -710,12 +714,11 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     if (!(await this.#isAdminUser())) return null;
     // Admin users always have a non-empty user id name (email or username). Forwarded to
     // gatekeepers when listing the resource catalog so RBAC-gated ones still surface for
-    // this admin, and to the team directory as the acting admin.
+    // this admin.
     let adminUserId = this.#userId.name!;
     // @ts-expect-error Cap'n Web RPC stubs and native RPC targets are compatible but the type
     //     system doesn't know this.
-    return new AdminApiImpl(this.adminSettings.getByName(""), adminUserId, this.env,
-        usageCollector(this.ctx));
+    return new AdminApiImpl(this.adminSettings.getByName(""), adminUserId, this.env);
   }
 
   // --- Central billing (all users) ---
@@ -724,10 +727,17 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     if (!hasBillingDirectory(this.env)) return null;
     let state = await usageCollector(this.ctx).getBillingState().catch(() => null);
     if (!state) return null;
+    let isFreePlan = state.freeDailyLlmCalls != null;
     return {
       planCode: state.planCode,
-      isFreePlan: state.freeDailyLlmCalls != null,
+      isFreePlan,
       freeDailyLlmCalls: state.freeDailyLlmCalls,
+      aiBalanceMicroUsd: isFreePlan ? null : state.aiBalanceMicroUsd,
+      aiMonthlyGrantMicroUsd: isFreePlan ? null : state.aiMonthlyGrantMicroUsd,
+      periodEnd: isFreePlan ? null : state.periodEnd,
+      trialEndsAt: state.trialEndsAt,
+      cardExpiresBeforeNextCharge: state.cardExpiresBeforeNextCharge,
+      hasCard: state.hasCard,
     };
   }
 
@@ -741,14 +751,6 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     if (!allowed) return { notified: false };
     await requestUpgrade(this.env, { requestedBy });
     return { notified: true };
-  }
-
-  async getPendingWorkspace(): Promise<PendingWorkspaceInfo | null> {
-    if (!isPoolMode(this.env) || !hasBillingDirectory(this.env)) return null;
-    // In pool mode the username is the member's central email (central login handoff).
-    let email = this.#userId.name;
-    if (!email || !email.includes("@")) return null;
-    return await fetchPendingWorkspace(this.env, email).catch(() => null);
   }
 }
 
@@ -972,16 +974,14 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
   }
 
   async getBlueprint(id: string): Promise<BlueprintPublicInfo | null> {
-    if (isPoolMode(this.env)) return null;
-    let kvRecord = await readBlueprintKvRecord(this.env, id);
+    let kvRecord = await readBlueprintKvRecordViaCatalog(this.env, this.ctx.exports, id);
     if (!kvRecord) return null;
 
     return publicBlueprintInfo(id, kvRecord.metadata);
   }
 
   async downloadBlueprint(id: string): Promise<ReadableStream<Uint8Array>> {
-    if (isPoolMode(this.env)) throw poolModeRefusal("Templates");
-    let kvRecord = await readBlueprintKvRecord(this.env, id);
+    let kvRecord = await readBlueprintKvRecordViaCatalog(this.env, this.ctx.exports, id);
     if (!kvRecord) throw new Error("Template not found.");
 
     let r2Object = await this.env.BLUEPRINT_CONTENT.get(`${id}/${kvRecord.metadata.version}`);
@@ -1049,6 +1049,10 @@ export default {
       return handleCentralSignout(req, env, ctx);
     }
 
+    if (url.pathname === CENTRAL_ADMIN_PATH) {
+      return handleCentralAdmin(req, env, ctx);
+    }
+
     if (url.pathname.startsWith(BLUEPRINT_SCREENSHOT_PATH_PREFIX)) {
       let blueprintId = url.pathname.slice(BLUEPRINT_SCREENSHOT_PATH_PREFIX.length);
       return serveBlueprintScreenshot(env, blueprintId);
@@ -1064,12 +1068,23 @@ export default {
     }
 
     if (url.pathname === "/api") {
+      // Keep the central settings pull running (a no-op without a control plane, and once its
+      // alarm is set). Same once-per-isolate trigger as the format install below.
+      if (!centralSettingsSyncStarted) {
+        centralSettingsSyncStarted = true;
+        ctx.waitUntil(ctx.exports.AdminSettings.getByName("").ensureCentralSettingsSync()
+            .catch((err: unknown) => {
+              centralSettingsSyncStarted = false;
+              logger.warn("failed to start the central settings sync", {
+                event: "central_settings.trigger.failed", error: err,
+              });
+            }));
+      }
       // Make sure the bundled format blueprints are installed. The AdminSettings DO doesn't wake
       // merely because someone deployed, so the install needs a trigger; hanging it off API
       // traffic means a fresh deployment is provisioned by its first visitor. Fire-and-forget,
-      // and the DO is idempotent. Pools skip it: bundled formats are templates, and a pool
-      // offers none (the AdminSettings DO refuses as well; this just saves the wake-up).
-      if (!formatBlueprintInstallStarted && !isPoolMode(env)) {
+      // and the DO is idempotent.
+      if (!formatBlueprintInstallStarted) {
         formatBlueprintInstallStarted = true;
         ctx.waitUntil(ctx.exports.AdminSettings.getByName("").ensureFormatBlueprintsInstalled()
             .then((complete: boolean) => {

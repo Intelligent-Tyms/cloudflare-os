@@ -292,6 +292,65 @@ export abstract class McpAccountBase<E extends AccountEnv, P = unknown>
   }
 
   /**
+   * Connects to a deployment-configured endpoint with no browser round trip and no Workshop
+   * callback: the caller mints and hands over the account itself (GatekeeperVendor.createAccount,
+   * or a connector-owned shared account). Only for endpoints an administrator configured whose
+   * credential is a preissued token (`staticToken`) or nothing at all; an endpoint that answers
+   * with an authorization challenge is refused, since there is no user here to sign in.
+   *
+   * Idempotent for the endpoint already connected: the name and auth kind are restated from
+   * current configuration and nothing is re-probed. A different endpoint is a repoint, which drops
+   * the old connection's session and credentials exactly as `beginConnect` does.
+   */
+  protected async connectDirect(server: ConnectedServer): Promise<void> {
+    if (server.provenance !== "deployment" || server.auth === "oauth") {
+      throw new Error("Only a deployment-configured token or public endpoint can be connected directly.");
+    }
+    const existing = this.server();
+    if (existing && sameEndpoint(existing.endpoint, server.endpoint) &&
+        this.ctx.storage.kv.get<boolean>("connected")) {
+      if (existing.serverName !== server.serverName || existing.auth !== server.auth) {
+        this.ctx.storage.kv.put<ConnectedServer>("server", server);
+      }
+      return;
+    }
+    const generation = this.advanceConnectionGeneration();
+    this.ctx.storage.kv.delete("mcpSessionId");
+    for (const key of ["tokens", "oauthClient", "oauthDiscovery", "oauthVerifier", "pendingAuth"]) {
+      this.ctx.storage.kv.delete(key);
+    }
+    this.ctx.storage.kv.put<ConnectedServer>("server", server);
+    this.ctx.storage.kv.put("expiredNotified", false);
+    if (server.auth === "token" && await this.staticToken(server) === null) {
+      throw new Error(
+        `No preissued token is configured for "${server.serverName}" on this deployment, so it ` +
+        `cannot be connected. Set one and try again.`);
+    }
+    try {
+      await this.probe(server, null, generation);
+    } catch (err) {
+      if (err instanceof McpAuthRequiredError) {
+        // With a key in hand the challenge means the key was refused; without one, the server
+        // wants a person to sign in, which a deployment credential cannot do.
+        throw new Error(
+          server.auth === "token"
+            ? `The MCP server "${server.serverName}" rejected the key. Check it and try again.`
+            : `The MCP server "${server.serverName}" requires a sign-in or an API key, so it ` +
+              `cannot be connected without one.`, { cause: err });
+      }
+      throw err;
+    }
+    if (generation !== this.connectionGeneration()) {
+      throw new Error("This connection attempt was replaced by a newer one.");
+    }
+    this.ctx.storage.kv.put("connected", true);
+    this.log().info("connect completed", {
+      event: "connect.completed",
+      serverHost: hostOf(server.endpoint), provenance: server.provenance, auth: server.auth,
+    });
+  }
+
+  /**
    * Connects to `target`, or to the already-chosen server on reconnect.
    *
    * Probes unauthenticated first, since a 401 is how a server tells us both that it needs OAuth and

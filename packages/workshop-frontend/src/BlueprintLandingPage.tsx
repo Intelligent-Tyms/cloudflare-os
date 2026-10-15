@@ -1,4 +1,4 @@
-import { logRpcFailure } from './rpcErrors'
+import { failureTitle, logRpcFailure } from './rpcErrors'
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { useNavigate, useParams, useRouter } from '@tanstack/react-router'
 import { RpcStub } from 'capnweb'
@@ -20,6 +20,7 @@ import ResourceConfiguratorHost from './ResourceConfiguratorHost'
 import { WorkshopButton, WorkshopIconButton } from './components/WorkshopControls'
 import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER } from './components/menuStyles'
 import { useDocumentTitle } from './useDocumentTitle'
+import { AppIconTile, appIconFor } from './components/AppIcon'
 import { AccountsSubscriberAdapter } from './accountsSubscriber'
 
 interface Props {
@@ -197,7 +198,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
       toasts.add({ title: 'Complete the account connection in the new tab.', variant: 'success' })
     } catch (err) {
       console.error('Failed to initiate connection:', err)
-      toasts.add({ title: 'Failed to start connection flow', variant: 'error' })
+      toasts.add({ title: failureTitle(err, 'Failed to start connection flow'), variant: 'error' })
     } finally {
       setConnectingVendor(null)
     }
@@ -212,7 +213,7 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
       toasts.add({ title: 'Complete the account reconnect in the new tab.', variant: 'success' })
     } catch (err) {
       console.error('Failed to initiate reconnect:', err)
-      toasts.add({ title: 'Failed to start reconnect flow', variant: 'error' })
+      toasts.add({ title: failureTitle(err, 'Failed to start reconnect flow'), variant: 'error' })
       setReconnectingAccountId(null)
     }
   }, [authenticatedApi, toasts])
@@ -798,6 +799,9 @@ export default function BlueprintLandingPage({ rpcStub }: Props) {
                 <Star size={12} fill="currentColor" strokeWidth={0} />
                 Featured
               </span>
+            )}
+            {appIconFor(blueprint.id) && (
+              <AppIconTile blueprintId={blueprint.id} size="lg" fallback={null} className="mb-4" />
             )}
             <h1 className="m-0 text-3xl font-semibold leading-tight tracking-tight text-kumo-default">
               {meta.title}

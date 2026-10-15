@@ -193,12 +193,13 @@ tier is `byo` unless a deployment sets `MCP_PORTAL_TRUST_ANNOTATIONS=true`. That
 "trusted server" assertion MCP's guidance asks for, and it has to be about the upstreams themselves,
 not just the portal in front of them.
 
-`addObserver` refuses everyone, as it does for user-supplied endpoints. Reaching the portal is not
-the same as being allowed to see a particular tool result, and the Gadget runs on the owner's
-credentials regardless. A sharper check is available here than for a bare endpoint —
-`portal_list_servers` is per-user and Access-filtered, so it could confirm a collaborator may reach
-the same server — but that is still server-granular, not record-granular. See
-[`sharing-policy.ts`](../mcp-shared/src/sharing-policy.ts).
+Sharing follows the same three policies as `gatekeeper-mcp` (`owner-only`, `same-account`,
+`public`; see its README), chosen for the whole portal by `MCP_PORTAL_SHARING` and `owner-only`
+when unset. Reaching the portal is not the same as being allowed to see a particular tool result,
+and the Gadget runs on the owner's credentials regardless, so `owner-only` stays the default. Under
+`same-account` a collaborator connects their own account to the same portal and the Gadget's reads
+are replayed on it, upstream server prefix and all, which also confirms they can reach the server
+the binding is scoped to. See [`sharing-policy.ts`](../mcp-shared/src/sharing-policy.ts).
 
 ## Notes and current limitations
 

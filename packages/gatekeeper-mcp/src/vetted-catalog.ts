@@ -17,11 +17,25 @@ import { createLogger } from "@gadgets/backend-utils/logger";
 import type { SupportedResource } from "@gadgets/workshop-shared/gatekeeper";
 import type { McpLogFields } from "@gadgets/mcp-shared/log";
 import { sameEndpoint } from "@gadgets/mcp-shared/scope";
+import { parseSharingPolicy, type McpSharingPolicy } from "@gadgets/mcp-shared/sharing-policy";
 import type { ServerTrust } from "@gadgets/mcp-shared/tools";
+import { serverInputName } from "./tenant-servers.js";
 
 const logger = createLogger<McpLogFields>({
   component: "gatekeeper.mcp", vendorId: "mcp",
 });
+
+/** How a catalog server authenticates: a per-user sign-in, a preissued bearer key, or nothing. */
+export type CatalogAuth = "oauth" | "token" | "none";
+
+/**
+ * Whose credential a connection to a catalog server runs on. `personal`: each user connects their
+ * own account (the connect popup, their own key). `organization`: one key per tenant, entered by
+ * its administrator under Admin → Connectors, reached through an account the Workshop provisions
+ * for every member; no one signs in and, unless `sharing` says `owner-only`, any member may open a
+ * workspace bound to it.
+ */
+export type CatalogCredential = "personal" | "organization";
 
 export type CatalogServer = {
   id: string;
@@ -29,6 +43,25 @@ export type CatalogServer = {
   description: string;
   endpoint: string;
   vetted: boolean;
+  /**
+   * Who may open a Gadget bound to this server besides its owner. A second review assertion,
+   * independent of `vetted`: trusting a server's annotations says nothing about whether its data
+   * is one person's or everyone's. Absent or unrecognised means `owner-only`. For an
+   * `organization` server every value but `owner-only` admits any member of the tenant, since
+   * all of them hold the same credential (see `companySharingFor`).
+   */
+  sharing: McpSharingPolicy;
+  auth: CatalogAuth;
+  credential: CatalogCredential;
+  /** For an organization server with token auth: what the admin form calls the key. */
+  keyLabel?: string;
+  /** Where the administrator mints that key. */
+  keyConsoleUrl?: string;
+  /**
+   * Set on a server a tenant's administrator added for their own company rather than one this
+   * catalog lists (see tenant-servers.ts). Only ever an `organization` server.
+   */
+  custom?: boolean;
 };
 
 type CatalogEnv = { MCP_CATALOG_URL?: string };
@@ -72,6 +105,21 @@ export function parseCatalog(payload: unknown): CatalogServer[] {
     // Same rules as a typed endpoint: https only, and URL userinfo is an ambient credential.
     if (url.protocol !== "https:" || url.username || url.password) continue;
     url.hash = "";
+    const auth: CatalogAuth =
+      record.auth === "token" || record.auth === "none" ? record.auth : "oauth";
+    // An organization server is connected with the tenant's key or nothing; a sign-in has no
+    // user to complete it, so such a row is offered as personal rather than dead.
+    const credential: CatalogCredential =
+      record.credential === "organization" && auth !== "oauth" ? "organization" : "personal";
+    let keyConsoleUrl: string | undefined;
+    if (typeof record.keyConsoleUrl === "string") {
+      try {
+        const consoleUrl = new URL(record.keyConsoleUrl);
+        if (consoleUrl.protocol === "https:") keyConsoleUrl = consoleUrl.toString();
+      } catch {
+        // Descriptive only; a bad link is dropped, not fatal.
+      }
+    }
     servers.push({
       id,
       name,
@@ -79,9 +127,25 @@ export function parseCatalog(payload: unknown): CatalogServer[] {
         ? record.description.slice(0, MAX_DESCRIPTION) : "",
       endpoint: url.toString(),
       vetted: record.vetted !== false,
+      sharing: parseSharingPolicy(record.sharing),
+      auth,
+      credential,
+      ...(typeof record.keyLabel === "string" && record.keyLabel.trim()
+        ? { keyLabel: record.keyLabel.trim().slice(0, 80) } : {}),
+      ...(keyConsoleUrl ? { keyConsoleUrl } : {}),
     });
   }
   return servers;
+}
+
+/** The catalog servers each user connects for themselves. */
+export function personalServers(catalog: CatalogServer[]): CatalogServer[] {
+  return catalog.filter((server) => server.credential === "personal");
+}
+
+/** The catalog servers reached through the tenant's own credential. */
+export function companyServers(catalog: CatalogServer[]): CatalogServer[] {
+  return catalog.filter((server) => server.credential === "organization");
 }
 
 // Last fetched catalog, kept past its TTL so sync readers always have an answer; `expiresAt`
@@ -148,15 +212,77 @@ export function trustFor(env: CatalogEnv, endpoint: string): ServerTrust {
   return entry?.vetted === true ? "vetted" : "byo";
 }
 
+// The sharing policy for an endpoint: whatever the current catalog says, and `owner-only` for
+// anything it does not list, including every user-supplied endpoint. Conservative on a cold
+// cache in the same way `trustFor` is: a `public` server momentarily refuses observers, never
+// the reverse.
+export function sharingFor(env: CatalogEnv, endpoint: string): McpSharingPolicy {
+  refreshCatalogInBackground(env);
+  return catalogEntryFor(endpoint)?.sharing ?? "owner-only";
+}
+
+// The sharing policy for a binding that runs on the company's credential. Everyone in the tenant
+// holds the same credential, so replaying reads on a collaborator's "own" account (`same-account`)
+// would prove nothing: the question is membership, which the Workshop has already settled by the
+// time it admits an observer. Any policy but `owner-only` therefore admits every member (`public`
+// in the connector's terms), and `owner-only` still refuses. An endpoint the catalog no longer
+// lists as the company's falls back to `owner-only` like any unlisted endpoint.
+export function companySharingFor(env: CatalogEnv, endpoint: string): McpSharingPolicy {
+  refreshCatalogInBackground(env);
+  return companySharingIn(catalogServers(), endpoint);
+}
+
+/**
+ * The same question asked of a catalog the caller already holds, which is how a tenant's own
+ * servers (merged in by `mergeCatalog`) get an answer: they are in no module-level cache here.
+ */
+export function companySharingIn(catalog: CatalogServer[], endpoint: string): McpSharingPolicy {
+  const entry = catalog.find((server) => sameEndpoint(server.endpoint, endpoint));
+  if (!entry || entry.credential !== "organization") return "owner-only";
+  return entry.sharing === "owner-only" ? "owner-only" : "public";
+}
+
 // One connectable resource per catalog server. The urlPattern is the exact endpoint URL —
 // deliberately never the `https://*` catch-all, which the Workshop treats as the
 // whole-instance fallback (that stays the bring-your-own entry's job).
 export function catalogResource(server: CatalogServer): SupportedResource {
+  const description = server.description ||
+    (server.credential === "organization"
+      ? `Tools from ${server.name}, set up for the whole company.`
+      : `Tools from ${server.name}, vetted by your organization.`);
   return {
     urlPattern: server.endpoint,
     title: server.name,
-    description: server.description ||
-      `Tools from ${server.name}, vetted by your organization.`,
-    grantable: true,
+    description,
+    // A personal server's grant is a resource the user enables at connect time; a company one
+    // is reached through the provisioned account, which has nothing to expand.
+    grantable: server.credential === "personal",
+    // Each catalog server is a service in its own right, so the Workshop lists it as its own
+    // connector rather than as a kind of thing inside "Custom MCP server".
+    connector: {
+      id: server.id,
+      displayName: server.name,
+      tagline: server.description || undefined,
+      description,
+      url: new URL(server.endpoint).origin,
+      credentialScope: server.credential,
+      ...setupInputNamesFor(server),
+    },
   };
+}
+
+// The setup inputs a server's own connector card owns: a company server's key, and for a server
+// the tenant added, the entry that lists it (removing which removes the server).
+function setupInputNamesFor(server: CatalogServer): { setupInputNames?: string[] } {
+  if (server.credential !== "organization") return {};
+  const names = [
+    ...(server.custom ? [serverInputName(server.id)] : []),
+    ...(server.auth === "token" ? [keyInputName(server.id)] : []),
+  ];
+  return names.length > 0 ? { setupInputNames: names } : {};
+}
+
+/** The setup-store name under which a company server's key is kept. */
+export function keyInputName(serverId: string): string {
+  return `KEY_${serverId.toUpperCase().replace(/-/g, "_")}`;
 }

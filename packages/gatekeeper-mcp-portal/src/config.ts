@@ -14,6 +14,7 @@ import { fetchOptions } from "@gadgets/mcp-shared/fetch";
 import { sameEndpoint } from "@gadgets/mcp-shared/scope";
 import { isPortalNativeTool, type PortalServer } from "@gadgets/mcp-shared/portal";
 import { classifyTool, type ServerTrust } from "@gadgets/mcp-shared/tools";
+import { parseSharingPolicy, type McpSharingPolicy } from "@gadgets/mcp-shared/sharing-policy";
 
 /** The configured portal, once the deployment's vars have been read and validated. */
 export type PortalConfig = {
@@ -40,6 +41,43 @@ export function portalTrust(env: Env): ServerTrust {
   return (env.MCP_PORTAL_TRUST_ANNOTATIONS ?? "").toLowerCase() === "true" ? "vetted" : "byo";
 }
 
+/**
+ * Who may open a Gadget bound to a server behind the portal besides its owner. Deployment
+ * configuration like the trust tier, and `owner-only` unless `MCP_PORTAL_SHARING` names another
+ * policy (see `sharing-policy.ts` in `@gadgets/mcp-shared`).
+ */
+export function portalSharing(env: Env): McpSharingPolicy {
+  return parseSharingSetting(env.MCP_PORTAL_SHARING);
+}
+
+/**
+ * The values the sharing setting accepts, as an administrator sees them. "company" is the
+ * connector's `public`: everyone in the tenant holds the same portal credential in token or
+ * public mode, so admitting every member is the natural reading of "shareable" there, and the
+ * word "public" would suggest the data itself is.
+ */
+export const PORTAL_SHARING_OPTIONS = ["owner-only", "company", "same-account"] as const;
+
+export function parseSharingSetting(value: unknown): McpSharingPolicy {
+  if (typeof value === "string" && value.trim().toLowerCase() === "company") return "public";
+  return parseSharingPolicy(value);
+}
+
+/**
+ * The sharing policy for one tenant's portal, from its admin-entered setup with the deployment
+ * var as fallback. Synchronous because the facet's `sharing` getter is: it answers from the
+ * per-isolate setup cache and kicks a refresh when that is cold or stale, so a cold isolate is
+ * conservative (`owner-only`) for one open and converges on the next.
+ */
+export function portalSharingFor(env: Env, exports: PortalSetupExports, tenant: string = ""): McpSharingPolicy {
+  const cached = setupCache.get(tenant);
+  if (!cached || Date.now() >= cached.expiresAt) {
+    void loadPortalSetup(env, exports, tenant).catch(() => {});
+  }
+  const values = cached?.values ?? (tenant === "" ? envSetupValues(env) : {});
+  return parseSharingSetting(values.MCP_PORTAL_SHARING ?? env.MCP_PORTAL_SHARING);
+}
+
 // The portal setup values from one source. Two sources exist — admin-entered runtime setup
 // (the VendorSetupStore singleton) and the deployment's vars — and a source is used wholesale:
 // when the store holds any values it replaces the vars entirely, so the URL and its token can
@@ -49,11 +87,12 @@ export type PortalSetupValues = {
   MCP_PORTAL_NAME?: string;
   MCP_PORTAL_AUTH?: string;
   MCP_PORTAL_TOKEN?: string;
+  MCP_PORTAL_SHARING?: string;
 };
 
 // The names an administrator may set at runtime; also the store's key allowlist.
 export const PORTAL_SETUP_NAMES: (keyof PortalSetupValues)[] =
-  ["MCP_PORTAL_URL", "MCP_PORTAL_NAME", "MCP_PORTAL_AUTH", "MCP_PORTAL_TOKEN"];
+  ["MCP_PORTAL_URL", "MCP_PORTAL_NAME", "MCP_PORTAL_AUTH", "MCP_PORTAL_TOKEN", "MCP_PORTAL_SHARING"];
 
 function envSetupValues(env: Env): PortalSetupValues {
   return {
@@ -61,6 +100,7 @@ function envSetupValues(env: Env): PortalSetupValues {
     MCP_PORTAL_NAME: env.MCP_PORTAL_NAME,
     MCP_PORTAL_AUTH: env.MCP_PORTAL_AUTH,
     MCP_PORTAL_TOKEN: env.MCP_PORTAL_TOKEN,
+    MCP_PORTAL_SHARING: env.MCP_PORTAL_SHARING,
   };
 }
 
@@ -120,35 +160,39 @@ export type PortalSetupExports = {
   };
 };
 
-// The active setup source: the admin-entered store when it holds any values, else the
-// deployment's vars. The store sits behind a Durable Object RPC and this is consulted on the
-// token path of every authenticated request, so results are cached per isolate briefly;
-// writers reset their own isolate's cache (`invalidatePortalSetupCache`) and other isolates
+// The active setup source for one tenant: the admin-entered store instance keyed by the
+// tenant when it holds any values, else — for the owning deployment only (tenant "") — the
+// deployment's vars. A tenant of a shared connector never inherits another deployment's
+// portal. The store sits behind a Durable Object RPC and this is consulted on the token path
+// of every authenticated request, so results are cached per isolate briefly, per tenant;
+// writers reset their own isolate's entry (`invalidatePortalSetupCache`) and other isolates
 // converge within the TTL.
-let setupCache: { values: PortalSetupValues; expiresAt: number } | undefined;
+const setupCache = new Map<string, { values: PortalSetupValues; expiresAt: number }>();
 const SETUP_CACHE_MS = 30_000;
 
-export function invalidatePortalSetupCache(): void {
-  setupCache = undefined;
+export function invalidatePortalSetupCache(tenant: string = ""): void {
+  setupCache.delete(tenant);
 }
 
 export async function loadPortalSetup(
-  env: Env, exports: PortalSetupExports, options?: { fresh?: boolean },
+  env: Env, exports: PortalSetupExports, tenant: string = "", options?: { fresh?: boolean },
 ): Promise<PortalSetupValues> {
-  if (!options?.fresh && setupCache && Date.now() < setupCache.expiresAt) {
-    return setupCache.values;
+  const cached = setupCache.get(tenant);
+  if (!options?.fresh && cached && Date.now() < cached.expiresAt) {
+    return cached.values;
   }
-  const stored = await exports.VendorSetupStore.getByName("").getValues();
-  const values = Object.keys(stored).length > 0 ? (stored as PortalSetupValues) : envSetupValues(env);
-  setupCache = { values, expiresAt: Date.now() + SETUP_CACHE_MS };
+  const stored = await exports.VendorSetupStore.getByName(tenant).getValues();
+  const values = Object.keys(stored).length > 0 ? (stored as PortalSetupValues)
+    : tenant === "" ? envSetupValues(env) : {};
+  setupCache.set(tenant, { values, expiresAt: Date.now() + SETUP_CACHE_MS });
   return values;
 }
 
 // The portal configuration from the active source, or null when unconfigured.
 export async function loadPortalConfig(
-  env: Env, exports: PortalSetupExports, options?: { fresh?: boolean },
+  env: Env, exports: PortalSetupExports, tenant: string = "", options?: { fresh?: boolean },
 ): Promise<PortalConfig | null> {
-  return parsePortalConfig(await loadPortalSetup(env, exports, options),
+  return parsePortalConfig(await loadPortalSetup(env, exports, tenant, options),
     fetchOptions(env).allowInsecure === true);
 }
 
@@ -288,9 +332,9 @@ export function portalTokenOf(
 
 // The active source's preissued token for `endpoint` (see `portalTokenOf`).
 export async function loadPortalToken(
-  env: Env, exports: PortalSetupExports, endpoint: string,
+  env: Env, exports: PortalSetupExports, endpoint: string, tenant: string = "",
 ): Promise<string | null> {
-  return portalTokenOf(await loadPortalSetup(env, exports), fetchOptions(env).allowInsecure === true, endpoint);
+  return portalTokenOf(await loadPortalSetup(env, exports, tenant), fetchOptions(env).allowInsecure === true, endpoint);
 }
 
 // Env-only variant kept for the deployment-var source (tests exercise the parse rules here).

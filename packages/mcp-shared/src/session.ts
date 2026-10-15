@@ -89,7 +89,23 @@ export interface McpSessionHost {
   stageAction(toolName: string, args: Record<string, unknown>): StoredAction;
   discardStagedAction(id: number): void;
   lookupAction(id: number): StoredAction | undefined;
+
+  /**
+   * Records a completed read-only call and names the observers who must not see its result, per
+   * the endpoint's sharing policy. Undefined when everyone admitted may see it.
+   */
+  recordRead(toolName: string, args: Record<string, unknown>): Promise<string[] | undefined>;
 }
+
+/**
+ * What one session carries into every call it makes, beyond what the facet already knows. Set by
+ * the facet from the `SessionContext` the Workshop passed to `startSession`; a session opened
+ * without one behaves exactly as before.
+ */
+export type McpSessionContext = {
+  /** Per-call options merged into every `host.call` this session makes. */
+  callOptions?: WithClientOptions;
+};
 
 function requireToolName(method: string, name: unknown): asserts name is string {
   if (typeof name !== "string" || name.length === 0) {
@@ -108,11 +124,13 @@ function requireToolName(method: string, name: unknown): asserts name is string 
 export class McpSessionBase extends RpcTarget {
   #host: McpSessionHost;
   #queue: RpcStub<ApprovalQueue>;
+  #context: McpSessionContext | undefined;
 
-  constructor(host: McpSessionHost, queue: RpcStub<ApprovalQueue>) {
+  constructor(host: McpSessionHost, queue: RpcStub<ApprovalQueue>, context?: McpSessionContext) {
     super();
     this.#host = host;
     this.#queue = queue;
+    this.#context = context;
   }
 
   [Symbol.dispose](): void {
@@ -203,9 +221,14 @@ export class McpSessionBase extends RpcTarget {
     });
 
     if (entry.mode === "read") {
-      const result = await host.call(client => client.callTool(name, toolArgs));
-      // Authorize before the data is handed back, per the gatekeeper contract.
-      await this.#queue.authorizeObservation(described);
+      const result = await host.call(
+        client => client.callTool(name, toolArgs), this.#context?.callOptions);
+      // Authorize before the data is handed back, per the gatekeeper contract. The host names any
+      // admitted observer whose own account could not repeat this read; the Workshop then blocks
+      // the observation unless it can keep it from them.
+      const excludeObservers = await host.recordRead(name, toolArgs);
+      await this.#queue.authorizeObservation(
+        excludeObservers ? { ...described, excludeObservers } : described);
       return toCallResult(result);
     }
 

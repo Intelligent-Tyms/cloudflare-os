@@ -59,6 +59,19 @@ export function integrationDepartmentLabel(id: IntegrationDepartment): string {
   return INTEGRATION_DEPARTMENTS.find((d) => d.id === id)?.label ?? id;
 }
 
+/**
+ * Whose credential a vendor's connections run on.
+ *   - "personal": each person signs in to their own account (OAuth, a pasted key). A connection
+ *     carries that person's identity, so a collaborator must prove their own access before they
+ *     may observe what a workspace read (Gatekeeper.addObserver).
+ *   - "organization": one credential an administrator enters for the whole deployment (a B2B
+ *     login, a company API key). Every member acts as the company, no one signs in, and admitting
+ *     a collaborator is a question of membership rather than identity.
+ * A vendor that declares neither, such as a built-in capability holding no external credential,
+ * is presented as personal when it has a connect flow and as built-in when it auto-provisions.
+ */
+export type CredentialScope = "personal" | "organization";
+
 /** Describes a connected GatekeeperVendor, for display purposes. */
 export type VendorDescription = {
   /** Human-readable name of the service, e.g. "Google", "GitHub", etc. */
@@ -126,6 +139,12 @@ export type VendorDescription = {
   // vendor advertises no supported resources, which hides it from users; the admin panel keeps
   // its row visible so setup can be entered.
   supportsAdminSetup?: boolean;
+
+  // Whose credential this vendor's connections run on (see CredentialScope). Display and policy
+  // guidance for the admin panel: an "organization" vendor is enabled by entering its setup, and
+  // the panel says so, while a "personal" one is enabled by letting people sign in. Omitted means
+  // the vendor holds no organization-wide credential.
+  credentialScope?: CredentialScope;
 }
 
 // One value an administrator supplies during vendor setup (see GatekeeperVendor.describeSetup).
@@ -169,6 +188,13 @@ export type VendorSetup = {
   // secret values never appear here. Empty when the vendor is configured only by deploy-time
   // secrets — the UI then reports "configured by the deployment".
   configured: { name: string; updatedAt: number; value?: string }[];
+  /**
+   * Present when some of the inputs are a form that adds something (a server to the company's
+   * list) instead of completing a fixed configuration: they are never reported as configured and
+   * read back empty, so another can be added. The panel words that part of setup as adding a
+   * `noun` rather than as setup still to be done.
+   */
+  addition?: { noun: string };
 };
 
 // One file of a skill package being installed (see GatekeeperVendor.installSkillPackage).
@@ -388,9 +414,11 @@ export type AccountDescription = {
 
   /**
    * If set, this account has a full-page management UI (see GatekeeperUser.startAppUi). The Workshop
-   * surfaces it as a nav entry / page using this title.
+   * surfaces it as a nav entry / page using this title. When `externalUrl` is set the entry opens
+   * that URL in a new tab instead (the iframe sandbox cannot open windows), and `startAppUi` is only
+   * a fallback for direct loads of the in-app page.
    */
-  providesUi?: { title: string; icon?: AvatarImage };
+  providesUi?: { title: string; icon?: AvatarImage; externalUrl?: string };
 }
 
 /** Describes metadata about a specific instance of a resource. Returned by Gatekeeper.describe(). */
@@ -445,6 +473,35 @@ export type ResourceDescription = {
  * Describes a kind of resource that a vendor can provide access to (e.g. "Jira Issue", "Gmail
  * Mailbox") rather than a specific instance.
  */
+/**
+ * How a resource type is presented when it is a service in its own right rather than a kind of
+ * thing within the vendor's service. A vendor that fronts many services over one transport (an
+ * MCP connector and its catalog of servers) attaches this to each catalog server's resource, and
+ * the Workshop then lists that resource as its own connector: a card of its own in the admin
+ * and user galleries, with its own status, on/off (the resource's), setup (the named inputs of
+ * the vendor's setup) and connect flow (the vendor's, limited to this resource). The vendor's
+ * own card keeps only the resources without a presentation. Presentation only: the resource is
+ * still granted, bound and enforced through its vendor.
+ */
+export type ResourceConnector = {
+  /** Stable, path-safe id within the vendor, e.g. a catalog slug. */
+  id: string;
+  displayName: string;
+  tagline?: string;
+  description?: string;
+  logo?: AvatarImage;
+  color?: string;
+  url?: string;
+  departments?: IntegrationDepartment[];
+  /** Whose credential connections to this service run on (see CredentialScope). */
+  credentialScope?: CredentialScope;
+  /**
+   * The vendor's setup inputs (VendorSetupInput.name) that belong to this service, such as its
+   * company API key. Shown on this connector's setup and hidden from the vendor's own.
+   */
+  setupInputNames?: string[];
+};
+
 export type SupportedResource = {
   /** URLPattern string for matching URLs, e.g. "https://jira.cfdata.org/*" */
   urlPattern: string;
@@ -466,6 +523,18 @@ export type SupportedResource = {
    * If omitted/false, the resource type is not separately grantable.
    */
   grantable?: boolean;
+
+  /** Present when this resource is listed as a connector of its own (see ResourceConnector). */
+  connector?: ResourceConnector;
+
+  /**
+   * Who may start a new connection to this resource type. Omitted: anyone the deployment offers
+   * it to, by signing in to their own account. "admin": connecting means supplying an address or
+   * a credential (a server URL, an API key) rather than signing in, which is an administrator's
+   * job: the Workshop hides the resource from everyone else and refuses their connect attempts.
+   * Connections that already exist keep working for whoever holds them.
+   */
+  connectableBy?: "admin";
 }
 
 /** Removes every trailing slash from a string in linear time. */
@@ -702,9 +771,15 @@ export interface GatekeeperVendor extends WorkerEntrypoint {
    * TODO: Providing the user ID here is a temporary hack to enable a hidden internal gatekeeper.
    *   Later on we should come up with a better way to manage which users see which gatekeepers.
    *
+   * `options.forSetup` is set when the admin panel is listing what an administrator can set up,
+   * rather than what a user can use: a vendor then also returns the resource types that exist
+   * but are not usable yet (a company server whose key has not been entered), so each gets a
+   * card where its setup is entered. Without it, only usable resource types are returned.
+   *
    * TODO: How does the Gadget Workshop know when the supported URLs have changed, without polling?
    */
-  getSupportedResources(options?: {userId?: string}): Promise<SupportedResource[]>;
+  getSupportedResources(options?: {userId?: string; forSetup?: boolean})
+      : Promise<SupportedResource[]>;
 
   /**
    * Returns TypeScript source code defining all types covering APIs defined by this Gatekeeper.
@@ -761,9 +836,11 @@ export interface GatekeeperVendor extends WorkerEntrypoint {
   // not the Workshop's), preserving the invariant that the Workshop persists no credentials.
   applySetup?(values: Record<string, string>): Promise<void>;
 
-  // Delete all admin-entered setup values. The vendor falls back to its deploy-time secrets if
-  // present, and otherwise returns to advertising no resources (hidden from users).
-  clearSetup?(): Promise<void>;
+  // Delete admin-entered setup values: all of them, or only `names` when given. The vendor falls
+  // back to its deploy-time secrets if present, and otherwise returns to advertising no resources
+  // (hidden from users). A vendor whose resources carry a ResourceConnector must honour `names`,
+  // since that is how one service's key is removed without touching the others'.
+  clearSetup?(names?: string[]): Promise<void>;
 }
 
 export interface GatekeeperConnectCallback extends WorkerEntrypoint {
@@ -989,7 +1066,7 @@ export interface Gatekeeper<Session> extends DurableObject {
    * simulation -- it is really up to the gatekeeper author to decide what is appropriate for the
    * particular API.
    */
-  startSession(approvalQueue: RpcStub<ApprovalQueue>): Promise<Session>;
+  startSession(approvalQueue: RpcStub<ApprovalQueue>, context?: SessionContext): Promise<Session>;
 
   /**
    * Bounded, user-specific metadata the agent uses to discover entries reachable through this
@@ -1133,6 +1210,31 @@ export interface Gatekeeper<Session> extends DurableObject {
    */
   revertAction(action: number):
       Promise<void | {message?: string, canRetry?: boolean, restart?: boolean}>;
+}
+
+/**
+ * What the Workshop knows about the session it is opening, beyond the approval queue. Optional
+ * and additive: a gatekeeper that ignores it behaves as before. Today it carries the person an
+ * agent is acting for, so a gatekeeper whose server verifies per-person identity (the
+ * Organization Intelligence wiki) can send a signed assertion of that person with each call.
+ */
+export type SessionContext = {
+  actor?: {
+    /** The signed-in person whose turn started this session. */
+    email: string;
+    /**
+     * Mints a short-lived, signed assertion of that person for the gatekeeper's server. Absent when
+     * the deployment cannot mint one (no central directory); the gatekeeper then calls without it.
+     * The stub is live for the duration of `startSession`.
+     */
+    assertion?: RpcStub<ActorAssertionProvider>;
+  };
+};
+
+/** Mints actor assertions for one person; see SessionContext. */
+export interface ActorAssertionProvider extends RpcTarget {
+  /** A signed assertion and its expiry (epoch ms), or null when none can be minted right now. */
+  mint(): Promise<{ token: string; expiresAt: number } | null>;
 }
 
 export interface ObservationAuthorizer extends RpcTarget {

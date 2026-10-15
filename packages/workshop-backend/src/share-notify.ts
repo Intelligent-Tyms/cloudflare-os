@@ -22,6 +22,11 @@ export async function notifyWorkspaceShared(env: Cloudflare.Env, opts: {
   workspaceId: string;
   workspaceTitle: string;
   role: "build" | "use";
+  // The connections the recipient must point their own account at before the workspace opens
+  // for them (see Overseer.listObserverRequirements), so the email can say what to connect
+  // ahead of the first open instead of the open stalling on a modal. Titles only: a resource
+  // URL can name a private document.
+  requirements: { title: string }[];
 }): Promise<boolean> {
   if (!hasShareNotifications(env)) return false;
   try {

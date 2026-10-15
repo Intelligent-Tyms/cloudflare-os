@@ -35,28 +35,18 @@ export type ConnectFormChoice = {
 // Renders the endpoint prompt shown when the user starts connecting. When the deployment has a
 // vetted catalog, its servers appear first as one-click choices; the free URL field remains the
 // bring-your-own path with its trust warning (a vetted pick doesn't need it — someone reviewed
-// that server before listing it).
+// that server before listing it). With `allowCustom` off the page is only the choices: the
+// connect was limited to servers the deployment lists, which is every connect a member starts.
 export function connectFormHtml(path: string, error?: string,
-                                catalog: ConnectFormChoice[] = []): string {
+                                catalog: ConnectFormChoice[] = [],
+                                allowCustom = true): string {
   const choices = catalog.map((server) => `
     <button class="choice" type="submit" name="url" value="${escapeHtml(server.endpoint)}">
       <span class="choice-name">${escapeHtml(server.name)}</span>
       ${server.description ? `<span class="choice-desc">${escapeHtml(server.description)}</span>` : ""}
     </button>`).join("");
-  return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Connect an MCP server</title><style>${PAGE_STYLE}${FORM_STYLE}${CHOICE_STYLE}</style></head>
-<body><main>
-  <h1>Connect an MCP server</h1>
-  <p class="sub">We will discover the server's tools and, if it requires authorization, take you
-  through its sign-in.</p>
-  ${error ? `<p class="err">${escapeHtml(error)}</p>` : ""}
-  <form method="POST" action="${escapeHtml(path)}">
-    ${catalog.length ? `
-    <label>Vetted by your organization</label>
-    <div class="choices">${choices}</div>
-    <p class="divider">or connect any MCP server</p>` : ""}
+  const custom = allowCustom ? `
+    ${catalog.length ? `<p class="divider">or connect any MCP server</p>` : ""}
     <label for="url">Server URL</label>
     <input id="url" type="url" name="url" placeholder="https://example.com/mcp"
            ${catalog.length ? "" : "required autofocus"}>
@@ -69,7 +59,25 @@ export function connectFormHtml(path: string, error?: string,
            placeholder="Leave empty for public or sign-in servers">
     <p class="hint">Some servers authenticate with a preissued key instead of a sign-in. The key
     is stored with this connection and sent only to this server, as a bearer token.</p>
-    <button type="submit">Continue</button>
+    <button type="submit">Continue</button>` : "";
+  const title = allowCustom ? "Connect an MCP server" : "Choose a server to sign in to";
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title><style>${PAGE_STYLE}${FORM_STYLE}${CHOICE_STYLE}</style></head>
+<body><main>
+  <h1>${title}</h1>
+  <p class="sub">${allowCustom
+    ? `We will discover the server's tools and, if it requires authorization, take you
+  through its sign-in. This connects the server for you alone: to give your whole team a server,
+  add it under Admin → Connectors instead.`
+    : `You will be taken through the server's own sign-in. Other servers are added by an
+  administrator.`}</p>
+  ${error ? `<p class="err">${escapeHtml(error)}</p>` : ""}
+  <form method="POST" action="${escapeHtml(path)}">
+    ${catalog.length ? `
+    <label>Vetted by your organization</label>
+    <div class="choices">${choices}</div>` : ""}${custom}
   </form>
 </main></body></html>`;
 }

@@ -88,7 +88,20 @@ type Env = Cloudflare.Env & {
   BASE_URL?: string;
   CLIENT_ID?: string;
   CLIENT_SECRET?: string;
+  // "true" on a shared connector whose deploy-time OAuth app is one the operator runs for every
+  // tenant (see `inheritsDeploymentApp`).
+  SHARED_OAUTH_APP?: string;
 };
+
+// Which tenant a call is for. A shared connector serves many workshops: each binds with
+// `props: { tenant }`, and admin-entered setup (the OAuth app) is keyed by it. A deployment
+// running its own copy binds without props and keys by "". Accounts remember their tenant,
+// so the HTTP flow — which has no binding props — resolves the same app the connect call did.
+type VendorProps = { tenant?: string };
+
+function tenantKey(props: VendorProps | undefined): string {
+  return props?.tenant ?? "";
+}
 
 type StoredNonce = {
   value: string;
@@ -336,21 +349,34 @@ type OAuthApp = { clientId: string; clientSecret: string };
 // store sits behind a Durable Object RPC and is read on OAuth and revoke paths, so results
 // are cached per isolate briefly; writers reset their own isolate's cache and others
 // converge within the TTL.
-let oauthAppCache: { value: OAuthApp | null; expiresAt: number } | undefined;
+const oauthAppCache = new Map<string, { value: OAuthApp | null; expiresAt: number }>();
 const OAUTH_APP_CACHE_MS = 30_000;
 
 type SetupExports = { VendorSetupStore: DurableObjectNamespace<VendorSetupStore> };
 
-async function resolveOAuthApp(env: Env, exports: SetupExports,
+// Whether a tenant with no setup of its own authenticates against the deploy-time OAuth app.
+// The owning deployment always does. A tenant of a shared connector does only when the operator
+// declares that app to be one it runs for everyone (SHARED_OAUTH_APP): registered with this
+// connector's one redirect URI, so a tenant's administrator has no OAuth client to create and
+// people simply sign in. Otherwise a tenant never inherits another deployment's app, and the
+// vendor stays hidden from it until its own administrator enters one.
+function inheritsDeploymentApp(env: Env, tenant: string): boolean {
+  return tenant === "" || env.SHARED_OAUTH_APP === "true";
+}
+
+async function resolveOAuthApp(env: Env, exports: SetupExports, tenant: string,
                                options?: { fresh?: boolean }): Promise<OAuthApp | null> {
-  if (!options?.fresh && oauthAppCache && Date.now() < oauthAppCache.expiresAt) {
-    return oauthAppCache.value;
+  const cached = oauthAppCache.get(tenant);
+  if (!options?.fresh && cached && Date.now() < cached.expiresAt) {
+    return cached.value;
   }
-  const stored = await exports.VendorSetupStore.getByName("").getValues();
-  const clientId = stored.CLIENT_ID ?? env.CLIENT_ID;
-  const clientSecret = stored.CLIENT_SECRET ?? env.CLIENT_SECRET;
+  const stored = await exports.VendorSetupStore.getByName(tenant).getValues();
+  const fallback: { CLIENT_ID?: string; CLIENT_SECRET?: string } =
+      inheritsDeploymentApp(env, tenant) ? env : {};
+  const clientId = stored.CLIENT_ID ?? fallback.CLIENT_ID;
+  const clientSecret = stored.CLIENT_SECRET ?? fallback.CLIENT_SECRET;
   const value = clientId && clientSecret ? { clientId, clientSecret } : null;
-  oauthAppCache = { value, expiresAt: Date.now() + OAUTH_APP_CACHE_MS };
+  oauthAppCache.set(tenant, { value, expiresAt: Date.now() + OAUTH_APP_CACHE_MS });
   return value;
 }
 
@@ -982,16 +1008,17 @@ export default {
     const path = relPath.slice(1).split("/");
 
     if (path.length === 2 && path[0].length === 64 && path[1].length === NONCE_BYTES * 2) {
-      const app = await resolveOAuthApp(env, ctx.exports);
+      const doId = path[0];
+      const initiationNonce = path[1];
+      const stub = ctx.exports.UserAccount.get(ctx.exports.UserAccount.idFromString(doId));
+      // The account knows its tenant; the URL deliberately does not.
+      const app = await resolveOAuthApp(env, ctx.exports, await stub.getTenant());
       if (!app) {
         return new Response(NOT_CONFIGURED_HTML, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
       }
 
-      const doId = path[0];
-      const initiationNonce = path[1];
-      const stub = ctx.exports.UserAccount.get(ctx.exports.UserAccount.idFromString(doId));
       const begun = await stub.beginOAuthFlow(initiationNonce);
       if (begun === null) {
         return new Response(INVALID_LINK_HTML, {
@@ -1047,7 +1074,11 @@ export default {
 };
 
 @validateRpc()
-export class GatekeeperVendor extends WorkerEntrypoint<Env> implements GatekeeperVendorIface {
+export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> implements GatekeeperVendorIface {
+  get #tenant(): string {
+    return tenantKey(this.ctx.props);
+  }
+
   async describe(): Promise<VendorDescription> {
     return {
       displayName: "GitHub",
@@ -1068,15 +1099,15 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
                        options?: GatekeeperConnectOptions): Promise<{ url: string }> {
     // Fail here rather than in the popup: an unconfigured vendor should refuse the connect
     // attempt with a readable error instead of minting a URL that dead-ends.
-    if (!(await resolveOAuthApp(this.env, this.ctx.exports))) {
-      throw new Error("GitHub is not set up on this deployment. An administrator can set it up under Admin → Integrations.");
+    if (!(await resolveOAuthApp(this.env, this.ctx.exports, this.#tenant))) {
+      throw new Error("GitHub is not set up on this deployment. An administrator can set it up under Admin → Connectors.");
     }
     const userObjectId = this.ctx.exports.UserAccount.newUniqueId();
     const initiationNonce = generateNonce();
     const authOnly = options?.scopes === "auth";
     const scopes = authOnly ? AUTH_SCOPES : OAUTH_SCOPES;
     await this.ctx.exports.UserAccount.get(userObjectId)
-        .setCallback(callback, initiationNonce, scopes, authOnly);
+        .setCallback(callback, initiationNonce, scopes, authOnly, this.#tenant);
 
     return {
       url: `${getBaseUrl(this.env)}/${userObjectId.toString()}/${initiationNonce}`,
@@ -1086,7 +1117,7 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
   async getSupportedResources(): Promise<SupportedResource[]> {
     // Unconfigured vendors advertise nothing, which hides them from users; the admin panel
     // keeps the row visible via supportsAdminSetup so setup can be entered.
-    return (await resolveOAuthApp(this.env, this.ctx.exports)) ? SUPPORTED_RESOURCES : [];
+    return (await resolveOAuthApp(this.env, this.ctx.exports, this.#tenant)) ? SUPPORTED_RESOURCES : [];
   }
 
   async getTypeScriptTypes(): Promise<string> {
@@ -1094,13 +1125,14 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
   }
 
   async describeSetup(): Promise<VendorSetup> {
-    const store = this.ctx.exports.VendorSetupStore.getByName("");
+    const store = this.ctx.exports.VendorSetupStore.getByName(this.#tenant);
     const [values, updatedAt] = await Promise.all([store.getValues(), store.getUpdatedAt()]);
     const configured = SETUP_INPUT_NAMES
         .filter((name) => values[name] !== undefined)
         .map((name) => ({ name, updatedAt: updatedAt[name] ?? 0 }));
     const usable = configured.length === SETUP_INPUT_NAMES.length ||
-        Boolean(this.env.CLIENT_ID && this.env.CLIENT_SECRET);
+        (inheritsDeploymentApp(this.env, this.#tenant) &&
+            Boolean(this.env.CLIENT_ID && this.env.CLIENT_SECRET));
     return {
       description: "Create an OAuth app at GitHub and paste its keys here. Your team then " +
           "connects their own GitHub accounts — nobody shares logins.",
@@ -1123,19 +1155,19 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Gatekeepe
     }
     if (!entries.length) throw new Error("No setup values provided.");
     const trimmed = Object.fromEntries(entries.map(([name, value]) => [name, value.trim()]));
-    await this.ctx.exports.VendorSetupStore.getByName("").apply(trimmed, SETUP_INPUT_NAMES);
-    oauthAppCache = undefined;
+    await this.ctx.exports.VendorSetupStore.getByName(this.#tenant).apply(trimmed, SETUP_INPUT_NAMES);
+    oauthAppCache.delete(this.#tenant);
   }
 
   async clearSetup(): Promise<void> {
-    await this.ctx.exports.VendorSetupStore.getByName("").clear();
-    oauthAppCache = undefined;
+    await this.ctx.exports.VendorSetupStore.getByName(this.#tenant).clear();
+    oauthAppCache.delete(this.#tenant);
   }
 }
 
-// Deployment-level admin-entered setup (the OAuth app client ID/secret), one singleton
-// instance addressed by name "". Secret values never leave this worker: describeSetup()
-// reports presence and timestamps only.
+// Admin-entered setup (the OAuth app client ID/secret), one instance per tenant addressed by
+// the tenant key ("" for the owning deployment). Secret values never leave this worker:
+// describeSetup() reports presence and timestamps only.
 export class VendorSetupStore extends DurableObject<Env> {
   getValues(): Record<string, string> {
     return this.ctx.storage.kv.get<Record<string, string>>("values") ?? {};
@@ -1167,12 +1199,28 @@ export class VendorSetupStore extends DurableObject<Env> {
 }
 
 export class UserAccount extends DurableObject<Env> {
+  // The tenant whose OAuth app this account authenticates against, fixed when the account is
+  // created; "" (or unset, for accounts created before tenants existed) is the owning
+  // deployment's own app.
+  #tenant(): string {
+    return this.ctx.storage.kv.get<string>("tenant") ?? "";
+  }
+
+  async getTenant(): Promise<string> {
+    return this.#tenant();
+  }
+
+  async setTenant(tenant: string): Promise<void> {
+    this.ctx.storage.kv.put("tenant", tenant);
+  }
+
   async setCallback(callback: Fetcher<GatekeeperConnectCallback>, initiationNonce: string,
-                    requestedScopes?: string[], ephemeral?: boolean): Promise<void> {
+                    requestedScopes?: string[], ephemeral?: boolean, tenant: string = ""): Promise<void> {
     if (!this.ctx.storage.kv.get<string>("accessToken")) {
       await this.ctx.storage.setAlarm(Date.now() + 3600 * 1000);
     }
 
+    this.ctx.storage.kv.put("tenant", tenant);
     this.ctx.storage.kv.put("callback", callback);
     // Scopes to request in the authorize URL (auth-only for sign-in, or the full set).
     if (requestedScopes) this.ctx.storage.kv.put<string[]>("requestedScopes", requestedScopes);
@@ -1220,7 +1268,7 @@ export class UserAccount extends DurableObject<Env> {
 
     // Fresh read: a just-entered admin setup must be usable for the exchange that follows the
     // very first authorize redirect, not one cache TTL later.
-    const app = await resolveOAuthApp(this.env, this.ctx.exports, { fresh: true });
+    const app = await resolveOAuthApp(this.env, this.ctx.exports, this.#tenant(), { fresh: true });
     if (!app) {
       throw new Error("The GitHub gatekeeper is not configured.");
     }
@@ -1296,7 +1344,7 @@ export class UserAccount extends DurableObject<Env> {
 
   async revoke(): Promise<void> {
     const accessToken = this.ctx.storage.kv.get<string>("accessToken");
-    const app = accessToken ? await resolveOAuthApp(this.env, this.ctx.exports) : null;
+    const app = accessToken ? await resolveOAuthApp(this.env, this.ctx.exports, this.#tenant()) : null;
     if (accessToken && app) {
       try {
         await revokeOAuthGrant(accessToken, app.clientId, app.clientSecret);

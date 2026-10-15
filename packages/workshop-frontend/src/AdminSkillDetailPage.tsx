@@ -11,12 +11,18 @@ import { useAuthenticatedApi } from './AuthContext'
 import { AdminApi, AdminSkill } from '@gadgets/workshop-shared/api'
 import { useDocumentTitle } from './useDocumentTitle'
 import { useGatekeeperApps } from './useGatekeeperApps'
+import { useServerConfig } from './ServerConfigContext'
+import { CENTRAL_SETTINGS_PATH, portalLink } from './portalLinks'
 
 export default function AdminSkillDetailPage({ skillName }: { skillName: string }) {
   const { authenticatedApi, isAdmin } = useAuthenticatedApi()
   const toasts = useKumoToastManager()
   const navigate = useNavigate()
   useDocumentTitle(`/${skillName} · Skills · Admin`)
+  // Managed on the admin portal: which skills are offered is switched there.
+  const serverConfig = useServerConfig()
+  const centralSettingsUrl = serverConfig?.settingsManagedCentrally
+    ? portalLink(serverConfig, 'admin', CENTRAL_SETTINGS_PATH) : undefined
   const driveApp = useGatekeeperApps().find((app) => app.title === 'Knowledge')
 
   // The admin capability (minted once, like AdminPage). Wrapped in an object so useState doesn't
@@ -165,7 +171,13 @@ export default function AdminSkillDetailPage({ skillName }: { skillName: string 
                   their history.
                 </p>
               </div>
-              <Switch checked={skill.enabled} disabled={busy} onCheckedChange={setEnabled} />
+              {centralSettingsUrl ? (
+                <a href={centralSettingsUrl} className="shrink-0 text-sm text-kumo-brand underline">
+                  {skill.enabled ? 'On' : 'Off'}: change on the admin portal
+                </a>
+              ) : (
+                <Switch checked={skill.enabled} disabled={busy} onCheckedChange={setEnabled} />
+              )}
             </div>
           </div>
 

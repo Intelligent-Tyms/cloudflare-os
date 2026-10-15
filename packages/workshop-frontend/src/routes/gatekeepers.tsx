@@ -1,5 +1,5 @@
-import { logRpcFailure } from '../rpcErrors'
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { failureTitle, logRpcFailure } from '../rpcErrors'
+import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 import { useKumoToastManager } from '@cloudflare/kumo'
 import {
@@ -23,7 +23,8 @@ import {
 } from '@gadgets/workshop-shared/gatekeeper'
 import { GatekeeperVendorInfo } from '@gadgets/workshop-shared/api'
 import { useDocumentTitle } from '../useDocumentTitle'
-import { useSiteName } from '../ServerConfigContext'
+import { useServerConfig, useSiteName } from '../ServerConfigContext'
+import { centralConnectorsLink } from '../portalLinks'
 import { AccountsSubscriberAdapter } from '../accountsSubscriber'
 
 // Legacy path: the Integrations page now lives at /integrations (see routes/integrations.tsx,
@@ -43,6 +44,9 @@ interface AccountEntry {
   vendorDescription: VendorDescription
   supportedResources: SupportedResource[]
   credentialsValid: boolean
+  // Created by the deployment for this user (a company connector's account): nothing to sign in
+  // to again, and not disconnectable while the admin keeps it on.
+  provided: boolean
 }
 
 interface VendorEntry {
@@ -53,6 +57,57 @@ interface VendorEntry {
   // explanatory badge instead of a connect affordance.
   disabledByAdmin?: boolean
   needsAdminSetup?: boolean
+  // Set on an entry that is one of a vendor's resources presented as a connector of its own (a
+  // catalog MCP server): connecting goes through the parent vendor, limited to that resource.
+  presented?: { parentId: string; resourceUrlPattern: string }
+}
+
+// An entry a person doesn't connect from this page: it is off, it isn't set up yet, or using it
+// means adding it for the company (every resource it offers is an administrator's to connect).
+// Only an administrator is shown these, and for them the card opens the connector's admin page.
+function isAdminsToAdd(vendor: VendorEntry): boolean {
+  return Boolean(vendor.disabledByAdmin || vendor.needsAdminSetup) ||
+    (vendor.supportedResources.length > 0 &&
+      vendor.supportedResources.every((r) => r.connectableBy === 'admin'))
+}
+
+// One card per service: a vendor whose resources carry a `connector` presentation is split into
+// one entry per presented resource, and keeps a card of its own only for the rest.
+function presentVendors(vendors: GatekeeperVendorInfo[]): VendorEntry[] {
+  const entries: VendorEntry[] = []
+  for (const vendor of vendors) {
+    const presented = vendor.supportedResources.filter((r) => r.connector)
+    const own = vendor.supportedResources.filter((r) => !r.connector)
+    for (const resource of presented) {
+      const c = resource.connector!
+      entries.push({
+        id: `${vendor.id}:${c.id}`,
+        description: {
+          ...vendor.description,
+          displayName: c.displayName,
+          tagline: c.tagline ?? vendor.description.tagline,
+          description: c.description ?? resource.description,
+          logo: c.logo ?? vendor.description.logo,
+          color: c.color ?? vendor.description.color,
+          url: c.url ?? vendor.description.url,
+          departments: c.departments ?? vendor.description.departments,
+          credentialScope: c.credentialScope,
+          // The vendor may provide an account to everyone for its company services while this
+          // one is a service each person signs in to; only a company service is ever "added".
+          autoProvisionsAccount:
+            c.credentialScope === 'organization' && vendor.description.autoProvisionsAccount,
+        },
+        supportedResources: [resource],
+        disabledByAdmin: vendor.disabledByAdmin,
+        needsAdminSetup: vendor.needsAdminSetup,
+        presented: { parentId: vendor.id, resourceUrlPattern: resource.urlPattern },
+      })
+    }
+    if (own.length > 0 || presented.length === 0) {
+      entries.push({ ...vendor, supportedResources: own })
+    }
+  }
+  return entries
 }
 
 function VendorIconTile({
@@ -418,7 +473,7 @@ function ConnectorsHeroDiagram({
         <button
           type="button"
           className="themed-card-hover-shadow grid h-[52px] w-[52px] place-items-center rounded-2xl border border-kumo-line bg-kumo-base text-kumo-brand transition-[border-color,box-shadow] hover:border-kumo-fill focus:outline-none focus-visible:ring-2 focus-visible:ring-kumo-ring focus-visible:ring-offset-2 focus-visible:ring-offset-kumo-base"
-          aria-label="The integration keeps App access limited to connected resources"
+          aria-label="The connector keeps App access limited to connected resources"
         >
           <ShieldCheck size={21} />
         </button>
@@ -458,11 +513,15 @@ type ModalTarget =
   | null
 
 export function ConnectorsPage() {
-  useDocumentTitle('Integrations')
+  useDocumentTitle('Connectors')
   const siteName = useSiteName()
+  // Where administrators add and set up connectors: the admin portal once it manages them.
+  const serverConfig = useServerConfig()
+  const portalConnectors = centralConnectorsLink(serverConfig)
 
-  const { authenticatedApi } = useAuthenticatedApi()
+  const { authenticatedApi, isAdmin } = useAuthenticatedApi()
   const toasts = useKumoToastManager()
+  const navigate = useNavigate()
 
   const [search, setSearch] = useState('')
   const [view, setView] = useState<'grid' | 'list'>(() => {
@@ -537,7 +596,7 @@ export function ConnectorsPage() {
       })
 
     const subscriber = new AccountsSubscriberAdapter({
-      add({ id, description, vendor, supportedResources, credentialsValid, vendorId }) {
+      add({ id, description, vendor, supportedResources, credentialsValid, vendorId, provided }) {
         if (cancelled) return
         accountMap.set(id, {
           id,
@@ -546,6 +605,7 @@ export function ConnectorsPage() {
           vendorDescription: vendor,
           supportedResources,
           credentialsValid,
+          provided,
         })
         setAccounts(Array.from(accountMap.values()))
       },
@@ -589,21 +649,26 @@ export function ConnectorsPage() {
     const vendorId = modalTarget.vendorId
     setConnecting(true)
     try {
+      // A presented connector acts through its parent vendor.
+      const target = availableVendors.find((v) => v.id === vendorId)
       if (isTargetAmbient) {
         // Ambient gatekeeper: mint the account directly, no OAuth redirect. It then appears under
         // "Connected" via the subscription and drops out of "Available".
-        await authenticatedApi.provisionAmbientAccount(vendorId)
+        await authenticatedApi.provisionAmbientAccount(target?.presented?.parentId ?? vendorId)
         setAddable((prev) => prev.filter((g) => g.id !== vendorId))
         // If the gatekeeper provides a management UI, its nav entry should appear without a reload.
         refreshGatekeeperApps(authenticatedApi)
       } else {
-        const { url } = await authenticatedApi.connectAccount(vendorId, resourceUrlPatterns)
+        // Pinned to the presented connector's own resource.
+        const { url } = target?.presented
+          ? await authenticatedApi.connectAccount(target.presented.parentId, [target.presented.resourceUrlPattern])
+          : await authenticatedApi.connectAccount(vendorId, resourceUrlPatterns)
         window.open(url, '_blank', 'noopener,noreferrer')
       }
       handleCloseModal()
     } catch (err) {
       console.error('Failed to connect account:', err)
-      toasts.add({ title: 'Failed to start connection', variant: 'error' })
+      toasts.add({ title: failureTitle(err, 'Failed to start connection'), variant: 'error' })
     } finally {
       setConnecting(false)
     }
@@ -658,7 +723,7 @@ export function ConnectorsPage() {
       window.open(url, '_blank', 'noopener,noreferrer')
     } catch (err) {
       console.error('Failed to reconnect account:', err)
-      toasts.add({ title: 'Failed to reconnect account', variant: 'error' })
+      toasts.add({ title: failureTitle(err, 'Failed to reconnect account'), variant: 'error' })
     } finally {
       setReconnectingAccountId(null)
     }
@@ -691,9 +756,20 @@ export function ConnectorsPage() {
     () => {
       // Inert rows (needs-setup, admin-disabled) sink below everything connectable.
       const weight = (v: VendorEntry) => (v.disabledByAdmin ? 2 : v.needsAdminSetup ? 1 : 0)
-      return [...vendors, ...addable].sort((a, b) => weight(a) - weight(b))
+      // A presented service the user already reaches through a connected account (their own,
+      // or one the company provided) is listed under Connected, not offered again here.
+      const covered = (v: VendorEntry) =>
+        v.presented !== undefined &&
+        accounts.some((a) =>
+          a.vendorId === v.presented!.parentId &&
+          a.supportedResources.some((r) => r.urlPattern === v.presented!.resourceUrlPattern))
+      return [...presentVendors(vendors).filter((v) => !covered(v)), ...addable]
+        // A member sees what they can use. What is off, not set up, or still to be added for
+        // the company is an administrator's business, and is listed only for one.
+        .filter((v) => isAdmin || !isAdminsToAdd(v))
+        .sort((a, b) => weight(a) - weight(b))
     },
-    [vendors, addable],
+    [vendors, addable, accounts, isAdmin],
   )
 
   const filteredAvailable = useMemo(() => {
@@ -742,12 +818,31 @@ export function ConnectorsPage() {
         <header className="mb-8 grid gap-8 lg:grid-cols-[minmax(0,540px)_444px] lg:items-center lg:justify-between">
           <div>
             <h1 className="m-0 text-3xl font-semibold leading-tight tracking-tight text-kumo-default sm:text-[34px]">
-              Integrations
+              Connectors
             </h1>
             <p className="mt-2 text-[14px] leading-[20px] font-normal tracking-[-0.25px] text-kumo-subtle">
-              Add the apps and accounts your workspaces can use. Connect once, then wire
-              them into anything you build.
+              {isAdmin
+                ? 'The apps and accounts your team’s workspaces can use. You add them for the company; people sign in only where a connector uses their own account.'
+                : 'The apps and accounts your company has added. Sign in where a connector uses your own account. The rest are ready to use.'}
             </p>
+            {isAdmin && (portalConnectors ? (
+              <a
+                href={portalConnectors}
+                className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-full border border-kumo-line bg-kumo-base px-4 text-[13px] leading-4 font-medium tracking-[-0.2px] text-kumo-default transition-[background-color,border-color] duration-150 ease-out hover:border-kumo-fill hover:bg-kumo-tint"
+              >
+                <Plus size={14} strokeWidth={2.5} />
+                Add or manage connectors
+              </a>
+            ) : (
+              <Link
+                to="/admin/$section"
+                params={{ section: 'connectors' }}
+                className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-full border border-kumo-line bg-kumo-base px-4 text-[13px] leading-4 font-medium tracking-[-0.2px] text-kumo-default transition-[background-color,border-color] duration-150 ease-out hover:border-kumo-fill hover:bg-kumo-tint"
+              >
+                <Plus size={14} strokeWidth={2.5} />
+                Add or manage connectors
+              </Link>
+            ))}
           </div>
           <ConnectorsHeroDiagram accounts={accounts} vendors={vendors} siteName={siteName} />
         </header>
@@ -762,7 +857,7 @@ export function ConnectorsPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search integrations…"
+              placeholder="Search connectors…"
               className="h-10 w-full rounded-lg border border-kumo-line bg-kumo-base pl-9 pr-4 text-[14px] leading-5 tracking-[-0.25px] text-kumo-default placeholder:text-kumo-inactive transition-[border-color,box-shadow] focus:border-kumo-ring focus:outline-none focus:ring-[3px] focus:ring-kumo-ring/15"
             />
           </div>
@@ -772,7 +867,7 @@ export function ConnectorsPage() {
         {loadError && (
           <div className="rounded-2xl border border-kumo-line bg-kumo-base px-4 py-6 text-center">
             <p className="m-0 text-[13px] leading-[18px] font-medium tracking-[-0.25px] text-kumo-danger">
-              Something went wrong loading your integrations.
+              Something went wrong loading your connectors.
             </p>
             <p className="mt-1 text-[12px] leading-4 font-normal tracking-[-0.2px] text-kumo-subtle">
               Check your connection and try refreshing the page.
@@ -782,7 +877,7 @@ export function ConnectorsPage() {
 
         {initialLoading && (
           <div className="rounded-2xl border border-kumo-line bg-kumo-base px-4 py-8 text-center text-[13px] leading-[18px] font-normal tracking-[-0.25px] text-kumo-subtle">
-            Loading integrations...
+            Loading connectors...
           </div>
         )}
 
@@ -795,14 +890,19 @@ export function ConnectorsPage() {
                   account.accountDescription.displayName ??
                   account.accountDescription.uniqueName ??
                   'Connected'
-                const tagline = account.vendorDescription.tagline
+                // An account on one service presented as its own connector (a catalog MCP server)
+                // shows under that service's name; the transport's name would say nothing. An
+                // account covering several services (the company's) keeps its own name.
+                const presentedResources = account.supportedResources.filter((r) => r.connector)
+                const presented = presentedResources.length === 1 ? presentedResources[0].connector : undefined
+                const tagline = presented?.tagline ?? account.vendorDescription.tagline
                 return (
                   <ConnectorCard
                     key={account.id}
-                    logoUrl={account.vendorDescription.logo?.url}
-                    color={account.vendorDescription.color}
-                    fallback={account.vendorDescription.displayName}
-                    name={account.vendorDescription.displayName}
+                    logoUrl={presented?.logo?.url ?? account.vendorDescription.logo?.url}
+                    color={presented?.color ?? account.vendorDescription.color}
+                    fallback={presented?.displayName ?? account.vendorDescription.displayName}
+                    name={presented?.displayName ?? account.vendorDescription.displayName}
                     metaLine={
                       <span
                         className={`truncate ${
@@ -833,7 +933,9 @@ export function ConnectorsPage() {
             <div className={sectionGridClass}>
 
               {filteredAvailable.map((vendor) => {
-                const hidden = vendor.disabledByAdmin || vendor.needsAdminSetup
+                // Only an administrator is listed these (see availableVendors); the card takes
+                // them to where the connector is turned on, set up, or added for the company.
+                const adminsToAdd = isAdminsToAdd(vendor)
                 return (
                   <ConnectorCard
                     key={vendor.id}
@@ -843,13 +945,21 @@ export function ConnectorsPage() {
                     name={vendor.description.displayName}
                     tagline={vendor.description.tagline}
                     badge={vendor.disabledByAdmin
-                      ? { label: 'Disabled by admin', tone: 'popular' }
+                      ? { label: 'Off', tone: 'popular' }
                       : vendor.needsAdminSetup
-                        ? { label: 'Needs admin setup', tone: 'popular' }
-                        : undefined}
-                    state={hidden ? 'unavailable' : 'available'}
+                        ? { label: 'Needs setup', tone: 'popular' }
+                        : adminsToAdd
+                          ? { label: 'Add for your team', tone: 'popular' }
+                          : undefined}
+                    state="available"
                     onClick={() => {
-                      if (!hidden) handleOpenConnect(vendor.id)
+                      if (adminsToAdd) {
+                        const portalUrl = centralConnectorsLink(serverConfig, vendor.id)
+                        if (portalUrl) window.location.assign(portalUrl)
+                        else void navigate({ to: '/admin/connectors/$vendorId', params: { vendorId: vendor.id } })
+                      } else {
+                        handleOpenConnect(vendor.id)
+                      }
                     }}
                     view={view}
                   />
@@ -859,6 +969,12 @@ export function ConnectorsPage() {
           </section>
         )}
 
+        {!isAdmin && !initialLoading && !loadError && !search && (
+          <p className="px-1 text-[12px] leading-[18px] font-normal tracking-[-0.2px] text-kumo-subtle">
+            Need a connector that isn’t here? Ask an administrator to add it for your company.
+          </p>
+        )}
+
         {!initialLoading &&
           !loadError &&
           filteredAccounts.length === 0 &&
@@ -866,13 +982,17 @@ export function ConnectorsPage() {
             <EmptyState
               title={
                 search
-                  ? 'No integrations match'
-                  : 'No integrations yet'
+                  ? 'No connectors match'
+                  : 'No connectors yet'
               }
               description={
                 search
                   ? "We couldn't find anything matching your search."
-                  : 'Integrations will appear here as they become available in your workspace.'
+                  : isAdmin
+                    ? portalConnectors
+                      ? 'Add connectors for your team on the admin portal.'
+                      : 'Add connectors for your team under Admin → Connectors.'
+                    : 'Connectors appear here once an administrator adds them for your company.'
               }
               icon={Unplug}
             />
@@ -900,7 +1020,7 @@ export function ConnectorsPage() {
           onEnsureResources={handleEnsureResources}
           ensuringResourceUrlPatterns={ensuringResourceUrlPatterns}
           disconnecting={disconnecting}
-          onDisconnect={handleDisconnect}
+          onDisconnect={activeAccount?.provided ? undefined : handleDisconnect}
           onOpenChange={(open) => {
             if (!open && !connecting && !disconnecting) handleCloseModal()
           }}

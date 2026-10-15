@@ -294,4 +294,137 @@ describe('ObserverConfigModal account selection', () => {
     await act(async () => verify!.click())
     expect(onConfirm).toHaveBeenCalledWith([{ gatekeeperId: 12, accountId: 1 }])
   })
+  // An account the deployment provides (a company connector's, a built-in's): the subscriber's
+  // trailing `provided` flag is set.
+  function providedApi(entry: ReturnType<typeof account>, provided: boolean) {
+    const subscribeConnectedAccounts = vi.fn<
+      (subscriber: ConnectedAccountsSubscriber) => Promise<{ [Symbol.dispose](): void }>
+    >().mockImplementation((subscriber) => {
+      subscriber.add(entry.id, entry.description, VENDOR, [DOC_RESOURCE], true, 'google', provided)
+      subscriber.ready()
+      return Object.assign(Promise.resolve({ [Symbol.dispose]() {} }), { [Symbol.dispose]() {} })
+    })
+    return fakeApi([], { subscribeConnectedAccounts })
+  }
+
+  it('opens without asking when every binding runs on an account the company provides', async () => {
+    const onConfirm = vi.fn<(choices: ObserverAccountChoice[]) => void>()
+    const company = account(4, 'Set up by your administrator', [DOC_RESOURCE.urlPattern])
+    await render([], { api: providedApi(company, true), onConfirm })
+    await act(async () => { await Promise.resolve() })
+
+    expect(onConfirm).toHaveBeenCalledOnce()
+    expect(onConfirm).toHaveBeenCalledWith([{ gatekeeperId: NEED.gatekeeperId, accountId: 4 }])
+  })
+
+  it('still asks before verifying against a person\'s own account', async () => {
+    const onConfirm = vi.fn<(choices: ObserverAccountChoice[]) => void>()
+    const own = account(4, 'dan@cloudflare.com', [DOC_RESOURCE.urlPattern])
+    const rendered = await render([], { api: providedApi(own, false), onConfirm })
+    await act(async () => { await Promise.resolve() })
+
+    expect(onConfirm).not.toHaveBeenCalled()
+    expect(rendered.textContent).toContain('Verify and open')
+  })
+
+  it('says who can help when the connector is not offered to this person', async () => {
+    const api = { ...fakeApi([]), listGatekeeperVendors: async () => [] } as unknown as RpcStub<AuthenticatedApi>
+    const rendered = await render([], { api })
+    await act(async () => { await Promise.resolve() })
+
+    expect([...rendered.querySelectorAll('button')].some(b => b.textContent === 'Connect')).toBe(false)
+    expect(rendered.textContent).toContain('Ask an administrator to add it')
+  })
+  // One transport fronting several services, each a connector of its own: the company's account
+  // reaches one, and each person signs in to the other.
+  describe('a vendor whose services are connectors of their own', () => {
+    const COMPANY_SERVER: SupportedResource = {
+      urlPattern: 'https://ledger.example.com/mcp',
+      title: 'Ledger',
+      description: '',
+      connector: { id: 'custom-ledger', displayName: 'Ledger', credentialScope: 'organization' },
+    }
+    const PERSONAL_SERVER: SupportedResource = {
+      urlPattern: 'https://mcp.bank.example/mcp',
+      title: 'Bank',
+      description: '',
+      grantable: true,
+      connector: { id: 'bank', displayName: 'Bank', credentialScope: 'personal' },
+    }
+    const MCP_VENDOR = { displayName: 'Custom MCP server', autoProvisionsAccount: true } as VendorDescription
+    const BANK_NEED: ObserverBindingNeed = {
+      gatekeeperId: 8,
+      vendorId: 'mcp',
+      resourceTitle: 'Bank',
+      resourceUrl: 'https://mcp.bank.example/mcp#tools=list_accounts',
+    }
+
+    function transportApi(overrides: {
+      connectAccount: Mock<(vendorId: string, resourceUrlPatterns?: string[]) => Promise<{ url: string }>>
+      provisionAmbientAccount: Mock<(vendorId: string) => Promise<void>>
+    }) {
+      return {
+        subscribeConnectedAccounts: (subscriber: ConnectedAccountsSubscriber) => {
+          // The account the company provides: it reaches the company's server only.
+          subscriber.add(
+            3, { displayName: 'Company MCP servers' } as AccountDescription, MCP_VENDOR,
+            [COMPANY_SERVER], true, 'mcp', true)
+          subscriber.ready()
+          return Object.assign(Promise.resolve({ [Symbol.dispose]() {} }), { [Symbol.dispose]() {} })
+        },
+        listGatekeeperVendors: async () => [{
+          id: 'mcp', description: MCP_VENDOR, supportedResources: [COMPANY_SERVER, PERSONAL_SERVER],
+        }],
+        listAddableGatekeepers: async () => [],
+        ...overrides,
+      } as unknown as RpcStub<AuthenticatedApi>
+    }
+
+    async function renderNeed(api: RpcStub<AuthenticatedApi>, onConfirm: (choices: ObserverAccountChoice[]) => void) {
+      container = document.createElement('div')
+      document.body.append(container)
+      root = createRoot(container)
+      await act(async () => {
+        root!.render(
+          <ObserverConfigModal needs={[BANK_NEED]} authenticatedApi={api} onConfirm={onConfirm} onCancel={() => {}} />,
+        )
+        await Promise.resolve()
+      })
+      await act(async () => { await Promise.resolve() })
+      return container
+    }
+
+    it('does not offer the company account for a service each person signs in to', async () => {
+      // A stand-in with the one behaviour these exact endpoints need from URLPattern: a pattern
+      // that names no query or fragment matches any.
+      vi.stubGlobal('URLPattern', class {
+        #pattern: string
+        constructor(pattern: string) { this.#pattern = pattern }
+        test(url: string) { return url.split(/[?#]/)[0] === this.#pattern }
+      })
+      const connectAccount = vi.fn<
+        (vendorId: string, resourceUrlPatterns?: string[]) => Promise<{ url: string }>
+      >().mockResolvedValue({ url: 'https://connectors.test/popup' })
+      const provisionAmbientAccount = vi.fn<(vendorId: string) => Promise<void>>()
+      const onConfirm = vi.fn<(choices: ObserverAccountChoice[]) => void>()
+      vi.spyOn(window, 'open').mockImplementation(() => null)
+      try {
+        const rendered = await renderNeed(transportApi({ connectAccount, provisionAmbientAccount }), onConfirm)
+
+        // Not confirmed on the person's behalf, and not shown as the account in use.
+        expect(onConfirm).not.toHaveBeenCalled()
+        expect(rendered.textContent).not.toContain('Company MCP servers')
+
+        const connect = [...rendered.querySelectorAll('button')].find(b => b.textContent === 'Connect')
+        expect(connect).toBeDefined()
+        await act(async () => connect!.click())
+
+        // A sign-in to that one service, not the vendor's provided account.
+        expect(connectAccount).toHaveBeenCalledWith('mcp', [PERSONAL_SERVER.urlPattern])
+        expect(provisionAmbientAccount).not.toHaveBeenCalled()
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+  })
 })

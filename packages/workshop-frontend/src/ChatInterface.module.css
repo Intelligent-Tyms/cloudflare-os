@@ -184,3 +184,35 @@
   margin-right: 0.35em;
   vertical-align: -0.1em;
 }
+
+/* ── Wiki citations ───────────────────────────────────────────────────────── */
+/* A link onto the organization's wiki reads as a citation chip: the page title with its trust
+ * tier as a small badge. Two classes to outrank `.markdownContent a`. */
+.markdownContent .citationChip,
+.citationChip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35em;
+  padding: 0 0.45em;
+  border: 1px solid var(--color-kumo-line);
+  border-radius: 0.5em;
+  background: var(--color-kumo-tint);
+  color: var(--color-kumo-strong);
+  text-decoration: none;
+  line-height: 1.6;
+  vertical-align: baseline;
+}
+.citationChip:hover {
+  background: var(--color-kumo-fill);
+  text-decoration: none;
+}
+.citationTitle {
+  font-weight: 500;
+}
+.citationTier {
+  font-size: 0.72em;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-kumo-subtle);
+}

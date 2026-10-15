@@ -96,6 +96,7 @@ it("calls a tool resolved beyond the initial generated catalog", async () => {
     scope: { serverId: "jira" },
     tools: async () => [],
     findTool: async () => expanded,
+    recordRead: async () => undefined,
     call: async (fn: (client: never) => Promise<unknown>) => fn({
       callTool: async () => ({ content: [{ type: "text", text: "PROJ-1" }] }),
     } as never),
@@ -256,4 +257,31 @@ it("refuses oversized tool names before consulting the host", async () => {
   await expect(session.listTools({ name: oversized })).rejects.toThrow(/tool name.*at most/i);
   await expect(session.callTool(oversized)).rejects.toThrow(/tool name.*at most/i);
   expect(finds).toBe(0);
+});
+
+it("names the observers the host excludes from a read on the observation", async () => {
+  const entry = classifyTool({ name: "get_account", annotations: { readOnlyHint: true } }, "byo");
+  const observations: { excludeObservers?: string[] }[] = [];
+  const recorded: [string, Record<string, unknown>][] = [];
+  const host = {
+    serverName: "Bank",
+    endpoint: "https://mcp.example.com",
+    scope: {},
+    findTool: async () => entry,
+    call: async (fn: (client: never) => Promise<unknown>) => fn({
+      callTool: async () => ({ content: [{ type: "text", text: "42" }] }),
+    } as never),
+    recordRead: async (name: string, args: Record<string, unknown>) => {
+      recorded.push([name, args]);
+      return ["observer-1"];
+    },
+  } as unknown as McpSessionHost;
+  const session = new McpSessionBase(host, {
+    authorizeObservation: (d: { excludeObservers?: string[] }) => { observations.push(d); },
+  } as never);
+
+  await expect(session.callTool("get_account", { id: "a1" })).resolves.toMatchObject({ text: "42" });
+  expect(recorded).toEqual([["get_account", { id: "a1" }]]);
+  expect(observations).toHaveLength(1);
+  expect(observations[0].excludeObservers).toEqual(["observer-1"]);
 });

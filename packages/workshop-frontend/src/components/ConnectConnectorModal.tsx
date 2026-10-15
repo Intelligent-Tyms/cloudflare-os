@@ -165,7 +165,7 @@ export default function ConnectConnectorModal({
           ? accountDescription?.uniqueName
             ? `${accountDisplayName} / ${accountDescription.uniqueName}`
             : accountDisplayName
-          : 'Credentials expired; reconnect from the Integrations page'}
+          : 'Credentials expired; reconnect from the Connectors page'}
       </span>
     </div>
   ) : (
@@ -398,14 +398,16 @@ export default function ConnectConnectorModal({
                         </WorkshopButton>
                       )}
                     />
-                    <WorkshopButton
-                      tone="danger"
-                      onClick={handleDisconnect}
-                      disabled={disconnecting}
-                      className="!h-9"
-                    >
-                      Disconnect
-                    </WorkshopButton>
+                    {onDisconnect && (
+                      <WorkshopButton
+                        tone="danger"
+                        onClick={handleDisconnect}
+                        disabled={disconnecting}
+                        className="!h-9"
+                      >
+                        Disconnect
+                      </WorkshopButton>
+                    )}
                   </>
                 )}
               </>

@@ -46,8 +46,8 @@ export type AdminConfig = {
   disabledGatekeepers: string[];
   /**
    * Per-vendor provisioning mode for auto-provisioning ("ambient") gatekeepers (e.g. the Context
-   * Library). Absent ⇒ the default ("optional", see provisioning-policy.ts). Only meaningful for
-   * vendors that declare autoProvisionsAccount.
+   * Library). Absent ⇒ the default ("enabled" on Tyms deployments, see provisioning-policy.ts).
+   * Only meaningful for vendors that declare autoProvisionsAccount.
    */
   ambientGatekeeperModes: Record<string, AmbientGatekeeperMode>;
 
@@ -78,6 +78,16 @@ export type AdminConfig = {
    * the deployment offers.
    */
   formats: FormatCuration[];
+
+  /**
+   * The central settings version applied (central-settings.ts), or 0 while this deployment
+   * keeps its own. Non-zero means the organization profile, instructions, site name, accent
+   * color, notice and banner are edited on the admin portal, not here.
+   */
+  centralSettingsVersion: number;
+
+  /** SHA-256 of the central logo applied to R2, or "" for none (central-settings.ts). */
+  centralLogoSha: string;
 };
 
 /**
@@ -118,6 +128,8 @@ export const DEFAULT_ADMIN_CONFIG: AdminConfig = {
   disabledSkills: [],
   disabledModels: [],
   formats: [],
+  centralSettingsVersion: 0,
+  centralLogoSha: "",
 };
 
 /**
@@ -343,6 +355,11 @@ export function parseAdminConfig(raw: string | null): AdminConfig {
       disabledSkills: [...new Set(strings(p.disabledSkills).filter(name => name))],
       disabledModels: [...new Set(strings(p.disabledModels).filter(id => id))],
       formats: parseFormats(p.formats),
+      centralSettingsVersion: typeof p.centralSettingsVersion === "number"
+          && Number.isInteger(p.centralSettingsVersion) && p.centralSettingsVersion > 0
+          ? p.centralSettingsVersion : 0,
+      centralLogoSha: typeof p.centralLogoSha === "string" && /^[0-9a-f]{64}$/.test(p.centralLogoSha)
+          ? p.centralLogoSha : "",
     };
   } catch {
     return { ...DEFAULT_ADMIN_CONFIG };

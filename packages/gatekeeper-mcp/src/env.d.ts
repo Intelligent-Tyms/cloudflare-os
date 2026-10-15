@@ -10,7 +10,7 @@ declare namespace Cloudflare {
 
   interface GlobalProps {
     mainModule: typeof import("./mcp.js");
-    durableNamespaces: "McpAccount" | "McpGatekeeperImpl";
+    durableNamespaces: "McpAccount" | "McpGatekeeperImpl" | "VendorSetupStore";
   }
 }
 

@@ -35,6 +35,12 @@ declare global {
       // Skills panel hides its marketplace section and installs are refused.
       SKILL_MARKETPLACE_URL?: string;
 
+      // Template catalog URL (the fleet's curated app templates, e.g.
+      // https://start.tyms.ai/marketplace/templates). Templates it lists are offered on the Apps
+      // page and installed into this deployment on first use (src/template-catalog.ts).
+      // Absent ⇒ only bundled and locally published blueprints exist.
+      TEMPLATE_CATALOG_URL?: string;
+
       // Blueprint storage bindings.
       BLUEPRINTS: KVNamespace;             // Workers KV for blueprint metadata lookup
       BLUEPRINT_CONTENT: R2Bucket;         // R2 bucket for blueprint code snapshots
@@ -99,11 +105,22 @@ declare global {
       HANDOFF_AUDIENCE?: string;
 
       // Central team directory (multi-tenant installations with central login): base URL and
-      // bearer token for the identity service's tenant-scoped team API. When both are set,
-      // Admin → Teammates manages membership and invitations through it; the workshop keeps no
-      // member list of its own. Both unset = no team directory (the admin page explains).
+      // bearer token for the identity service's tenant-scoped API (team directory, billing,
+      // intelligence). The workshop keeps no member list of its own. Both unset = none.
       CENTRAL_TEAM_API_URL?: string;
       CENTRAL_TEAM_API_TOKEN?: string;
+
+      // This workspace's pages on the central admin and billing portals (e.g.
+      // "https://admin.tyms.ai/acme", "https://billing.tyms.ai/acme"). Teammates, plans and
+      // billing are managed there, not in this deployment's /admin; the client links to them.
+      // Unset = no portal, and those links are hidden.
+      ADMIN_PORTAL_URL?: string;
+      BILLING_PORTAL_URL?: string;
+
+      // Base domain of the Organization Intelligence cell (e.g. "organization.tyms.ai"). The
+      // client renders links onto it as wiki citations; the connector itself is configured
+      // per tenant in the intelligence gatekeeper's setup store. Absent = no cell.
+      INTELLIGENCE_BASE_DOMAIN?: string;
 
       // Team chat (Stream Chat, getstream.io). The platform's shared Stream app: the key is a
       // public var (the browser connects with it), the secret a worker secret pushed by the
@@ -117,13 +134,6 @@ declare global {
 
       // Public base URL of the deployment.
       PUBLIC_BASE_URL?: string;
-
-      /**
-       * "true" on Tyms free pools: a stack hosting unrelated free users as plain members, chat
-       * only. Disables everything cross-user or deployment-wide (templates, sharing, team chat,
-       * Knowledge). See pool-mode.ts. Absent on company tenants and standalone deployments.
-       */
-      POOL_MODE?: string;
 
       // Daily free-tier LLM-call limit (per user). Defaults to DEFAULT_DAILY_LLM_CALL_LIMIT.
       DAILY_LLM_CALL_LIMIT?: string;

@@ -527,6 +527,7 @@ its resource types.
 | **confluence** | Page / Blog Post | **C** | Verify bound-content access; track observed child pages because they may have stricter restrictions than their parent. |
 | **zoominfo** | Account | **A** | Always throw. The whole-account binding exposes licensed, entitlement-dependent and account-specific intelligence, and ZoomInfo provides no ACL oracle proving another account can read every historical result. |
 | **context** | Context Library singleton | **C** | Track observed collections; verify each is public in the sharing domain or privately owned by the observer's Context account. |
+| **mcp** / **mcp-portal** | Any MCP server / portal server | **A**, **C** or **D** per endpoint | Chosen by the deployment's catalog entry (`sharing`) or `MCP_PORTAL_SHARING`: `owner-only` throws (A); `same-account` tracks every distinct read-only call and replays each on the observer's own account at the same endpoint, excluding them from later reads their account cannot repeat (C, with "success of the same call" as the oracle since MCP has no ACL to ask); `public` is a no-op (D). Unlisted endpoints are `owner-only`. |
 
 ### 9.3 The "broad binding" lens
 

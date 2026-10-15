@@ -85,3 +85,37 @@ export function hostOf(endpoint: string): string {
     return "unknown";
   }
 }
+
+/**
+ * JSON with object keys in sorted order at every level, so two renderings of the same value are
+ * the same string. Throws on values JSON cannot represent (cycles, bigint), like `JSON.stringify`.
+ * The result must be an object rendering: arrays and scalars at the top level are refused, since
+ * tool arguments are always an object.
+ */
+export function canonicalJson(value: Record<string, unknown>): string {
+  const rendered = JSON.stringify(sortKeys(value));
+  if (rendered === undefined || !rendered.startsWith("{")) {
+    throw new Error("Tool arguments must render as a JSON object.");
+  }
+  return rendered;
+}
+
+function sortKeys(value: unknown, seen: Set<object> = new Set()): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) throw new TypeError("Converting circular structure to JSON");
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) return value.map(item => sortKeys(item, seen));
+    if (typeof (value as { toJSON?: unknown }).toJSON === "function") {
+      return sortKeys((value as { toJSON: () => unknown }).toJSON(), seen);
+    }
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      const item = (value as Record<string, unknown>)[key];
+      if (item !== undefined) sorted[key] = sortKeys(item, seen);
+    }
+    return sorted;
+  } finally {
+    seen.delete(value);
+  }
+}

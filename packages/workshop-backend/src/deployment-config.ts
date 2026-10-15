@@ -9,7 +9,6 @@ import { isCloudflareLimitsEnabled } from "./ai-gateway-billing/config.js";
 import { getAuthVendorBinding } from "./auth/auth-vendors.js";
 import { readAdminConfig } from "./admin-config.js";
 import { siteLogoImage } from "./site-logo.js";
-import { isPoolMode } from "./pool-mode.js";
 
 const logger = createWorkshopLogger("workshop.deployment.config");
 
@@ -53,7 +52,6 @@ export async function getServerConfig(env: Cloudflare.Env): Promise<ServerConfig
     passwordAuthEnabled: isPasswordAuthEnabled(env),
     centralLoginUrl: hasCentralLogin(env) ? env.CENTRAL_LOGIN_URL : undefined,
     cloudflareLimitsEnabled: isCloudflareLimitsEnabled(env),
-    poolMode: isPoolMode(env),
     signupsEnabled: config.signupsEnabled,
     siteName: config.siteName,
     siteLogo: siteLogoImage(config.siteLogoConfigured),
@@ -61,5 +59,19 @@ export async function getServerConfig(env: Cloudflare.Env): Promise<ServerConfig
     banner: config.banner.text,
     bannerColor: config.banner.color,
     accentColor: config.accentColor,
+    settingsManagedCentrally: config.centralSettingsVersion > 0,
+    // Fleet identity for display and citation rendering; both absent on standalone deployments.
+    tenantSlug: env.CF_AI_GATEWAY_TENANT?.trim() || undefined,
+    intelligenceBaseDomain: env.INTELLIGENCE_BASE_DOMAIN?.trim() || undefined,
+    adminPortalUrl: portalUrl(env.ADMIN_PORTAL_URL),
+    billingPortalUrl: portalUrl(env.BILLING_PORTAL_URL),
   };
+}
+
+/** A portal page URL from a var: https only, no trailing slash; anything else is no portal. */
+export function portalUrl(value: string | undefined): string | undefined {
+  let v = value?.trim().replace(/\/+$/, "");
+  if (!v) return undefined;
+  let parsed = URL.parse(v);
+  return parsed?.protocol === "https:" && !parsed.search && !parsed.hash ? v : undefined;
 }

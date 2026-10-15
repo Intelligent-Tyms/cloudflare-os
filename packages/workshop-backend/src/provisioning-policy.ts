@@ -14,23 +14,23 @@
 
 import { AmbientGatekeeperMode } from "@gadgets/workshop-shared/api";
 import { AdminConfig } from "./admin-config.js";
-import { isPoolMode } from "./pool-mode.js";
 
 export const DEFAULT_AMBIENT_GATEKEEPER_MODE: AmbientGatekeeperMode = "enabled";
 
-type PolicyEnv = { POOL_MODE?: string };
+type PolicyEnv = object;
 
 /**
  * The configured mode for an ambient vendor, defaulting to "enabled" when the admin hasn't set one.
  * Tolerates a config persisted before this field existed (ambientGatekeeperModes may be undefined).
- * On a free pool every ambient vendor is "disabled" whatever the admin config says: Knowledge
- * collections are shared across the deployment's sharing domain, which on a pool means across
- * unrelated users.
  */
 export function ambientGatekeeperMode(config: AdminConfig, vendorId: string, env: PolicyEnv)
     : AmbientGatekeeperMode {
-  if (isPoolMode(env)) return "disabled";
-  return config.ambientGatekeeperModes?.[vendorId.toLowerCase()] ?? DEFAULT_AMBIENT_GATEKEEPER_MODE;
+  vendorId = vendorId.toLowerCase();
+  // A vendor the admin switched off as a whole (disabledGatekeepers, the on/off of a vendor that
+  // also offers resources) provisions nothing: its account would only reach resources nobody may
+  // bind.
+  if (config.disabledGatekeepers.includes(vendorId)) return "disabled";
+  return config.ambientGatekeeperModes?.[vendorId] ?? DEFAULT_AMBIENT_GATEKEEPER_MODE;
 }
 
 /**

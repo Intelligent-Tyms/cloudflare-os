@@ -1,10 +1,11 @@
-import { AdminApi, AdminFormat, AdminFormatPatch, AdminModel, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BillingCreditType, BillingInvoice, BillingOverview, BillingPaymentDetails, BillingPlanChangeResult, BillingPlanOption,BlueprintPublicInfo, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TeamRole, TeamView, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { AdminApi, AdminFormat, AdminFormatPatch, AdminModel, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, INTELLIGENCE_PRODUCT_KINDS, INTELLIGENCE_PRODUCT_NAMES, IntelligenceInstanceView, IntelligenceOverview, IntelligenceProductKind, IntelligenceProductOverview, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor, SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES, SkillPackage, SkillPackageFile, VendorSetup } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
 import { validateRpc } from 'capnweb-validate';
 import { collection, createTypedStorage } from '@gadgets/typed-storage';
 import { createWorkshopLogger } from "./observability";
+import { buildTemplateArchive, catalogMetadata, fetchCatalogPackage } from "./template-catalog.js";
 import { ADMIN_CONFIG_KEY, FEATURED_BLUEPRINTS_KEY, isReservedBlueprintKey, parseBlueprintKvRecord, readBlueprintKvRecord, sanitizeBlueprintOutput, serializeFeaturedBlueprints } from './blueprint-archive.js';
 import { AdminConfig, DEFAULT_ADMIN_CONFIG, FormatCuration, MAX_AGENT_HINT, defaultOutputFormatId, listPromotedFormats, reorderFormats, sanitizeOutputOverrides, serializeAdminConfig } from './admin-config.js';
 import { SITE_LOGO_R2_KEY, siteLogoImage, validateSiteLogo } from './site-logo.js';
@@ -12,14 +13,19 @@ import { ambientGatekeeperMode, DEFAULT_AMBIENT_GATEKEEPER_MODE } from './provis
 import { buildGatekeeperVendorMap } from './auth/auth-vendors.js';
 import { UserDurableObject, type UserAiModelRecord } from './user.js';
 import { getAiGatewayConfig } from './ai-gateway.js';
-import { formatBlueprintsManifestVersion, installFormatBlueprints } from './format-blueprints.js';
+import { formatBlueprintsManifestVersion, installBlueprintArchive, installFormatBlueprints } from './format-blueprints.js';
 import { FORMAT_BLUEPRINTS } from './generated/format-blueprints.js';
-import * as teamDirectory from './team-directory.js';
-import * as billingDirectory from './billing-directory.js';
-import type { UsageCollectorDurableObject } from './usage-collector.js';
-import { isPoolMode } from "./pool-mode.js";
+import * as intelligenceDirectory from './intelligence-directory.js';
+import { CENTRAL_CATALOG_CHECK_MS, CENTRAL_CATALOG_REFRESH_MS, CENTRAL_SETTINGS_POLL_MS, CentralCatalog, CentralSettings, CentralSettingsPull, adoptCentralSettings, catalogFingerprint, centralSettingsOf, fetchCentralLogo, hasCentralSettings, pullCentralSettings, reportCatalog, seedCentralSettings } from './central-settings.js';
+import { INTELLIGENCE_CONNECTORS, type IntelligenceConnectorSetup } from './intelligence-setup.js';
 
 const logger = createWorkshopLogger("workshop.admin.settings");
+
+// The AdminConfig fields the admin portal owns once central settings are applied.
+const CENTRAL_SETTING_KEYS = new Set<keyof CentralSettings>(
+    ["organizationProfile", "instanceInstructions", "siteName", "accentColor", "announcement", "banner",
+      "disabledSkills", "disabledModels"]);
+const MANAGED_ON_PORTAL = "This setting is managed on the admin portal.";
 
 // listDeploymentSkills/installSkillPackage are optional on GatekeeperVendor (like createAccount):
 // callers gate on the VendorDescription flags and view the stub through the Required shape, since
@@ -27,6 +33,7 @@ const logger = createWorkshopLogger("workshop.admin.settings");
 type SkillListerStub = Required<Pick<GatekeeperVendor, "listDeploymentSkills">>;
 type SkillInstallerStub = Required<Pick<GatekeeperVendor, "installSkillPackage">>;
 type VendorSetupStub = Required<Pick<GatekeeperVendor, "describeSetup" | "applySetup" | "clearSetup">>;
+
 
 // Bounds on admin-entered vendor setup values forwarded to the vendor (which re-validates
 // against its own input schema).
@@ -87,6 +94,10 @@ function makeAdminSettingsStorage(storage: DurableObjectStorage) {
       // Deployment-wide quick model (used for lightweight tasks like chat title generation),
       // referencing an aiModels entry by id. Ignored in AI Gateway mode, which hardcodes its own.
       quickModel: <string | null>null,
+
+      // The catalog last reported to the control plane (central-settings.ts reportCatalog):
+      // its fingerprint, when it was sent, and when it was last listed to compare.
+      centralCatalogReport: { fingerprint: "", sentAt: 0, checkedAt: 0 },
     },
   });
 }
@@ -134,8 +145,6 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
    * the same blueprints, and a duplicated id makes setFormatOrder() reject every reordering.
    */
   ensureFormatBlueprintsInstalled(): Promise<boolean> {
-    // A pool offers no templates, bundled ones included: nothing to install, nothing to retry.
-    if (isPoolMode(this.env)) return Promise.resolve(true);
     return this.#installInFlight ??= this.#installFormatBlueprints()
         .finally(() => { this.#installInFlight = undefined; });
   }
@@ -173,35 +182,74 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
 
     // Promotion is checked on every run, not just after an install, so a deployment that installed
     // before curation existed still ends up offering its bundled formats.
-    await this.#promoteBundledFormats();
+    await this.#promoteFormats(FORMAT_BLUEPRINTS.map(entry => entry.blueprintId));
     return complete;
   }
 
-  // Offer each bundled blueprint as a standard format, once ever. A separate one-shot decision per
-  // blueprint: re-deriving the list from the manifest would undo an admin's removal on every
-  // startup, and reinstalling an updated archive must refresh the blueprint without resetting how
-  // the deployment has chosen to offer it.
+  /**
+   * Install (or upgrade) one template from the fleet's catalog, as an ordinary blueprint plus a
+   * featured-mirror entry and a one-time format promotion, exactly like a bundled format. Called
+   * lazily from every read path that meets a catalog id this deployment lacks or holds an older
+   * revision of (see template-catalog.ts readBlueprintKvRecordViaCatalog). Concurrent callers
+   * for one id share a run.
+   */
+  installCatalogTemplate(id: string): Promise<BlueprintPublicInfo> {
+    let inFlight = this.#catalogInstalls.get(id);
+    if (inFlight) return inFlight;
+    let run = this.#installCatalogTemplate(id)
+        .finally(() => { this.#catalogInstalls.delete(id); });
+    this.#catalogInstalls.set(id, run);
+    return run;
+  }
+
+  #catalogInstalls = new Map<string, Promise<BlueprintPublicInfo>>();
+
+  async #installCatalogTemplate(id: string): Promise<BlueprintPublicInfo> {
+    let {entry, files} = await fetchCatalogPackage(this.env, id);
+    let archive = await buildTemplateArchive(catalogMetadata(entry), files);
+    let publicInfo = await installBlueprintArchive(this.env, {
+      blueprintId: entry.id,
+      title: entry.title,
+      description: entry.description,
+      author: entry.author,
+      // A catalog template always declares its output; the archive's own copy is the same.
+      output: entry.output ?? {id: entry.id, noun: entry.title, plural: entry.title, icon: "appWindow"},
+    }, archive);
+    this.storage.featuredBlueprints.put(publicInfo);
+    await this.#writeFeaturedSnapshot();
+    await this.#promoteFormats([id]);
+    logger.info("installed catalog template", {
+      event: "templates.catalog.install.ok", blueprintId: id,
+    });
+    return publicInfo;
+  }
+
+  // Offer each installed-by-the-deployment blueprint (bundled format or catalog template) as a
+  // standard format, once ever. A separate one-shot decision per blueprint: re-deriving the list
+  // from the manifest would undo an admin's removal on every startup, and reinstalling an
+  // updated archive must refresh the blueprint without resetting how the deployment has chosen
+  // to offer it.
   //
   // The converse isn't handled: a blueprint dropped from the bundle, or given a new blueprintId,
   // leaves its record and its promotion behind for an admin to remove by hand. Withdrawing them
   // would mean tracking which promotions this installer made, which is worth doing before the
   // bundled set ever changes.
-  async #promoteBundledFormats(): Promise<void> {
+  async #promoteFormats(blueprintIds: string[]): Promise<void> {
     let promoted = new Set(this.storage.promotedFormatBlueprints.get());
-    let pending = FORMAT_BLUEPRINTS.filter(entry => !promoted.has(entry.blueprintId));
+    let pending = blueprintIds.filter(blueprintId => !promoted.has(blueprintId));
     if (pending.length === 0) return;
 
     let config = this.#config();
     let known = new Set(config.formats.map(f => f.blueprintId));
     let added = pending
-        .filter(entry => !known.has(entry.blueprintId))
-        .map(entry => ({blueprintId: entry.blueprintId, enabled: true}));
+        .filter(blueprintId => !known.has(blueprintId))
+        .map(blueprintId => ({blueprintId, enabled: true}));
     // Always write, even when every pending format is already in DO storage. That is the retry
     // state after a prior KV mirror failure; stamping promotion without writing would strand the
     // hot-path mirror on its old config forever.
     await this.updateAdminConfig({formats: [...config.formats, ...added]});
 
-    for (let entry of pending) promoted.add(entry.blueprintId);
+    for (let blueprintId of pending) promoted.add(blueprintId);
     this.storage.promotedFormatBlueprints.put([...promoted]);
   }
 
@@ -344,7 +392,102 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
    * scalar values; this just persists atomically.
    */
   updateAdminConfig(patch: Partial<AdminConfig>): Promise<void> {
-    return this.#mutateAdminConfig(config => ({ ...config, ...patch }));
+    return this.#mutateAdminConfig(config => {
+      if (config.centralSettingsVersion > 0
+          && Object.keys(patch).some(key => CENTRAL_SETTING_KEYS.has(key as keyof CentralSettings))) {
+        throw new Error(MANAGED_ON_PORTAL);
+      }
+      return { ...config, ...patch };
+    });
+  }
+
+  // --- Central settings (central-settings.ts) ---
+
+  /**
+   * Start pulling the central settings if that isn't running yet. Like the format install, the
+   * DO doesn't wake merely because someone deployed, so API traffic calls this once per isolate
+   * (server.ts); from then on the alarm keeps the pull going.
+   */
+  async ensureCentralSettingsSync(): Promise<void> {
+    if (!hasCentralSettings(this.env)) return;
+    if (await this.ctx.storage.getAlarm() === null) await this.ctx.storage.setAlarm(Date.now());
+  }
+
+  async alarm(): Promise<void> {
+    if (!hasCentralSettings(this.env)) return;
+    try {
+      await this.syncCentralSettings();
+    } catch (error) {
+      // The last version applied stays in force; the next pull tries again.
+      logger.warn("failed to sync central settings", { event: "central_settings.sync.failed", error });
+    }
+    await this.ctx.storage.setAlarm(Date.now() + CENTRAL_SETTINGS_POLL_MS);
+  }
+
+  /**
+   * Pull the central settings and apply a version not applied yet. The first pull finds none
+   * and seeds them with this deployment's own values, which then come back as version 1.
+   */
+  async syncCentralSettings(): Promise<void> {
+    let config = this.#config();
+    let applied = config.centralSettingsVersion;
+    let pull: CentralSettingsPull = await pullCentralSettings(this.env, applied);
+    if (pull.kind === "absent") {
+      pull = await seedCentralSettings(this.env, centralSettingsOf(config), await this.#localLogo());
+    } else if (pull.kind === "settings" && pull.missing.length > 0) {
+      // The control plane's copy predates some fields: hand over ours for exactly those.
+      pull = await adoptCentralSettings(this.env, centralSettingsOf(config),
+          pull.missing.includes("logo") ? await this.#localLogo() : null);
+    }
+    if (pull.kind === "settings" && pull.version !== applied) await this.#applyCentralSettings(pull);
+    await this.#maybeReportCatalog();
+  }
+
+  // This deployment's own logo, for the first hand-over; null when it has none.
+  async #localLogo(): Promise<Uint8Array | null> {
+    if (!this.#config().siteLogoConfigured) return null;
+    let object = await this.env.BLUEPRINT_CONTENT.get(SITE_LOGO_R2_KEY);
+    return object ? new Uint8Array(await object.arrayBuffer()) : null;
+  }
+
+  async #applyCentralSettings(pull: Extract<CentralSettingsPull, { kind: "settings" }>): Promise<void> {
+    let { version, settings: { logo, ...settings } } = pull;
+    if (logo !== this.#config().centralLogoSha) {
+      if (logo === "") {
+        await this.setSiteLogo(null);
+      } else {
+        let fetched = await fetchCentralLogo(this.env);
+        // A newer upload landed between the pull and the fetch: the next pull names it.
+        if (fetched.sha256 !== logo) throw new Error("The central logo changed while fetching it.");
+        validateSiteLogo(fetched.png);
+        await this.setSiteLogo(fetched.png);
+      }
+    }
+    await this.#mutateAdminConfig(config => ({
+      ...config, ...settings, centralSettingsVersion: version, centralLogoSha: logo,
+    }));
+    logger.info("applied central settings", { event: "central_settings.applied", sequence: version });
+  }
+
+  // Report what can be switched off when it changed (checked every few minutes, not on every
+  // pull: listing skills asks each skills vendor), and now and then regardless.
+  async #maybeReportCatalog(): Promise<void> {
+    let report = this.storage.centralCatalogReport.get();
+    let now = Date.now();
+    if (now - report.checkedAt < CENTRAL_CATALOG_CHECK_MS) return;
+    let config = this.#config();
+    let catalog: CentralCatalog = {
+      skills: (await this.#listSkillConfig(config)).filter(s => !s.missing)
+          .map(({ name, description, sources }) => ({ name, description, sources })),
+      models: this.#listModelConfig(config)?.filter(m => !m.missing)
+          .map(({ id, name, provider, freePlan }) => ({ id, name, provider, freePlan })) ?? null,
+    };
+    let fingerprint = await catalogFingerprint(catalog);
+    // Checked now whatever the report does, so a failing one waits for the next check.
+    this.storage.centralCatalogReport.put({ ...report, checkedAt: now });
+    if (fingerprint === report.fingerprint && now - report.sentAt < CENTRAL_CATALOG_REFRESH_MS) return;
+    await reportCatalog(this.env, catalog);
+    this.storage.centralCatalogReport.put({ fingerprint, sentAt: now, checkedAt: now });
   }
 
   /**
@@ -373,6 +516,11 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
       models: this.#listModelConfig(config),
       channels: await describeChannels(this.env),
     };
+  }
+
+  /** The connector catalog alone, for callers that need nothing else from getSettings(). */
+  async getConnectors(adminUserId: string): Promise<AdminResourceVendor[]> {
+    return this.#listResourceConfig(this.#config(), adminUserId);
   }
 
   // --- Deployment AI models ---
@@ -435,6 +583,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
       throw new Error("Model curation requires AI Gateway mode.");
     }
     await this.#mutateAdminConfig(config => {
+      if (config.centralSettingsVersion > 0) throw new Error(MANAGED_ON_PORTAL);
       let disabled = new Set(config.disabledModels);
       if (enabled) disabled.delete(id); else disabled.add(id);
       return { ...config, disabledModels: [...disabled] };
@@ -638,6 +787,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
   // also how a stale (`missing`) curation entry is cleared: the disabled set is the whole state.
   async setSkillEnabled(name: string, enabled: boolean): Promise<void> {
     await this.#mutateAdminConfig(config => {
+      if (config.centralSettingsVersion > 0) throw new Error(MANAGED_ON_PORTAL);
       let disabled = new Set(config.disabledSkills);
       if (enabled) disabled.delete(name); else disabled.add(name);
       return { ...config, disabledSkills: [...disabled] };
@@ -788,8 +938,8 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
   async setGatekeeperMode(vendorId: string, mode: AmbientGatekeeperMode): Promise<void> {
     vendorId = vendorId.toLowerCase();
     let vendor = this.vendors.get(vendorId);
-    let autoProvisions = !!vendor && (await vendor.describe()).autoProvisionsAccount === true;
-    if (autoProvisions) {
+    let ambient = !!vendor && await isAmbientOnly(vendor);
+    if (ambient) {
       await this.#mutateAdminConfig(config => {
         let modes = { ...config.ambientGatekeeperModes };
         if (mode === DEFAULT_AMBIENT_GATEKEEPER_MODE) delete modes[vendorId]; else modes[vendorId] = mode;
@@ -814,13 +964,15 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
   async #listResourceConfig(config: AdminConfig, adminUserId: string): Promise<AdminResourceVendor[]> {
     let disabledGatekeeperSet = new Set(config.disabledGatekeepers);
 
-    let promises: Promise<AdminResourceVendor | null>[] = [];
+    let promises: Promise<AdminResourceVendor | AdminResourceVendor[] | null>[] = [];
     for (let [id, vendor] of this.vendors) {
       promises.push((async () => {
         try {
           let [description, supportedResources] = await Promise.all([
             vendor.describe(),
-            vendor.getSupportedResources({ userId: adminUserId }),
+            // forSetup: a resource that needs setup before anyone can use it still gets its
+            // card here, since this is where that setup is entered.
+            vendor.getSupportedResources({ userId: adminUserId, forSetup: true }),
           ]);
           // Display metadata shared by both vendor shapes, forwarded for the admin list and
           // detail pages.
@@ -832,43 +984,91 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
             tagline: description.tagline,
             description: description.description,
             departments: description.departments,
+            credentialScope: description.credentialScope,
           };
-          if (description.autoProvisionsAccount) {
+          // A setup-capable vendor keeps its row even with no resources: an unconfigured one
+          // advertises none, and this row is where the admin enters the setup that changes that.
+          // Ambient vendors carry it too: an organization credential (goAML's B2B login) is
+          // entered here whether or not the vendor also has a connect flow.
+          let setup: { status: VendorSetup["status"]; addition?: { noun: string } } | undefined;
+          let setupState: VendorSetup | undefined;
+          if (description.supportsAdminSetup === true) {
+            setupState = await (vendor as unknown as VendorSetupStub).describeSetup();
+            setup = { status: setupState.status };
+          }
+          if (description.autoProvisionsAccount && supportedResources.length === 0) {
             // Auto-provisioning ("ambient") gatekeeper: a three-state mode, no resources to toggle.
             let mode = ambientGatekeeperMode(config, id, this.env);
             return {
               vendorId: id,
               ...display,
+              ...(setup ? { setup } : {}),
               autoProvisions: true,
               ambientMode: mode,
             };
-          }
-          // A setup-capable vendor keeps its row even with no resources: an unconfigured one
-          // advertises none, and this row is where the admin enters the setup that changes that.
-          let setup: { status: VendorSetup["status"] } | undefined;
-          if (description.supportsAdminSetup === true) {
-            let state = await (vendor as unknown as VendorSetupStub).describeSetup();
-            setup = { status: state.status };
           }
           if (supportedResources.length === 0 && !setup) {
             // Nothing to toggle for this gatekeeper.
             return null;
           }
           let disabled = new Set(config.disabledResources[id] ?? []);
-          return {
-            vendorId: id,
-            ...display,
-            autoProvisions: false,
-            enabled: !disabledGatekeeperSet.has(id),
-            resources: supportedResources.map(r => ({
-              urlPattern: r.urlPattern,
-              title: r.title,
-              description: r.description,
-              icon: r.icon,
-              enabled: !disabled.has(r.urlPattern),
-            })),
-            ...(setup ? { setup } : {}),
-          };
+          // Resources presented as connectors of their own (ResourceConnector) become separate
+          // entries; the vendor keeps the rest. Each presented one owns the setup inputs it
+          // names, and the vendor keeps whatever inputs remain.
+          let presented = supportedResources.filter(r => r.connector);
+          let own = supportedResources.filter(r => !r.connector);
+          let claimedInputs = new Set(presented.flatMap(r => r.connector!.setupInputNames ?? []));
+          let ownInputs = setupState
+              ? setupState.inputs.map(i => i.name).filter(name => !claimedInputs.has(name))
+              : [];
+          let configuredInputs = new Set(setupState?.configured.map(c => c.name) ?? []);
+          let vendorEnabled = !disabledGatekeeperSet.has(id);
+          let entries: AdminResourceVendor[] = [];
+          for (let r of presented) {
+            let c = r.connector!;
+            let inputs = c.setupInputNames ?? [];
+            entries.push({
+              vendorId: `${id}:${c.id}`,
+              displayName: c.displayName,
+              logo: c.logo ?? description.logo,
+              url: c.url,
+              color: c.color ?? description.color,
+              tagline: c.tagline,
+              description: c.description ?? r.description,
+              departments: c.departments,
+              credentialScope: c.credentialScope,
+              ...(inputs.length > 0 ? {
+                setup: { status: inputs.every(name => configuredInputs.has(name)) ? "configured" : "unconfigured" },
+                setupInputNames: inputs,
+              } : {}),
+              virtual: { parentVendorId: id, resourceUrlPattern: r.urlPattern },
+              autoProvisions: false,
+              enabled: vendorEnabled && !disabled.has(r.urlPattern),
+              resources: [],
+            });
+          }
+          let ownSetup = setup && (presented.length === 0 || ownInputs.length > 0) ? setup : undefined;
+          // The vendor's own card is where its adding form lives; the connectors presented from
+          // its resources keep only their own inputs.
+          if (ownSetup && setupState?.addition) ownSetup = { ...ownSetup, addition: setupState.addition };
+          if (own.length > 0 || ownSetup) {
+            entries.push({
+              vendorId: id,
+              ...display,
+              autoProvisions: false,
+              enabled: vendorEnabled,
+              resources: own.map(r => ({
+                urlPattern: r.urlPattern,
+                title: r.title,
+                description: r.description,
+                icon: r.icon,
+                enabled: !disabled.has(r.urlPattern),
+              })),
+              ...(ownSetup ? { setup: ownSetup } : {}),
+              ...(ownSetup && presented.length > 0 ? { setupInputNames: ownInputs } : {}),
+            });
+          }
+          return entries;
         } catch (err) {
           logger.warn("failed to read resource config for gatekeeper", {
             event: "gatekeeper.resource.config.read.failed", gatekeeperId: id, error: err,
@@ -878,11 +1078,22 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
       })());
     }
 
-    let vendors = (await Promise.all(promises)).filter((v): v is AdminResourceVendor => v !== null);
+    let vendors = (await Promise.all(promises))
+        .flatMap(v => v === null ? [] : Array.isArray(v) ? v : [v]);
     // Show auto-provisioned ("ambient") gatekeepers first; preserve the existing order otherwise.
     vendors.sort((a, b) => Number(b.autoProvisions) - Number(a.autoProvisions));
     return vendors;
   }
+}
+
+// Whether a vendor is presented and controlled as a purely ambient capability: it auto-provisions
+// an account and offers no resources to bind. A vendor that auto-provisions *and* offers resources
+// (its provisioned account is how people reach them) is an ordinary vendor with an on/off switch;
+// the provisioning policy folds that switch into the account's mode (see provisioning-policy.ts).
+async function isAmbientOnly(vendor: Service<GatekeeperVendor>): Promise<boolean> {
+  let description = await vendor.describe();
+  if (description.autoProvisionsAccount !== true) return false;
+  return (await vendor.getSupportedResources()).length === 0;
 }
 
 // Capability for managing deployment-wide admin settings, obtained via
@@ -896,18 +1107,21 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
 export class AdminApiImpl extends RpcTarget implements AdminApi {
   /**
    * `adminUserId` is the requesting admin's identity, forwarded to gatekeepers when listing the
-   * resource catalog (some are RBAC-gated per user) and to the central team directory as the
-   * acting admin. It's plain data — not a user-DO dependency. `env` is needed for the team
-   * directory client only.
+   * resource catalog (some are RBAC-gated per user) and to the control plane as the acting
+   * admin. It's plain data — not a user-DO dependency. `env` reaches the control plane,
+   * channels and gatekeeper bindings.
    */
   constructor(private admin: DurableObjectStub<AdminSettings>, private adminUserId: string,
-      private env: Cloudflare.Env,
-      private usageCollector?: DurableObjectStub<UsageCollectorDurableObject>) {
+      private env: Cloudflare.Env) {
     super();
   }
 
   getSettings(): Promise<AdminSettingsView> {
     return this.admin.getSettings(this.adminUserId);
+  }
+
+  getConnectors(): Promise<AdminResourceVendor[]> {
+    return this.admin.getConnectors(this.adminUserId);
   }
 
   async setSignupsEnabled(enabled: boolean): Promise<void> {
@@ -922,6 +1136,7 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
   }
 
   async setSiteLogo(data: Uint8Array | null): Promise<AdminSettingsView['siteLogo']> {
+    if ((await this.admin.getAdminConfig()).centralSettingsVersion > 0) throw new Error(MANAGED_ON_PORTAL);
     if (data !== null) validateSiteLogo(data);
     return siteLogoImage(await this.admin.setSiteLogo(data));
   }
@@ -1035,6 +1250,10 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
     return channels;
   }
 
+  getChannels(): Promise<ChannelsDescription | null> {
+    return describeChannels(this.env);
+  }
+
   async setupTelegram(botToken: string): Promise<{ botUserName: string }> {
     let token = botToken.trim();
     if (!token || token.length > 256) throw new Error("A valid bot token is required.");
@@ -1126,8 +1345,14 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
     await (await this.#setupVendor(vendorId)).applySetup(values);
   }
 
-  async clearIntegrationSetup(vendorId: string): Promise<void> {
-    await (await this.#setupVendor(vendorId)).clearSetup();
+  async clearIntegrationSetup(vendorId: string, names?: string[]): Promise<void> {
+    if (names !== undefined) {
+      if (!Array.isArray(names) || names.length === 0 ||
+          names.some(name => typeof name !== "string" || !name)) {
+        throw new Error("names must be a non-empty list of setup input names.");
+      }
+    }
+    await (await this.#setupVendor(vendorId)).clearSetup(names);
   }
 
   addModel(profile: AiChatAuthorInfo, config: AiModelConfig): Promise<void> {
@@ -1142,120 +1367,162 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
     return this.admin.setQuickModel(id);
   }
 
-  // --- Teammates (central team directory; see team-directory.ts) ---
+  // --- Intelligence (control plane + each product's gatekeeper setup store) ---
+  //
+  // Provisioning is the control plane's job (never by hand against a cell). The assistant
+  // key it hands back is stored only in the product's gatekeeper per-tenant setup store,
+  // through the same service-binding path the admin setup modal uses, so nothing here or in
+  // the control plane ever holds it.
 
-  #requireTeamDirectory(): void {
-    if (!teamDirectory.hasTeamDirectory(this.env)) {
-      throw new Error("This deployment has no central team directory configured.");
+  #requireIntelligenceDirectory(): void {
+    if (!intelligenceDirectory.hasIntelligenceDirectory(this.env)) {
+      throw new Error("This deployment has no central directory configured.");
     }
   }
 
-  async getTeam(): Promise<TeamView | null> {
-    if (!teamDirectory.hasTeamDirectory(this.env)) return null;
-    return teamDirectory.fetchTeam(this.env);
-  }
-
-  async inviteTeammate(email: string, role: TeamRole): Promise<TeamView> {
-    this.#requireTeamDirectory();
-    let normalized = email.trim().toLowerCase();
-    if (!normalized.includes("@")) throw new Error("A valid email address is required.");
-    if (role !== "member" && role !== "admin") throw new Error(`Invalid role: ${role}`);
-    return teamDirectory.createTeamInvitation(this.env, normalized, role, this.adminUserId);
-  }
-
-  async revokeTeamInvitation(invitationId: string): Promise<TeamView> {
-    this.#requireTeamDirectory();
-    return teamDirectory.revokeTeamInvitation(this.env, invitationId);
-  }
-
-  async resendTeamInvitation(invitationId: string): Promise<TeamView> {
-    this.#requireTeamDirectory();
-    return teamDirectory.resendTeamInvitation(this.env, invitationId);
-  }
-
-  async removeTeammate(email: string): Promise<TeamView> {
-    this.#requireTeamDirectory();
-    return teamDirectory.removeTeamMember(this.env, email.trim().toLowerCase(), this.adminUserId);
-  }
-
-  // --- Billing (central billing directory; see billing-directory.ts) ---
-
-  async getBillingOverview(): Promise<BillingOverview | null> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) return null;
-    let {entitlements, usage} = await billingDirectory.fetchBillingSummary(this.env);
-    // The summary carries a fresh entitlements snapshot; pushing it into the usage
-    // collector's cache means whatever this page shows (a plan change or top-up that just
-    // landed via webhook) is also live at the enforcement gates, not stale for the TTL.
-    await this.usageCollector?.acceptEntitlements(entitlements).catch(() => {});
-    return {...entitlements, usage: usage.rows};
-  }
-
-  async createTopupCheckout(creditType: BillingCreditType, amountCents: number,
-                            successUrl: string, cancelUrl: string): Promise<string> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) {
-      throw new Error("This deployment has no central billing configured.");
+  #productKind(kind: unknown): IntelligenceProductKind {
+    if (kind === undefined) return "organization";
+    if (!INTELLIGENCE_PRODUCT_KINDS.includes(kind as IntelligenceProductKind)) {
+      throw new Error("Unknown Intelligence product.");
     }
-    if (creditType !== "ai" && creditType !== "messaging") {
-      throw new Error(`Invalid credit type: ${creditType}`);
+    return kind as IntelligenceProductKind;
+  }
+
+  // The product's gatekeeper setup stub, or null when its connector is not bound here (a
+  // deployment without that gatekeeper, or a product whose connector has not shipped). The
+  // overview then reports "off", or "missing-key" while the instance is active.
+  async #productVendor(setup: IntelligenceConnectorSetup | null): Promise<VendorSetupStub | null> {
+    if (!setup) return null;
+    try {
+      return await this.#setupVendor(setup.vendorId);
+    } catch {
+      return null;
     }
-    if (!Number.isInteger(amountCents) || amountCents <= 0) {
-      throw new Error("The top-up amount must be a positive whole number of cents.");
-    }
-    for (let url of [successUrl, cancelUrl]) {
-      let parsed = URL.parse(url);
-      if (!parsed || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
-        throw new Error("Return URLs must be http(s) URLs.");
+  }
+
+  async #productOverview(
+    view: intelligenceDirectory.CentralIntelligence, kind: IntelligenceProductKind,
+  ): Promise<IntelligenceProductOverview> {
+    let instance = intelligenceDirectory.instanceOf(view, kind);
+    let setup = INTELLIGENCE_CONNECTORS[kind];
+    let connector: IntelligenceProductOverview["connector"] = "off";
+    let vendor = await this.#productVendor(setup);
+    if (vendor && setup) {
+      try {
+        let described = await vendor.describeSetup();
+        let stored = new Set(described.configured.map(entry => entry.name));
+        let complete = setup.required.every(name => stored.has(name));
+        if (described.status === "configured" && complete) connector = "connected";
+        else if (instance?.status === "active") connector = "missing-key";
+      } catch (err) {
+        logger.warn(`failed to read the ${kind} intelligence connector setup`, {
+          event: "intelligence.setup.read.failed", error: err,
+        });
+        if (instance?.status === "active") connector = "missing-key";
       }
+    } else if (instance?.status === "active") {
+      connector = "missing-key";
     }
-    // Amount bounds are enforced by the billing directory, which owns the policy.
-    return billingDirectory.createTopupCheckout(
-        this.env, {creditType, amountCents, successUrl, cancelUrl});
+    return {
+      instance,
+      connector,
+      url: instance?.status === "active" ? instance.wikiUrl : null,
+    };
   }
 
-  async listBillingPlans(): Promise<BillingPlanOption[]> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) return [];
-    return billingDirectory.fetchPlans(this.env);
+  async #intelligenceOverview(view: intelligenceDirectory.CentralIntelligence): Promise<IntelligenceOverview> {
+    let [organization, data] = await Promise.all([
+      this.#productOverview(view, "organization"),
+      this.#productOverview(view, "data"),
+    ]);
+    return { credits: view.credits, organization, data };
   }
 
-  async changePlan(planCode: string, billingPeriod: "monthly" | "annual",
-                   successUrl: string, cancelUrl: string): Promise<BillingPlanChangeResult> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) {
-      throw new Error("This deployment has no central billing configured.");
+  async #storeAssistantKey(
+    kind: IntelligenceProductKind, instance: IntelligenceInstanceView, assistantKey: string,
+  ): Promise<boolean> {
+    let setup = INTELLIGENCE_CONNECTORS[kind];
+    let vendor = await this.#productVendor(setup);
+    if (!vendor || !setup || !instance.mcpUrl) return false;
+    try {
+      await vendor.applySetup({
+        [setup.mcpUrl]: instance.mcpUrl,
+        ...(instance.wikiUrl ? { [setup.url]: instance.wikiUrl } : {}),
+        [setup.assistantKey]: assistantKey,
+      });
+      return true;
+    } catch (err) {
+      // The key is gone once this returns: the overview reports "missing-key" and the panel
+      // offers Reconnect, which rotates it on the cell.
+      logger.error(`failed to store the ${kind} intelligence assistant key`, {
+        event: "intelligence.setup.write.failed", error: err,
+      });
+      return false;
     }
-    if (!planCode.trim()) throw new Error("A plan code is required.");
-    if (billingPeriod !== "monthly" && billingPeriod !== "annual") {
-      throw new Error(`Invalid billing period: ${billingPeriod}`);
-    }
-    for (let url of [successUrl, cancelUrl]) {
-      let parsed = URL.parse(url);
-      if (!parsed || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
-        throw new Error("Return URLs must be http(s) URLs.");
-      }
-    }
-    // Eligibility (seat fit, purchasability, tier) is enforced by the billing directory,
-    // which owns the policy; its refusals are end-user-ready messages.
-    return billingDirectory.changePlan(
-        this.env, {planCode: planCode.trim(), billingPeriod, successUrl, cancelUrl});
   }
 
-  async listBillingInvoices(): Promise<BillingInvoice[]> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) return [];
-    return billingDirectory.fetchInvoices(this.env);
+  async getIntelligenceOverview(): Promise<IntelligenceOverview | null> {
+    if (!intelligenceDirectory.hasIntelligenceDirectory(this.env)) return null;
+    return this.#intelligenceOverview(await intelligenceDirectory.fetchIntelligence(this.env));
   }
 
-  async getBillingPaymentDetails(): Promise<BillingPaymentDetails | null> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) return null;
-    return billingDirectory.fetchPaymentDetails(this.env);
+  async provisionIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview> {
+    let product = this.#productKind(kind);
+    this.#requireIntelligenceDirectory();
+    let { instance, assistantKey } = await intelligenceDirectory.provisionInstance(this.env, product);
+    if (assistantKey !== null) await this.#storeAssistantKey(product, instance, assistantKey);
+    return this.#intelligenceOverview(await intelligenceDirectory.fetchIntelligence(this.env));
   }
 
-  async createBillingPortalSession(returnUrl: string): Promise<string> {
-    if (!billingDirectory.hasBillingDirectory(this.env)) {
-      throw new Error("This deployment has no central billing configured.");
+  async deprovisionIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview> {
+    let product = this.#productKind(kind);
+    this.#requireIntelligenceDirectory();
+    await intelligenceDirectory.deprovisionInstance(this.env, product);
+    let vendor = await this.#productVendor(INTELLIGENCE_CONNECTORS[product]);
+    if (vendor) {
+      await vendor.clearSetup().catch((err: unknown) => {
+        logger.warn(`failed to clear the ${product} intelligence connector setup`, {
+          event: "intelligence.setup.clear.failed", error: err,
+        });
+      });
     }
-    let parsed = URL.parse(returnUrl);
-    if (!parsed || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
-      throw new Error("Return URLs must be http(s) URLs.");
+    return this.#intelligenceOverview(await intelligenceDirectory.fetchIntelligence(this.env));
+  }
+
+  async reconnectIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview> {
+    let product = this.#productKind(kind);
+    this.#requireIntelligenceDirectory();
+    let view = await intelligenceDirectory.fetchIntelligence(this.env);
+    let instance = intelligenceDirectory.instanceOf(view, product);
+    if (instance?.status !== "active") {
+      throw new Error(`${INTELLIGENCE_PRODUCT_NAMES[product]} is not provisioned for this workspace.`);
     }
-    return billingDirectory.createBillingPortalSession(this.env, returnUrl);
+    if (!INTELLIGENCE_CONNECTORS[product]) {
+      throw new Error(`The ${INTELLIGENCE_PRODUCT_NAMES[product]} connector is not available in this deployment yet.`);
+    }
+    let { assistantKey } = await intelligenceDirectory.rotateAssistantKey(this.env, product);
+    if (!(await this.#storeAssistantKey(product, instance, assistantKey))) {
+      throw new Error("The new assistant key could not be stored. Check that the connector is installed, then reconnect again.");
+    }
+    return this.#intelligenceOverview(view);
+  }
+
+  /**
+   * The admin's identity here is the one the central handoff signed them in with (their
+   * email), which is what the product's cell keys its sessions on. Admins of this deployment
+   * enter their products as admins there too.
+   */
+  async openIntelligence(kind: IntelligenceProductKind, next?: string): Promise<{ url: string }> {
+    let product = this.#productKind(kind);
+    this.#requireIntelligenceDirectory();
+    let email = this.adminUserId.trim().toLowerCase();
+    if (!email.includes("@")) {
+      throw new Error("Your account has no email address to sign you into the product with.");
+    }
+    if (next !== undefined && (typeof next !== "string" || next.length > 512)) {
+      throw new Error("Invalid destination.");
+    }
+    let url = await intelligenceDirectory.handoffUrl(this.env, product, { email, role: "admin" }, next);
+    return { url };
   }
 }

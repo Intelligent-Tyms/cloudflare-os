@@ -12,11 +12,13 @@ import {
   AccountDescription,
   VendorDescription,
   SupportedResource,
+  matchesResourceUrlPattern,
   resolveRequestedResource,
 } from '@gadgets/workshop-shared/gatekeeper'
 import { WorkshopButton } from './components/WorkshopControls'
 import Avatar from './components/Avatar'
 import { AccountsSubscriberAdapter } from './accountsSubscriber'
+import { failureTitle } from './rpcErrors'
 
 // Shown when a non-owner opens a shared Gadget that reads data through one or more gatekeeper
 // bindings, and they haven't yet chosen which of their own connected accounts to use for each one.
@@ -35,6 +37,25 @@ interface AccountInfo {
   vendorId: string
   supportedResources: SupportedResource[]
   credentialsValid: boolean
+  // Created by the deployment for this user (a company connector's account, a built-in): there
+  // is nothing of the user's own to choose or sign in to.
+  provided: boolean
+}
+
+// Whether an account is a candidate for a binding. The vendor has to match. And when the account
+// reaches only services presented as connectors of their own (a catalog of servers behind one
+// transport: a person's sign-in to one of them, or the company's account for some others), the
+// binding has to be for one of those services. Without that, the company's account would be
+// offered, and chosen by default, for a server each person signs in to, and verification would
+// then fail on an account that was never going to work.
+function accountServes(need: ObserverBindingNeed, account: AccountInfo): boolean {
+  if (account.vendorId !== need.vendorId) return false
+  const resources = account.supportedResources
+  if (!need.resourceUrl || resources.length === 0 || !resources.every(r => r.connector)) return true
+  if (typeof (globalThis as { URLPattern?: unknown }).URLPattern === 'undefined') return true
+  // A resource URL may carry a fragment scoping the grant; the service is named by the rest.
+  const url = need.resourceUrl.split('#')[0]
+  return resources.some(r => matchesResourceUrlPattern(r.urlPattern, url))
 }
 
 // How to name one of the user's accounts in the UI. Falls back to the id, which is all we can show
@@ -103,11 +124,11 @@ export default function ObserverConfigModal({
     let cancelled = false
 
     const subscriber = new AccountsSubscriberAdapter({
-      add({ id, description, vendor, supportedResources, credentialsValid, vendorId }) {
+      add({ id, description, vendor, supportedResources, credentialsValid, vendorId, provided }) {
         if (cancelled) return
         setAccounts(prev => {
           const next = new Map(prev)
-          next.set(id, { id, description, vendor, vendorId, supportedResources, credentialsValid })
+          next.set(id, { id, description, vendor, vendorId, supportedResources, credentialsValid, provided })
           return next
         })
         if (credentialsValid) {
@@ -182,7 +203,7 @@ export default function ObserverConfigModal({
       let changed = false
       const next = { ...prev }
       for (const need of needs) {
-        const matching = [...accounts.values()].filter(a => a.vendorId === need.vendorId)
+        const matching = [...accounts.values()].filter(a => accountServes(need, a))
         const failed = need.failure && accounts.has(need.failure.accountId)
           ? need.failure.accountId
           : undefined
@@ -207,10 +228,12 @@ export default function ObserverConfigModal({
     setConnecting(vendorId)
     try {
       const vendor = vendorsById.get(vendorId)
-      if (vendor?.description.autoProvisionsAccount) {
+      const required = requiredResourceUrlPatterns(need, vendor)
+      // A vendor that provides an account to everyone may also front services each person signs
+      // in to; a binding to one of those (it needs a grant of its own) is a sign-in, not an add.
+      if (vendor?.description.autoProvisionsAccount && required.length === 0) {
         await authenticatedApi.provisionAmbientAccount(vendorId)
       } else {
-        const required = requiredResourceUrlPatterns(need, vendor)
         const { url } = await authenticatedApi.connectAccount(
           vendorId,
           required.length > 0 ? required : undefined,
@@ -219,7 +242,7 @@ export default function ObserverConfigModal({
       }
     } catch (err) {
       console.error('Failed to initiate connection:', err)
-      toasts.add({ title: 'Failed to start connection flow', variant: 'error' })
+      toasts.add({ title: failureTitle(err, 'Failed to start connection flow'), variant: 'error' })
       connectingRef.current = null
       setConnecting(null)
     }
@@ -233,7 +256,7 @@ export default function ObserverConfigModal({
       // Subscription fires add() with credentialsValid:true on completion, clearing `reconnecting`.
     } catch (err) {
       console.error('Failed to initiate reconnection:', err)
-      toasts.add({ title: 'Failed to start re-authentication flow', variant: 'error' })
+      toasts.add({ title: failureTitle(err, 'Failed to start re-authentication flow'), variant: 'error' })
       setReconnecting(null)
     }
   }
@@ -311,6 +334,25 @@ export default function ObserverConfigModal({
   // verification on this open (typically expired credentials).
   const isRetry = needs.some(n => n.failure)
 
+  // When every binding runs on an account the deployment provides (a company connector, a
+  // built-in), there is no account to choose and nothing to sign in to, so asking the person to
+  // press a button would be ceremony: confirm for them, once. Anything personal, anything that
+  // offers a choice, and every retry still gets the dialog.
+  const nothingToDecide = ready && vendorsReady && !isRetry && needs.length > 0 &&
+    needs.every(need => {
+      const matching = [...accounts.values()].filter(a => accountServes(need, a))
+      return matching.length === 1 && matching[0].provided &&
+        choices[need.gatekeeperId] === matching[0].id && accountSatisfies(need, matching[0])
+    })
+  const autoConfirmed = useRef(false)
+  useEffect(() => {
+    if (!nothingToDecide || autoConfirmed.current) return
+    autoConfirmed.current = true
+    handleConfirm()
+  // handleConfirm reads only state that `nothingToDecide` already depends on.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nothingToDecide])
+
   return (
     <Dialog.Root open disablePointerDismissal onOpenChange={open => { if (!open) onCancel() }}>
       <Dialog className="responsive-dialog overflow-y-auto p-6" size="lg">
@@ -325,14 +367,14 @@ export default function ObserverConfigModal({
               'data it uses.'}
         </Text>
 
-        {!ready || !vendorsReady ? (
+        {!ready || !vendorsReady || nothingToDecide ? (
           <div className="text-center py-10">
             <Loader />
           </div>
         ) : (
           <div className="flex flex-col gap-4 mt-5">
             {needs.map(need => {
-              const matching = [...accounts.values()].filter(a => a.vendorId === need.vendorId)
+              const matching = [...accounts.values()].filter(a => accountServes(need, a))
               const vendorInfo = vendorsById.get(need.vendorId)
               const vendor = matching[0]?.vendor ?? vendorInfo?.description
               const vendorName = vendor?.displayName || need.vendorId || 'service'
@@ -369,6 +411,16 @@ export default function ObserverConfigModal({
                       </WorkshopButton>
                     )}
                   </div>
+
+                  {/* Nothing to connect and no way to: the deployment doesn't offer this
+                      connector to this person. Say who can change that instead of leaving a
+                      dialog whose only working button is Cancel. */}
+                  {matching.length === 0 && !vendor && (
+                    <p className="mt-3 text-xs leading-[18px] text-kumo-subtle">
+                      This connector isn’t available to you here. Ask an administrator to add it
+                      under Admin → Connectors, then open the workspace again.
+                    </p>
+                  )}
 
                   {/* Name the account that was refused and why. The reason is free text, either from
                       the gatekeeper or authored by the overseer, and must not be parsed. */}
@@ -470,7 +522,7 @@ export default function ObserverConfigModal({
                         </button>
                       )}
 
-                      {!vendor?.autoProvisionsAccount && (
+                      {(!vendor?.autoProvisionsAccount || required.length > 0) && (
                         <button
                           type="button"
                           onClick={() => handleConnect(need)}

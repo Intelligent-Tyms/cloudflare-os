@@ -1,13 +1,11 @@
-import { createFileRoute } from '@tanstack/react-router'
-import AdminIntegrationDetailPage from '../AdminIntegrationDetailPage'
+import { createFileRoute, Navigate } from '@tanstack/react-router'
 
-// Detail page for one integration. `admin_` (trailing underscore) keeps the URL
-// /admin/integrations/… without nesting inside the /admin hub component, mirroring admin_.$section.
+/** Connectors were called integrations for a while; keep old links to a connector working. */
 export const Route = createFileRoute('/admin_/integrations/$vendorId')({
-  component: AdminIntegrationRoute,
+  component: LegacyIntegrationRoute,
 })
 
-function AdminIntegrationRoute() {
+function LegacyIntegrationRoute() {
   const { vendorId } = Route.useParams()
-  return <AdminIntegrationDetailPage vendorId={vendorId} />
+  return <Navigate to="/admin/connectors/$vendorId" params={{ vendorId }} replace />
 }

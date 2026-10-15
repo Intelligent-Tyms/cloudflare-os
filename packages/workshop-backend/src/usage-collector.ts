@@ -36,6 +36,8 @@ export type BillingState = {
   seatLimit: number | null;
   agentLimit: number | null;
   aiBalanceMicroUsd: number;
+  // The plan's AI allowance per period, so callers can express the balance as a fraction.
+  aiMonthlyGrantMicroUsd: number;
   messagingBalanceMicroUsd: number;
   channelRatesMicroUsd: Record<string, number>;
   // Non-null on the free plan: AI turns are gated by the per-user daily counter instead of
@@ -45,6 +47,12 @@ export type BillingState = {
   // default alias (free-tier key pool); the fail-safe when anything omits it.
   aiKeyAlias: string | null;
   periodEnd: number;
+  // While trialing: when the trial ends and billing starts; null otherwise.
+  trialEndsAt: number | null;
+  // The card on file expires before the next charge (admins are nudged to update it).
+  cardExpiresBeforeNextCharge: boolean;
+  // A card is on file. False on a trial started without one (admins are asked to add one).
+  hasCard: boolean;
 };
 
 export class UsageCollectorDurableObject extends DurableObject<Cloudflare.Env> {
@@ -104,11 +112,16 @@ export class UsageCollectorDurableObject extends DurableObject<Cloudflare.Env> {
       seatLimit: e.seatLimit,
       agentLimit: e.agentLimit,
       aiBalanceMicroUsd: e.ai.balanceMicroUsd - pending.ai,
+      aiMonthlyGrantMicroUsd: e.ai.monthlyGrantMicroUsd,
       messagingBalanceMicroUsd: e.messaging.balanceMicroUsd - pending.messaging,
       channelRatesMicroUsd: e.channelRatesMicroUsd,
       freeDailyLlmCalls: e.freeDailyLlmCalls,
       aiKeyAlias: e.aiKeyAlias ?? null,
       periodEnd: e.periodEnd,
+      trialEndsAt: e.subscriptionStatus === "trialing" ? (e.trialEndsAt ?? null) : null,
+      cardExpiresBeforeNextCharge: e.cardExpiresBeforeNextCharge ?? false,
+      // A snapshot cached before the card field existed (undefined) never nags.
+      hasCard: e.card !== null,
     };
   }
 

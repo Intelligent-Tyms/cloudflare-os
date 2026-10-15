@@ -4,38 +4,41 @@ import { Link } from '@tanstack/react-router'
 import { Switch, Textarea, Input, Button, useKumoToastManager } from '@cloudflare/kumo'
 import {
   ArrowLeft,
+  ArrowUpRight,
+  BookOpenCheck,
   Bot,
   Building2,
-  ChevronRight,
   CreditCard,
+  Database,
   FileText,
   Hexagon,
-  Layers,
   Megaphone,
   MessagesSquare,
   Palette,
   Plug,
   ShieldAlert,
   Sparkles,
+  TrendingUp,
   UserPlus,
   Users,
+  Workflow,
   Zap,
 } from 'lucide-react'
 import { useAuthenticatedApi } from './AuthContext'
 import { useServerConfig } from './ServerConfigContext'
 import { AdminApi, AdminFormat, AdminModel, AdminResourceVendor, AdminSkill, ChannelsDescription, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
-import { INTEGRATION_DEPARTMENTS } from '@gadgets/workshop-shared/gatekeeper'
+import AdminConnectorsGallery from './components/AdminConnectorsGallery'
+import type { IntelligenceProductKind } from '@gadgets/workshop-shared/api'
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from './theme'
 import { cacheBustSiteLogoUrl, prepareSiteLogo } from './siteLogoUtils'
 import SiteLogo from './components/SiteLogo'
 import { useDocumentTitle } from './useDocumentTitle'
-import AdminBillingPanel from './components/AdminBillingPanel'
+import { CENTRAL_SETTINGS_PATH, portalLink, type Portal } from './portalLinks'
 import AdminChannelsPanel from './components/AdminChannelsPanel'
-import AdminPlansPanel from './components/AdminPlansPanel'
 import AdminFormatsPanel from './components/format/AdminFormatsPanel'
+import AdminIntelligencePanel, { AdminIntelligenceComingSoon } from './components/AdminIntelligencePanel'
 import AdminProvidersPanel from './components/AdminProvidersPanel'
 import AdminSkillsPanel from './components/AdminSkillsPanel'
-import AdminTeamPanel from './components/AdminTeamPanel'
 
 // Preset accent colors offered in the Theme section ('' = default brand).
 const ACCENT_PRESETS: { label: string; value: string }[] = [
@@ -53,9 +56,6 @@ const ACCENT_PRESETS: { label: string; value: string }[] = [
 // here (in `description`) instead of repeating it inside the card.
 export type AdminSectionId =
   | 'organization'
-  | 'teammates'
-  | 'plans'
-  | 'billing'
   | 'brand'
   | 'announcements'
   | 'access'
@@ -63,23 +63,54 @@ export type AdminSectionId =
   | 'formats'
   | 'skills'
   | 'channels'
-  | 'integrations'
+  | 'connectors'
   | 'providers'
+  | 'organization-intelligence'
+  | 'data-intelligence'
+  | 'market-intelligence'
+  | 'process-intelligence'
+
+// Cards for what is managed on the central portals (admin.tyms.ai, billing.tyms.ai) rather
+// than here. They open the portal page for this workspace and have no detail page of their own.
+type PortalSectionId = 'teammates' | 'billing' | 'assistant-settings' | 'intelligence-products' | 'channels-portal' | 'connectors-portal'
 
 type AdminSection = {
-  id: AdminSectionId
+  id: AdminSectionId | PortalSectionId
   title: string
   blurb: string
   description: string
   icon: ReactNode
+  /** Not built yet: the hub card says so, and the detail page is a placeholder. */
+  comingSoon?: boolean
+  /** Managed on a central portal: the card links to this page of it instead. */
+  portal?: { portal: Portal; path: string }
+  /**
+   * Edited on the admin portal once the deployment takes its settings from there
+   * (ServerConfig.settingsManagedCentrally): the card is hidden and the page points there.
+   * A portal card with this set is the opposite: shown only then.
+   */
+  central?: boolean
+  /** Meaningless with central sign-in (accounts are created centrally): hidden then. */
+  localSignInOnly?: boolean
 }
+
 
 const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
   {
     label: 'Workspace',
     sections: [
       {
+        id: 'assistant-settings',
+        title: 'Organization, brand & offerings',
+        blurb: 'What every assistant is told, the brand, notices, and which skills and AI models are offered. Opens the admin portal.',
+        description: '',
+        icon: <Building2 size={18} />,
+        portal: { portal: 'admin', path: CENTRAL_SETTINGS_PATH },
+        central: true,
+      },
+      {
         id: 'organization',
+        central: true,
         title: 'Organization',
         blurb: 'Tell your assistants what your organization does, your terminology, and key facts.',
         description:
@@ -89,29 +120,22 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       {
         id: 'teammates',
         title: 'Teammates',
-        blurb: 'Invite people to this workspace and manage who has access.',
-        description:
-          'Invite teammates by email, see who hasn’t joined yet, and remove members. Membership controls who can sign in to this workspace.',
+        blurb: 'Invite people to this workspace and manage who has access. Opens the admin portal.',
+        description: '',
         icon: <Users size={18} />,
-      },
-      {
-        id: 'plans',
-        title: 'Plans',
-        blurb: 'Compare plans and change your workspace plan.',
-        description:
-          'Compare plans and switch your workspace to a new one. Upgrades take effect immediately with a prorated charge; downgrades apply immediately and reduce your credit allowances.',
-        icon: <Layers size={18} />,
+        portal: { portal: 'admin', path: '/teammates' },
       },
       {
         id: 'billing',
-        title: 'Billing & usage',
-        blurb: 'Your plan, credit balances, usage, invoices, and payment details.',
-        description:
-          'Your workspace plan, credit balances, usage for the current period, invoices, and payment details. Top up credits any time; monthly allowances renew automatically.',
+        title: 'Plans & billing',
+        blurb: 'Your plan, credits, invoices, and payment details. Opens the billing portal.',
+        description: '',
         icon: <CreditCard size={18} />,
+        portal: { portal: 'billing', path: '' },
       },
       {
         id: 'brand',
+        central: true,
         title: 'Brand',
         blurb: 'Site name, logo, and accent color shown across the app.',
         description: 'Site name, logo, and accent color shown across the app. Changes apply to everyone on their next connection.',
@@ -119,6 +143,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
       {
         id: 'announcements',
+        central: true,
         title: 'Announcements',
         blurb: 'Banner and top-bar notices shown to everyone.',
         description: 'The full-width banner and the top-bar notice shown to everyone using this deployment.',
@@ -126,6 +151,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
       {
         id: 'access',
+        localSignInOnly: true,
         title: 'Access',
         blurb: 'Control whether new accounts can be created.',
         description: 'Control who can create an account on this deployment.',
@@ -138,6 +164,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
     sections: [
       {
         id: 'instructions',
+        central: true,
         title: 'Assistant instructions',
         blurb: 'Deployment-wide instructions added to every assistant.',
         description:
@@ -161,6 +188,7 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
       {
         id: 'channels',
+        central: true,
         title: 'Channels',
         blurb: 'Chat with your assistant in Telegram and Slack.',
         description:
@@ -168,15 +196,35 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         icon: <MessagesSquare size={18} />,
       },
       {
-        id: 'integrations',
-        title: 'Integrations',
-        blurb: 'The services assistants can connect to, organized by department.',
+        id: 'channels-portal',
+        title: 'Channels',
+        blurb: 'Telegram, email and Slack for your assistant. Opens the admin portal.',
+        description: '',
+        icon: <MessagesSquare size={18} />,
+        portal: { portal: 'admin', path: '/channels' },
+        central: true,
+      },
+      {
+        id: 'connectors',
+        central: true,
+        title: 'Connectors',
+        blurb: 'The services assistants can reach: set up company credentials and choose what people can connect.',
         description:
-          'The services assistants can connect to on this deployment, organized by the departments they serve. Open an integration to turn it on or off, toggle its resource types, or enter its setup. Changes are soft: they don’t revoke access an app already holds.',
+          'Everything assistants can reach outside this deployment. Company connectors run on a credential you enter once; personal ones are signed in to by each person. Open a connector to set it up, turn it on or off, or choose which of its resources are offered. Changes are soft: they don’t revoke access an app already holds.',
         icon: <Plug size={18} />,
       },
       {
+        id: 'connectors-portal',
+        title: 'Connectors',
+        blurb: 'The services assistants can reach: company credentials and what people can connect. Opens the admin portal.',
+        description: '',
+        icon: <Plug size={18} />,
+        portal: { portal: 'admin', path: '/connectors' },
+        central: true,
+      },
+      {
         id: 'providers',
+        central: true,
         title: 'AI models',
         blurb: 'Choose which AI models everyone on this deployment can use.',
         description:
@@ -185,36 +233,77 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
     ],
   },
+  {
+    label: 'Intelligence',
+    sections: [
+      {
+        id: 'intelligence-products',
+        title: 'Intelligence products',
+        blurb: 'Set up, reconnect and open Organization and Data Intelligence. Opens the admin portal.',
+        description: '',
+        icon: <BookOpenCheck size={18} />,
+        portal: { portal: 'admin', path: '/products' },
+        central: true,
+      },
+      {
+        id: 'organization-intelligence',
+        central: true,
+        title: 'Organization intelligence',
+        blurb: 'Your own documents, synthesized into a reviewed wiki the assistant answers from and cites.',
+        description:
+          'Organization Intelligence turns your own documents into a reviewed wiki of your organization’s knowledge. Verified pages become precedents the assistant answers from and cites. The wiki is set up the first time you open this page and connects the assistant automatically; from here you open it signed in and manage it.',
+        icon: <BookOpenCheck size={18} />,
+      },
+      {
+        id: 'data-intelligence',
+        central: true,
+        title: 'Data intelligence',
+        blurb: 'Connect your databases read-only for analysts and the assistant.',
+        description:
+          'Data Intelligence connects your own databases and warehouses, read-only. Analysts work in the data workbench; the assistant answers from the same connections and cites every query it ran. The workbench is set up the first time you open this page and connects the assistant automatically; from here you open it signed in and manage connections.',
+        icon: <Database size={18} />,
+      },
+      {
+        id: 'market-intelligence',
+        central: true,
+        title: 'Market intelligence',
+        blurb: 'Competitive insight and industry trends for the market you operate in.',
+        description:
+          'Market Intelligence keeps your assistants informed about the market you operate in: competitors, industry trends, and the outward-looking context that pairs with your organization’s own knowledge.',
+        icon: <TrendingUp size={18} />,
+        comingSoon: true,
+      },
+      {
+        id: 'process-intelligence',
+        central: true,
+        title: 'Process intelligence',
+        blurb: 'Process metrics, workflows, and performance across the business.',
+        description:
+          'Process Intelligence gives your assistants a view of how work actually flows: process metrics, workflows, and performance, so they can answer about what is happening and where it stalls.',
+        icon: <Workflow size={18} />,
+        comingSoon: true,
+      },
+    ],
+  },
+]
+
+// The Intelligence cards, keyed by section: which product each one manages. Market and Process
+// have no cell yet, so their pages are placeholders (no product to provision).
+const INTELLIGENCE_SECTION_PRODUCT: Partial<Record<AdminSectionId, IntelligenceProductKind>> = {
+  'organization-intelligence': 'organization',
+  'data-intelligence': 'data',
+}
+const INTELLIGENCE_SECTION_IDS: readonly AdminSectionId[] = [
+  'organization-intelligence',
+  'data-intelligence',
+  'market-intelligence',
+  'process-intelligence',
 ]
 
 const ADMIN_SECTIONS = ADMIN_GROUPS.flatMap((g) => g.sections)
 
 export function isAdminSectionId(value: string): value is AdminSectionId {
-  return ADMIN_SECTIONS.some((s) => s.id === value)
-}
-
-// Group integrations by their primary department (departments[0]). Cross-department services
-// (no departments) come first under "General"; departments with no integrations don't render.
-function groupVendorsByDepartment(vendors: AdminResourceVendor[]): { label: string; vendors: AdminResourceVendor[] }[] {
-  const general = vendors.filter((v) => !v.departments?.length)
-  return [
-    ...(general.length > 0 ? [{ label: 'General', vendors: general }] : []),
-    ...INTEGRATION_DEPARTMENTS.map((d) => ({
-      label: d.label,
-      vendors: vendors.filter((v) => v.departments?.[0] === d.id),
-    })).filter((g) => g.vendors.length > 0),
-  ]
-}
-
-// One-line status for an integration row on the admin list.
-export function integrationStatus(vendor: AdminResourceVendor): { label: string; tone: 'on' | 'off' | 'attention' } {
-  if (vendor.autoProvisions) {
-    const mode = vendor.ambientMode ?? 'enabled'
-    if (mode === 'disabled') return { label: 'Off', tone: 'off' }
-    return mode === 'enabled' ? { label: 'On for everyone', tone: 'on' } : { label: 'Optional', tone: 'on' }
-  }
-  if (vendor.setup?.status === 'unconfigured') return { label: 'Needs setup', tone: 'attention' }
-  return vendor.enabled ? { label: 'Enabled', tone: 'on' } : { label: 'Off', tone: 'off' }
+  return ADMIN_SECTIONS.some((s) => s.id === value && !s.portal)
 }
 
 // Swatch background per banner color, matching AnnouncementBanner's accent styles.
@@ -230,9 +319,12 @@ const BANNER_SWATCH: Record<BannerColor, string> = {
 export default function AdminPage({ section }: { section?: AdminSectionId }) {
   const { authenticatedApi, isAdmin } = useAuthenticatedApi()
   const toasts = useKumoToastManager()
-  // Teammate membership lives in the central team directory, not this deployment; the hub
-  // hides the Teammates card entirely when central login isn't configured.
-  const centralLoginUrl = useServerConfig()?.centralLoginUrl
+  // Intelligence lives in the central directory; the hub hides its cards when central login
+  // isn't configured. Teammates and billing are on the portals; their cards need the links.
+  const serverConfig = useServerConfig()
+  const centralLoginUrl = serverConfig?.centralLoginUrl
+  const managed = Boolean(serverConfig?.settingsManagedCentrally)
+  const centralSettingsUrl = portalLink(serverConfig, 'admin', CENTRAL_SETTINGS_PATH)
   const sectionMeta = section ? ADMIN_SECTIONS.find((s) => s.id === section) : undefined
   useDocumentTitle(sectionMeta ? `${sectionMeta.title} · Admin` : 'Admin')
 
@@ -282,7 +374,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
   const [signupsEnabled, setSignupsEnabled] = useState(true)
   const [savingSignups, setSavingSignups] = useState(false)
 
-  // Gatekeeper resource config; per-integration controls live on /admin/integrations/$vendorId.
+  // Gatekeeper resource config; per-connector controls live on /admin/connectors/$vendorId.
   const [resourceVendors, setResourceVendors] = useState<AdminResourceVendor[]>([])
 
   // Promoted output formats, in menu order (see AdminFormatsPanel).
@@ -299,23 +391,30 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
   const [channels, setChannels] = useState<ChannelsDescription | null>(null)
 
   // Populate all editor state from a freshly-fetched settings view.
+  // Settings are re-fetched whenever the API session reconnects, which can happen mid-edit. A draft
+  // the admin has changed since the last load is kept; an untouched one follows the server.
+  const lastSettingsRef = useRef<Awaited<ReturnType<RpcStub<AdminApi>['getSettings']>> | null>(null)
   const applySettings = (view: Awaited<ReturnType<RpcStub<AdminApi>['getSettings']>>) => {
+    const prev = lastSettingsRef.current
+    lastSettingsRef.current = view
+    const draftOf = <T,>(prevSaved: T | undefined, next: T) => (draft: T): T =>
+      prev && draft !== prevSaved ? draft : next
     setSignupsEnabled(view.signupsEnabled)
     setSavedSiteName(view.siteName)
-    setSiteNameDraft(view.siteName)
+    setSiteNameDraft(draftOf(prev?.siteName, view.siteName))
     setSiteLogoUrl(view.siteLogo?.url ?? null)
     setResourceVendors(view.resourceVendors)
     setSavedInstructions(view.instanceInstructions)
-    setInstructionsDraft(view.instanceInstructions)
+    setInstructionsDraft(draftOf(prev?.instanceInstructions, view.instanceInstructions))
     setSavedOrgProfile(view.organizationProfile)
-    setOrgProfileDraft(view.organizationProfile)
+    setOrgProfileDraft(draftOf(prev?.organizationProfile, view.organizationProfile))
     setSavedAnnouncement(view.announcement)
-    setAnnouncementDraft(view.announcement)
+    setAnnouncementDraft(draftOf(prev?.announcement, view.announcement))
     setSavedBanner(view.banner)
-    setBannerTextDraft(view.banner.text)
-    setBannerColorDraft(view.banner.color)
+    setBannerTextDraft(draftOf(prev?.banner.text, view.banner.text))
+    setBannerColorDraft(draftOf(prev?.banner.color, view.banner.color))
     setSavedAccent(view.accentColor)
-    setAccentDraft(view.accentColor)
+    setAccentDraft(draftOf(prev?.accentColor, view.accentColor))
     setFormats(view.formats)
     setSkills(view.skills)
     setCuratedModels(view.models)
@@ -531,38 +630,78 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
         </div>
 
         <div className="mt-8 flex flex-col gap-9">
-          {ADMIN_GROUPS.map((group) => (
+          {ADMIN_GROUPS.map((group) => ({
+            ...group,
+            // Intelligence lives in the central directory and portal cards need their portal;
+            // without them there is nothing behind a card, so it (and an emptied group) is hidden.
+            // Centrally managed settings swap their cards for the one portal card.
+            sections: group.sections.filter((s) =>
+              (s.portal ? Boolean(portalLink(serverConfig, s.portal.portal, s.portal.path))
+                : !INTELLIGENCE_SECTION_IDS.includes(s.id as AdminSectionId) || Boolean(centralLoginUrl))
+              && (!s.central || (s.portal ? managed : !managed))
+              && !(s.localSignInOnly && centralLoginUrl)),
+          })).filter((group) => group.sections.length > 0).map((group) => (
             <section key={group.label} className="flex flex-col gap-3">
               <h2 className="px-1 text-[12px] font-medium uppercase tracking-[0.08em] text-kumo-inactive">
                 {group.label}
               </h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {group.sections
-                  .filter((s) => s.id !== 'teammates' || Boolean(centralLoginUrl))
-                  .map((s) => (
-                  <Link
-                    key={s.id}
-                    to="/admin/$section"
-                    params={{ section: s.id }}
-                    className="group flex items-start gap-4 rounded-xl border border-kumo-line bg-kumo-elevated p-5 transition-colors hover:bg-kumo-tint"
-                  >
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-kumo-tint text-kumo-default transition-colors group-hover:bg-kumo-fill">
-                      {s.icon}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-[15px] font-semibold tracking-[-0.25px] text-kumo-strong">
-                        {s.title}
+                {group.sections.map((s) => {
+                  const cardClass = 'group flex items-start gap-4 rounded-xl border border-kumo-line bg-kumo-elevated p-5 transition-colors hover:bg-kumo-tint'
+                  const body = (
+                    <>
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-kumo-tint text-kumo-default transition-colors group-hover:bg-kumo-fill">
+                        {s.icon}
                       </span>
-                      <span className="mt-1 block text-[13px] leading-[18px] tracking-[-0.2px] text-kumo-subtle">
-                        {s.blurb}
+                      <span className="min-w-0">
+                        <span className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.25px] text-kumo-strong">
+                          {s.title}
+                          {s.portal && <ArrowUpRight size={14} className="text-kumo-subtle" aria-hidden />}
+                          {s.comingSoon && (
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-kumo-tint text-kumo-subtle border border-kumo-line">
+                              Coming later
+                            </span>
+                          )}
+                        </span>
+                        <span className="mt-1 block text-[13px] leading-[18px] tracking-[-0.2px] text-kumo-subtle">
+                          {s.blurb}
+                        </span>
                       </span>
-                    </span>
-                  </Link>
-                ))}
+                    </>
+                  )
+                  return s.portal ? (
+                    <a key={s.id} href={portalLink(serverConfig, s.portal.portal, s.portal.path)} className={cardClass}>
+                      {body}
+                    </a>
+                  ) : (
+                    <Link key={s.id} to="/admin/$section" params={{ section: s.id as AdminSectionId }} className={cardClass}>
+                      {body}
+                    </Link>
+                  )
+                })}
               </div>
             </section>
           ))}
         </div>
+      </div>
+    )
+  }
+
+  // A bookmark or old link onto a page the admin portal now owns.
+  if (managed && sectionMeta.central) {
+    const portalPageUrl = INTELLIGENCE_SECTION_IDS.includes(sectionMeta.id as AdminSectionId)
+      ? portalLink(serverConfig, 'admin', '/products')
+      : sectionMeta.id === 'channels' ? portalLink(serverConfig, 'admin', '/channels')
+      : sectionMeta.id === 'connectors' ? portalLink(serverConfig, 'admin', '/connectors')
+      : centralSettingsUrl
+    return (
+      <div className="mx-auto w-full max-w-[1040px] px-4 sm:px-8 py-16 text-center">
+        <p className="text-sm text-kumo-default">{sectionMeta.title} is now managed on the admin portal.</p>
+        {portalPageUrl && (
+          <a href={portalPageUrl} className="text-kumo-brand mt-2 inline-block text-sm underline">
+            Open the admin portal
+          </a>
+        )}
       </div>
     )
   }
@@ -587,7 +726,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1040px] px-4 sm:px-8 py-8 space-y-6">
+    <div className={`mx-auto w-full ${section === 'connectors' ? 'max-w-[1240px]' : 'max-w-[1040px]'} px-4 sm:px-8 py-8 space-y-6`}>
       <div>
         <Link
           to="/admin"
@@ -620,12 +759,6 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
 
       {/* Messaging channels */}
       {section === 'channels' && <AdminChannelsPanel channels={channels} />}
-
-      {/* Plans */}
-      {section === 'plans' && admin && <AdminPlansPanel admin={admin.api} />}
-
-      {/* Billing & usage */}
-      {section === 'billing' && admin && <AdminBillingPanel admin={admin.api} />}
 
       {/* Sign-ups */}
       {section === 'access' && (
@@ -1045,70 +1178,18 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
       )}
 
       {/* Teammates: full management, proxied to the central team directory. */}
-      {section === 'teammates' && admin && <AdminTeamPanel admin={admin.api} />}
 
-      {/* Integrations: a department-grouped index. Everything per-integration (on/off, resource
-          toggles, setup) lives on /admin/integrations/$vendorId. */}
-      {section === 'integrations' && (
-        <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
-          {resourceVendors.length === 0 ? (
-            <p className="text-sm text-kumo-subtle">
-              No configurable integrations are installed on this deployment.
-            </p>
-          ) : (
-            <div className="space-y-6">
-              {groupVendorsByDepartment(resourceVendors).map((group) => (
-                <div key={group.label}>
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-kumo-subtle mb-1 px-3">
-                    {group.label}
-                  </h3>
-                  <div className="space-y-1">
-                    {group.vendors.map((vendor) => {
-                      const status = integrationStatus(vendor)
-                      return (
-                        <Link
-                          key={vendor.vendorId}
-                          to="/admin/integrations/$vendorId"
-                          params={{ vendorId: vendor.vendorId }}
-                          className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-kumo-tint transition-colors"
-                        >
-                          {vendor.logo && (
-                            <img
-                              src={vendor.logo.url}
-                              alt=""
-                              className={`w-6 h-6 object-contain ${status.tone === 'off' ? 'grayscale opacity-40' : ''}`}
-                            />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-semibold truncate ${status.tone === 'off' ? 'text-kumo-subtle' : 'text-kumo-default'}`}>
-                              {vendor.displayName}
-                            </p>
-                            {vendor.tagline && (
-                              <p className="text-xs text-kumo-subtle truncate mt-0.5">{vendor.tagline}</p>
-                            )}
-                          </div>
-                          {status.tone === 'attention' ? (
-                            <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-600">
-                              {status.label}
-                            </span>
-                          ) : status.tone === 'off' ? (
-                            <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-kumo-tint text-kumo-subtle border border-kumo-line">
-                              {status.label}
-                            </span>
-                          ) : (
-                            <span className="shrink-0 text-xs text-kumo-subtle">{status.label}</span>
-                          )}
-                          <ChevronRight size={16} className="shrink-0 text-kumo-subtle" />
-                        </Link>
-                      )
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* Intelligence: one page per product. Organization and Data provision here (proxied to
+          the control plane); Market and Process are placeholders until their cells exist. */}
+      {INTELLIGENCE_SECTION_PRODUCT[section] && admin && (
+        <AdminIntelligencePanel admin={admin.api} kind={INTELLIGENCE_SECTION_PRODUCT[section]} />
       )}
+      {section === 'market-intelligence' && <AdminIntelligenceComingSoon kind="market" />}
+      {section === 'process-intelligence' && <AdminIntelligenceComingSoon kind="process" />}
+
+      {/* Connectors: a category-filtered gallery. Everything per-connector (setup, on/off,
+          resource toggles) lives on /admin/connectors/$vendorId. */}
+      {section === 'connectors' && <AdminConnectorsGallery vendors={resourceVendors} />}
 
       {/* AI models */}
       {section === 'providers' && admin && (
