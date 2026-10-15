@@ -100,12 +100,10 @@ The trailing content bytes are the same gzip-compressed Yjs snapshot that is alr
 
 ## Admin Features and Featured Blueprints
 
-Deployments can optionally configure a set of admin usernames through the backend worker's `ADMINS` binding as an array of usernames.
+A workspace's owners and admins (their central role, from the handoff) get two extra RPCs:
 
-Admins get access to two extra RPCs:
-
-- `AuthenticatedApi.adminIsBlueprintFeatured()` returns whether a published blueprint is currently featured.
-- `AuthenticatedApi.adminSetBlueprintFeatured()` marks or unmarks a blueprint as featured.
+- `AuthenticatedApi.isBlueprintFeatured()` returns whether a published blueprint is currently featured.
+- `AuthenticatedApi.setBlueprintFeatured()` marks or unmarks a blueprint as featured.
 
 Only gadget-backed published blueprints are featureable. Uploaded/imported library blueprints are intentionally excluded.
 

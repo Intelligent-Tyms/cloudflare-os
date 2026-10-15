@@ -1,5 +1,5 @@
 import { failureTitle, logRpcFailure } from '../rpcErrors'
-import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 import { useKumoToastManager } from '@cloudflare/kumo'
 import {
@@ -515,13 +515,12 @@ type ModalTarget =
 export function ConnectorsPage() {
   useDocumentTitle('Connectors')
   const siteName = useSiteName()
-  // Where administrators add and set up connectors: the admin portal once it manages them.
+  // Where administrators add and set up connectors: the admin portal.
   const serverConfig = useServerConfig()
   const portalConnectors = centralConnectorsLink(serverConfig)
 
   const { authenticatedApi, isAdmin } = useAuthenticatedApi()
   const toasts = useKumoToastManager()
-  const navigate = useNavigate()
 
   const [search, setSearch] = useState('')
   const [view, setView] = useState<'grid' | 'list'>(() => {
@@ -825,7 +824,7 @@ export function ConnectorsPage() {
                 ? 'The apps and accounts your team’s workspaces can use. You add them for the company; people sign in only where a connector uses their own account.'
                 : 'The apps and accounts your company has added. Sign in where a connector uses your own account. The rest are ready to use.'}
             </p>
-            {isAdmin && (portalConnectors ? (
+            {isAdmin && portalConnectors && (
               <a
                 href={portalConnectors}
                 className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-full border border-kumo-line bg-kumo-base px-4 text-[13px] leading-4 font-medium tracking-[-0.2px] text-kumo-default transition-[background-color,border-color] duration-150 ease-out hover:border-kumo-fill hover:bg-kumo-tint"
@@ -833,16 +832,7 @@ export function ConnectorsPage() {
                 <Plus size={14} strokeWidth={2.5} />
                 Add or manage connectors
               </a>
-            ) : (
-              <Link
-                to="/admin/$section"
-                params={{ section: 'connectors' }}
-                className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-full border border-kumo-line bg-kumo-base px-4 text-[13px] leading-4 font-medium tracking-[-0.2px] text-kumo-default transition-[background-color,border-color] duration-150 ease-out hover:border-kumo-fill hover:bg-kumo-tint"
-              >
-                <Plus size={14} strokeWidth={2.5} />
-                Add or manage connectors
-              </Link>
-            ))}
+            )}
           </div>
           <ConnectorsHeroDiagram accounts={accounts} vendors={vendors} siteName={siteName} />
         </header>
@@ -956,7 +946,6 @@ export function ConnectorsPage() {
                       if (adminsToAdd) {
                         const portalUrl = centralConnectorsLink(serverConfig, vendor.id)
                         if (portalUrl) window.location.assign(portalUrl)
-                        else void navigate({ to: '/admin/connectors/$vendorId', params: { vendorId: vendor.id } })
                       } else {
                         handleOpenConnect(vendor.id)
                       }
@@ -989,9 +978,7 @@ export function ConnectorsPage() {
                 search
                   ? "We couldn't find anything matching your search."
                   : isAdmin
-                    ? portalConnectors
-                      ? 'Add connectors for your team on the admin portal.'
-                      : 'Add connectors for your team under Admin → Connectors.'
+                    ? 'Add connectors for your team on the admin portal.'
                     : 'Connectors appear here once an administrator adds them for your company.'
               }
               icon={Unplug}

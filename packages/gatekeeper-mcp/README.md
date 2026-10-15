@@ -97,7 +97,7 @@ Adding a server is an administrator's job; a member only signs in.
   member's connect to the catalog servers they may sign in to. A connect limited that way
   pre-selects its one server, or shows a page of just those choices: there is no address or key
   to type.
-- **An administrator adds a server for the company** under Admin → Connectors → Custom MCP
+- **An administrator adds a server for the company** on the admin portal's Connectors page (Custom MCP)
   server: a name, the endpoint URL, and the company's API key if the server takes one
   (`src/tenant-servers.ts`). The server is connected before it is saved, so a wrong address or a
   rejected key fails there and then. It then behaves like a company server from the catalog: a

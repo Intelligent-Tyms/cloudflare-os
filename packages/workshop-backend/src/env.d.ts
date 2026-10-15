@@ -6,10 +6,6 @@ import type { ProductAnalyticsRecord } from "./analytics";
 declare global {
   namespace Cloudflare {
     interface Env {
-      // Deployment-wide admin usernames: a JSON binding, or the same array as a JSON string
-      // (which is what a secret binding, can carry).
-      ADMINS?: string[] | string;
-
       // Workers AI binding (injected by generate-wrangler-prod / run-dev-server; not in base wrangler.jsonc).
       WORKERS_AI: Ai;
 
@@ -112,7 +108,7 @@ declare global {
 
       // This workspace's pages on the central admin and billing portals (e.g.
       // "https://admin.tyms.ai/acme", "https://billing.tyms.ai/acme"). Teammates, plans and
-      // billing are managed there, not in this deployment's /admin; the client links to them.
+      // billing are managed there; the client links to them.
       // Unset = no portal, and those links are hidden.
       ADMIN_PORTAL_URL?: string;
       BILLING_PORTAL_URL?: string;

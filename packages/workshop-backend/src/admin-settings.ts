@@ -1,4 +1,4 @@
-import { AdminApi, AdminFormat, AdminFormatPatch, AdminFormatsView, AdminModel, AdminResourceVendor, AdminSettingsView, AdminSkill, AiChatAuthorInfo, AiModelConfig, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, INTELLIGENCE_PRODUCT_KINDS, INTELLIGENCE_PRODUCT_NAMES, IntelligenceInstanceView, IntelligenceOverview, IntelligenceProductKind, IntelligenceProductOverview, ChannelsDescription, EmailInbox, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, SkillMarketplaceEntry, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { AdminFormat, AdminFormatPatch, AdminFormatsView, AdminModel, AdminResourceVendor, AdminSkill, AiChatAuthorInfo, AmbientGatekeeperMode, BlueprintPublicInfo, INTELLIGENCE_PRODUCT_KINDS, INTELLIGENCE_PRODUCT_NAMES, IntelligenceInstanceView, IntelligenceOverview, IntelligenceProductKind, IntelligenceProductOverview, ChannelsDescription, EmailInbox, SUGGESTED_MODELS, SkillMarketplaceEntry, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor, SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES, SkillPackage, SkillPackageFile, VendorSetup } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
@@ -8,7 +8,7 @@ import { createWorkshopLogger } from "./observability";
 import { buildTemplateArchive, catalogMetadata, fetchCatalogPackage, listFeaturedWithCatalog } from "./template-catalog.js";
 import { ADMIN_CONFIG_KEY, FEATURED_BLUEPRINTS_KEY, isReservedBlueprintKey, parseBlueprintKvRecord, readBlueprintKvRecord, sanitizeBlueprintOutput, serializeFeaturedBlueprints } from './blueprint-archive.js';
 import { AdminConfig, DEFAULT_ADMIN_CONFIG, FormatCuration, MAX_AGENT_HINT, defaultOutputFormatId, listPromotedFormats, reorderFormats, sanitizeOutputOverrides, serializeAdminConfig } from './admin-config.js';
-import { SITE_LOGO_R2_KEY, siteLogoImage, validateSiteLogo } from './site-logo.js';
+import { SITE_LOGO_R2_KEY, validateSiteLogo } from './site-logo.js';
 import { ambientGatekeeperMode, DEFAULT_AMBIENT_GATEKEEPER_MODE } from './provisioning-policy.js';
 import { buildGatekeeperVendorMap } from './auth/auth-vendors.js';
 import { UserDurableObject, type UserAiModelRecord } from './user.js';
@@ -388,7 +388,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
   }
 
   /**
-   * Merge a partial update into the admin config and mirror it to KV. Callers (AdminApiImpl) validate
+   * Merge a partial update into the admin config and mirror it to KV. Callers validate
    * scalar values; this just persists atomically.
    */
   updateAdminConfig(patch: Partial<AdminConfig>): Promise<void> {
@@ -490,35 +490,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
     this.storage.centralCatalogReport.put({ fingerprint, sentAt: now, checkedAt: now });
   }
 
-  /**
-   * Read all admin-managed settings for the admin UI in one call: the stored config plus the live
-   * resource catalog (every bound gatekeeper's resource types annotated with their enabled state).
-   *
-   * `adminUserId` is the requesting admin's user id (email/username), forwarded to each gatekeeper's
-   * getSupportedResources(). Most gatekeepers ignore it, but RBAC-gated ones (e.g. the internal GTM
-   * Data gatekeeper) only reveal their resources to users with the right permission — so without it
-   * they'd be hidden from the admin Gatekeepers tab.
-   */
-  async getSettings(adminUserId: string): Promise<AdminSettingsView> {
-    let config = this.#config();
-    return {
-      signupsEnabled: config.signupsEnabled,
-      siteName: config.siteName,
-      siteLogo: siteLogoImage(config.siteLogoConfigured),
-      instanceInstructions: config.instanceInstructions,
-      organizationProfile: config.organizationProfile,
-      announcement: config.announcement,
-      banner: config.banner,
-      accentColor: config.accentColor,
-      resourceVendors: await this.#listResourceConfig(config, adminUserId),
-      formats: await this.#listFormatConfig(config),
-      skills: await this.#listSkillConfig(config),
-      models: this.#listModelConfig(config),
-      channels: await describeChannels(this.env),
-    };
-  }
-
-  /** The connector catalog alone, for callers that need nothing else from getSettings(). */
+  /** The connector catalog: every bound connector and its resource types, with what is on. */
   async getConnectors(adminUserId: string): Promise<AdminResourceVendor[]> {
     return this.#listResourceConfig(this.#config(), adminUserId);
   }
@@ -597,56 +569,10 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
     return result;
   }
 
-  // Enable/disable a single platform-catalog model atomically (read-modify-write within the DO).
-  // Enabling is also how a stale (`missing`) curation entry is cleared: the disabled set is the
-  // whole state.
-  async setModelEnabled(id: string, enabled: boolean): Promise<void> {
-    if (!getAiGatewayConfig(this.env)) {
-      throw new Error("Model curation requires AI Gateway mode.");
-    }
-    await this.#mutateAdminConfig(config => {
-      if (config.centralSettingsVersion > 0) throw new Error(MANAGED_ON_PORTAL);
-      let disabled = new Set(config.disabledModels);
-      if (enabled) disabled.delete(id); else disabled.add(id);
-      return { ...config, disabledModels: [...disabled] };
-    });
-  }
-
   // Raw stored record, INCLUDING the provider API token. For server-side chat-context resolution
   // only -- never exposed through AdminApiImpl.
   async getModelRecord(id: string): Promise<UserAiModelRecord | null> {
     return this.storage.aiModels.get(id) ?? null;
-  }
-
-  async addModel(profile: AiChatAuthorInfo, config: AiModelConfig): Promise<void> {
-    // Platform gateway mode has no BYOK: the platform holds the keys, and admins curate the
-    // catalog with setModelEnabled instead of adding models.
-    if (getAiGatewayConfig(this.env)) {
-      throw new Error(
-          "This deployment's models are platform-managed. Enable or disable them under " +
-          "Admin → AI models.");
-    }
-
-    profile.type = "agent";
-    this.storage.aiModels.put({profile, config});
-  }
-
-  async deleteModel(id: string): Promise<void> {
-    // In AI Gateway mode, don't allow deleting built-in suggested models.
-    let gwConfig = getAiGatewayConfig(this.env);
-    if (gwConfig) {
-      for (let [provider, models] of Object.entries(SUGGESTED_MODELS)) {
-        if (gwConfig.providers.has(provider) && id in models) {
-          throw new Error(`Cannot delete built-in model "${models[id].name}".`);
-        }
-      }
-    }
-
-    this.storage.aiModels.delete(id);
-  }
-
-  async setQuickModel(id: string | null): Promise<void> {
-    this.storage.quickModel.put(id);
   }
 
   // The quick-model id, or null when unset or pointing at a since-deleted model.
@@ -803,17 +729,6 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
       }
     }
     return [...byName.values()].toSorted((a, b) => a.name.localeCompare(b.name));
-  }
-
-  // Enable/disable a single agent skill atomically (read-modify-write within the DO). Enabling is
-  // also how a stale (`missing`) curation entry is cleared: the disabled set is the whole state.
-  async setSkillEnabled(name: string, enabled: boolean): Promise<void> {
-    await this.#mutateAdminConfig(config => {
-      if (config.centralSettingsVersion > 0) throw new Error(MANAGED_ON_PORTAL);
-      let disabled = new Set(config.disabledSkills);
-      if (enabled) disabled.delete(name); else disabled.add(name);
-      return { ...config, disabledSkills: [...disabled] };
-    });
   }
 
   // --- Skill marketplace ---
@@ -1118,15 +1033,14 @@ async function isAmbientOnly(vendor: Service<GatekeeperVendor>): Promise<boolean
   return (await vendor.getSupportedResources()).length === 0;
 }
 
-// Capability for managing deployment-wide admin settings, obtained via
-// AuthenticatedApi.getAdminApi() (which is null for non-admins). The admin access check happens once
-// when the capability is minted in server.ts, so these methods don't re-check. This is a thin
-// validation+forwarding facade over the AdminSettings DO — fully user-independent — so a disabled
-// gatekeeper/resource can't be re-enabled via a crafted request, and the client never receives a
-// stub to the DO's internal methods. Covers branding, agent instructions, signups, and gatekeeper
-// integration/resource availability; authentication config stays env-var driven.
+// What the admin portal runs here: admin calls from the control plane (central-admin.ts, which
+// checked the call's signature and that the method is one of CENTRAL_ADMIN_METHODS). The
+// control plane checked the actor's role, so these methods don't re-check. A thin
+// validation+forwarding facade over the AdminSettings DO, the connectors, the channels worker and
+// the intelligence directory; never handed to a browser. Settings the portal stores itself
+// arrive through the central settings pull instead (central-settings.ts).
 @validateRpc()
-export class AdminApiImpl extends RpcTarget implements AdminApi {
+export class CentralAdminApi extends RpcTarget {
   /**
    * `adminUserId` is the requesting admin's identity, forwarded to gatekeepers when listing the
    * resource catalog (some are RBAC-gated per user) and to the control plane as the acting
@@ -1138,48 +1052,12 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
     super();
   }
 
-  getSettings(): Promise<AdminSettingsView> {
-    return this.admin.getSettings(this.adminUserId);
-  }
-
   getConnectors(): Promise<AdminResourceVendor[]> {
     return this.admin.getConnectors(this.adminUserId);
   }
 
   getFormats(): Promise<AdminFormatsView> {
     return this.admin.getFormats();
-  }
-
-  async setSignupsEnabled(enabled: boolean): Promise<void> {
-    await this.admin.updateAdminConfig({ signupsEnabled: enabled });
-  }
-
-  async setSiteName(name: string): Promise<void> {
-    if (name.length > MAX_SITE_NAME_LENGTH) {
-      throw new Error(`Site name too long (max ${MAX_SITE_NAME_LENGTH} characters).`);
-    }
-    await this.admin.updateAdminConfig({ siteName: name });
-  }
-
-  async setSiteLogo(data: Uint8Array | null): Promise<AdminSettingsView['siteLogo']> {
-    if ((await this.admin.getAdminConfig()).centralSettingsVersion > 0) throw new Error(MANAGED_ON_PORTAL);
-    if (data !== null) validateSiteLogo(data);
-    return siteLogoImage(await this.admin.setSiteLogo(data));
-  }
-
-  async setInstanceInstructions(text: string): Promise<void> {
-    if (text.length > MAX_INSTANCE_INSTRUCTIONS_LENGTH) {
-      throw new Error(`Instructions too long (max ${MAX_INSTANCE_INSTRUCTIONS_LENGTH} characters).`);
-    }
-    await this.admin.updateAdminConfig({ instanceInstructions: text });
-  }
-
-  async setOrganizationProfile(text: string): Promise<void> {
-    if (text.length > MAX_ORGANIZATION_PROFILE_LENGTH) {
-      throw new Error(
-          `Organization profile too long (max ${MAX_ORGANIZATION_PROFILE_LENGTH} characters).`);
-    }
-    await this.admin.updateAdminConfig({ organizationProfile: text });
   }
 
   setResourceEnabled(vendorId: string, urlPattern: string, enabled: boolean): Promise<void> {
@@ -1191,38 +1069,6 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
       throw new Error(`Invalid integration mode: ${mode}`);
     }
     return this.admin.setGatekeeperMode(vendorId, mode);
-  }
-
-  async setAnnouncement(text: string): Promise<void> {
-    if (text.length > MAX_ANNOUNCEMENT_LENGTH) {
-      throw new Error(`Announcement too long (max ${MAX_ANNOUNCEMENT_LENGTH} characters).`);
-    }
-    await this.admin.updateAdminConfig({ announcement: text });
-  }
-
-  async setBanner(text: string, color: BannerColor): Promise<void> {
-    if (text.length > MAX_ANNOUNCEMENT_LENGTH) {
-      throw new Error(`Banner too long (max ${MAX_ANNOUNCEMENT_LENGTH} characters).`);
-    }
-    if (!isBannerColor(color)) {
-      throw new Error(`Invalid banner color: ${color}`);
-    }
-    await this.admin.updateAdminConfig({ banner: { text, color } });
-  }
-
-  async setAccentColor(color: string): Promise<void> {
-    if (color !== "" && !isHexColor(color)) {
-      throw new Error(`Invalid accent color: ${color}`);
-    }
-    await this.admin.updateAdminConfig({ accentColor: color });
-  }
-
-  isBlueprintFeatured(blueprintId: string): Promise<boolean | null> {
-    return this.admin.isBlueprintFeatured(blueprintId);
-  }
-
-  setBlueprintFeatured(blueprintId: string, featured: boolean): Promise<void> {
-    return this.admin.setBlueprintFeatured(blueprintId, featured);
   }
 
   promoteFormat(blueprintId: string): Promise<void> {
@@ -1239,25 +1085,6 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
 
   setFormatOrder(blueprintIds: string[]): Promise<void> {
     return this.admin.setFormatOrder(blueprintIds);
-  }
-
-  async setSkillEnabled(name: string, enabled: boolean): Promise<void> {
-    // Same bound as the SKILL.md frontmatter schema, so a name that can't belong to any skill
-    // can't grow the config; the shape stays free-form since curation may outlive the skill.
-    if (!name.trim() || name.length > 64) {
-      throw new Error("Invalid skill name.");
-    }
-    await this.admin.setSkillEnabled(name, enabled);
-  }
-
-  async setModelEnabled(id: string, enabled: boolean): Promise<void> {
-    // Loose bound like skills: curation may outlive the catalog entry (clearing a `missing` id),
-    // so only reject values that can't be a model id at all. Workers AI ids ("@cf/...") are the
-    // longest shape.
-    if (!id.trim() || id.length > 128) {
-      throw new Error("Invalid model id.");
-    }
-    await this.admin.setModelEnabled(id, enabled);
   }
 
   listSkillMarketplace(): Promise<SkillMarketplaceEntry[] | null> {
@@ -1379,18 +1206,6 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
       }
     }
     await (await this.#setupVendor(vendorId)).clearSetup(names);
-  }
-
-  addModel(profile: AiChatAuthorInfo, config: AiModelConfig): Promise<void> {
-    return this.admin.addModel(profile, config);
-  }
-
-  deleteModel(id: string): Promise<void> {
-    return this.admin.deleteModel(id);
-  }
-
-  setQuickModel(id: string | null): Promise<void> {
-    return this.admin.setQuickModel(id);
   }
 
   // --- Intelligence (control plane + each product's gatekeeper setup store) ---
@@ -1533,22 +1348,4 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
     return this.#intelligenceOverview(view);
   }
 
-  /**
-   * The admin's identity here is the one the central handoff signed them in with (their
-   * email), which is what the product's cell keys its sessions on. Admins of this deployment
-   * enter their products as admins there too.
-   */
-  async openIntelligence(kind: IntelligenceProductKind, next?: string): Promise<{ url: string }> {
-    let product = this.#productKind(kind);
-    this.#requireIntelligenceDirectory();
-    let email = this.adminUserId.trim().toLowerCase();
-    if (!email.includes("@")) {
-      throw new Error("Your account has no email address to sign you into the product with.");
-    }
-    if (next !== undefined && (typeof next !== "string" || next.length > 512)) {
-      throw new Error("Invalid destination.");
-    }
-    let url = await intelligenceDirectory.handoffUrl(this.env, product, { email, role: "admin" }, next);
-    return { url };
-  }
 }

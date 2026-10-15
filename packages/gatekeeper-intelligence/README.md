@@ -7,7 +7,7 @@ Shape, in one line each:
 
 - **Configured per tenant, like `gatekeeper-mcp-portal`.** `INTELLIGENCE_MCP_URL`,
   `INTELLIGENCE_WIKI_URL` (optional) and `INTELLIGENCE_ASSISTANT_KEY` (secret) live in the
-  `VendorSetupStore` keyed by the tenant from the binding props. Admin → Intelligence writes them
+  `VendorSetupStore` keyed by the tenant from the binding props. The admin portal writes them (through the Workshop)
   after provisioning through `applySetup`; an admin can also paste a console-minted `oik_` key.
   There is no deploy-time fallback.
 - **Ambient, like `gatekeeper-scheduler`.** Once configured, `describe()` reports

@@ -4,7 +4,6 @@
 //   <FormatMiniature> icon on a small tile  chat cards
 //   <FormatTile>      icon on a tile        Outputs list rows
 //   <FormatThumbnail> wireframe drawing     Outputs grid cards
-//   <FormatPreview>   wireframe drawing     admin Formats panel
 //
 // The wireframes are abstract: unlike a screenshot they look right before the output has any
 // content, which is when the user is deciding what to make.
@@ -232,33 +231,6 @@ export function FormatThumbnail({
         <div className="h-full w-full p-3.5">
           <Wireframe />
         </div>
-      </div>
-    </div>
-  )
-}
-
-// The size the wireframes are drawn for: bar heights, gaps and insets are in pixels, so they only
-// read correctly at roughly the size of an Outputs card. Anything smaller scales the whole
-// drawing.
-const PREVIEW_WIDTH = 200
-const PREVIEW_HEIGHT = 150
-
-/**
- * A self-contained miniature of the Outputs card at any width, for showing the thumbnail itself
- * (the admin icon picker) rather than filling a card.
- */
-export function FormatPreview({ output, width = 120 }: { output?: BlueprintOutput; width?: number }) {
-  const scale = width / PREVIEW_WIDTH
-  return (
-    <div
-      className="relative shrink-0 overflow-hidden rounded-md border border-kumo-line"
-      style={{ width, height: PREVIEW_HEIGHT * scale }}
-    >
-      <div
-        className="absolute left-0 top-0 origin-top-left"
-        style={{ width: PREVIEW_WIDTH, height: PREVIEW_HEIGHT, transform: `scale(${scale})` }}
-      >
-        <FormatThumbnail output={output} />
       </div>
     </div>
   )

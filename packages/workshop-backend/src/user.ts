@@ -281,8 +281,8 @@ function makeUserStorage(storage: DurableObjectStorage) {
 
       // The user's role ("owner" | "admin" | "member") as asserted by the central identity
       // service in its signed handoff token, refreshed on every handoff sign-in. Owners and
-      // admins get this deployment's /admin area (see AuthenticatedApiImpl). null = no central
-      // role asserted (pre-role tokens, or non-handoff sign-in) — env ADMINS still applies.
+      // admins are admins here (see AuthenticatedApiImpl). null = no central role asserted
+      // (pre-role tokens, or non-handoff sign-in), which is a member.
       centralRole: <string | null>null,
 
       // Per-user free-tier daily LLM-call counter (only used when ENABLE_CLOUDFLARE_LIMITS is on).

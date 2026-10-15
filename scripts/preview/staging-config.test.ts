@@ -34,7 +34,6 @@ const PREVIEW_NAME = "pr-123";
 const ACCOUNT_ID = "0".repeat(32);
 const WORKERS_DEV_HOST = "example.workers.dev";
 const BASE_URL = routerPreviewUrl(PREVIEW_NAME, WORKERS_DEV_HOST);
-const ADMIN = "someone@example.com";
 const ACCESS = { aud: "a".repeat(64), iss: "https://previews-example.cloudflareaccess.com" };
 const AI_GATEWAY = {
   gateway: "example-gateway",
@@ -46,7 +45,6 @@ const AI_GATEWAY = {
 // Every input is passed explicitly: each resolver defaults to reading the environment, so a machine
 // with any of these set would otherwise change what the tests assert.
 const SECRETS = backendSecrets({
-  admins: [ADMIN],
   access: ACCESS,
   aiGateway: resolveAiGateway(AI_GATEWAY),
 });
@@ -250,7 +248,7 @@ test("the backend is told the router's origin, and nothing else", () => {
   assert.ok(vars, "the backend preview declares no vars");
 
   // The origin is the only value the backend needs that is safe to write into a config Wrangler
-  // will print; its admins and Access pair are uploaded as secrets instead (below).
+  // will print; its Access pair and AI gateway are uploaded as secrets instead (below).
   assert.deepEqual(Object.keys(vars), ["PUBLIC_BASE_URL"]);
   assert.equal(vars.PUBLIC_BASE_URL, BASE_URL);
   // Setting CF_ACCESS_AUD closes the password path on its own — login() and createAccount() both
@@ -258,11 +256,9 @@ test("the backend is told the router's origin, and nothing else", () => {
   assert.equal(vars.DISABLE_PASSWORD_AUTH, undefined);
 });
 
-test("the backend's secrets are the admin list, the Access pair and the AI gateway", () => {
-  // A secret is always text, so the admin list travels as JSON — the form `#isAdmin()` already
-  // parses. Everything here is uploaded by preview.ts, never written to a config.
+test("the backend's secrets are the Access pair and the AI gateway", () => {
+  // Everything here is uploaded by preview.ts, never written to a config.
   assert.deepEqual(SECRETS, {
-    ADMINS: `["${ADMIN}"]`,
     CF_ACCESS_AUD: ACCESS.aud,
     CF_ACCESS_ISS: ACCESS.iss,
     CF_AI_GATEWAY: AI_GATEWAY.gateway,
@@ -351,13 +347,9 @@ test("no generated config carries a secret's value anywhere", () => {
   // truncated slice is not one. So no generated config may carry one at all — not in `vars`, not
   // anywhere else, and not in any of the eighteen, since only the backend reads them.
   // Every value that identifies this deployment — the two whose values are ordinary words are left
-  // to the name check above. The bare email as well as its JSON form, so that seeding the admins as
-  // anything other than the secret's exact encoding — a comma-joined var, say — is caught too.
+  // to the name check above.
   const generic = new Set(["CF_AI_GATEWAY_PROVIDERS", "CF_AI_GATEWAY_USE_BINDING"]);
-  const sensitive = [
-    ...Object.entries(SECRETS).filter(([key]) => !generic.has(key)),
-    ["an admin's email", ADMIN],
-  ];
+  const sensitive = Object.entries(SECRETS).filter(([key]) => !generic.has(key));
   for (const [name, config] of buildAll().configs) {
     const serialized = JSON.stringify(config);
     for (const [key, value] of sensitive) {

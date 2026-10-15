@@ -26,8 +26,8 @@
 // other seventeen set `preview_urls: false` and are reached over service bindings alone; the
 // deploy asserts that, since a URL appearing on one of them is a way around the router.
 //
-// The backend's secrets — its admins and the Cloudflare Access application that authenticates the
-// instance — are uploaded to the worker's Previews settings between tiers 1 and 2 and are never
+// The backend's secrets — the Cloudflare Access application that authenticates the instance and
+// the AI Gateway — are uploaded to the worker's Previews settings between tiers 1 and 2 and are never
 // written into a config, because Wrangler prints config values and this workflow's logs are public.
 // See uploadSecrets, and backendSecrets in staging-config.ts.
 
@@ -321,7 +321,7 @@ async function deployBaselineWorker(
 }
 
 /**
- * Give a worker its secrets — the backend's admins and Cloudflare Access pair (see
+ * Give a worker its secrets — the backend's Cloudflare Access pair and AI Gateway (see
  * backendSecrets). None of them is in the generated config, because Wrangler prints the values it
  * finds there and this workflow's logs are public; `secret bulk` prints only names and `********`,
  * and the values arrive on stdin rather than in argv.
@@ -350,7 +350,7 @@ async function uploadSecrets(
  *
  * This runs before the backend's own preview rather than relying on deployPreview's self-heal,
  * because a worker has no Previews settings to write to until it exists — and a preview created
- * before the settings existed would come up with no admins and, worse, no Access application, so it
+ * before the settings existed would come up with no Access application, so it
  * would fall back to password signup on a public URL.
  */
 async function uploadBackendSecrets(
