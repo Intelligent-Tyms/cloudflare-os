@@ -72,7 +72,7 @@ export type AdminSectionId =
 
 // Cards for what is managed on the central portals (admin.tyms.ai, billing.tyms.ai) rather
 // than here. They open the portal page for this workspace and have no detail page of their own.
-type PortalSectionId = 'teammates' | 'billing' | 'assistant-settings' | 'intelligence-products'
+type PortalSectionId = 'teammates' | 'billing' | 'assistant-settings' | 'intelligence-products' | 'channels-portal'
 
 type AdminSection = {
   id: AdminSectionId | PortalSectionId
@@ -188,11 +188,21 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
       {
         id: 'channels',
+        central: true,
         title: 'Channels',
         blurb: 'Chat with your assistant in Telegram and Slack.',
         description:
           'Bring your assistant into the chat apps your team already uses. Telegram and Slack are available today; WhatsApp and Microsoft Teams are coming soon.',
         icon: <MessagesSquare size={18} />,
+      },
+      {
+        id: 'channels-portal',
+        title: 'Channels',
+        blurb: 'Telegram, email and Slack for your assistant. Opens the admin portal.',
+        description: '',
+        icon: <MessagesSquare size={18} />,
+        portal: { portal: 'admin', path: '/channels' },
+        central: true,
       },
       {
         id: 'connectors',
@@ -670,7 +680,9 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
   // A bookmark or old link onto a page the admin portal now owns.
   if (managed && sectionMeta.central) {
     const portalPageUrl = INTELLIGENCE_SECTION_IDS.includes(sectionMeta.id as AdminSectionId)
-      ? portalLink(serverConfig, 'admin', '/products') : centralSettingsUrl
+      ? portalLink(serverConfig, 'admin', '/products')
+      : sectionMeta.id === 'channels' ? portalLink(serverConfig, 'admin', '/channels')
+      : centralSettingsUrl
     return (
       <div className="mx-auto w-full max-w-[1040px] px-4 sm:px-8 py-16 text-center">
         <p className="text-sm text-kumo-default">{sectionMeta.title} is now managed on the admin portal.</p>

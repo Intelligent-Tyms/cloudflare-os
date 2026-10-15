@@ -1241,6 +1241,10 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
     return channels;
   }
 
+  getChannels(): Promise<ChannelsDescription | null> {
+    return describeChannels(this.env);
+  }
+
   async setupTelegram(botToken: string): Promise<{ botUserName: string }> {
     let token = botToken.trim();
     if (!token || token.length > 256) throw new Error("A valid bot token is required.");

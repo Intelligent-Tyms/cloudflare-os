@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { SignJWT, exportSPKI, generateKeyPair } from "jose";
 import { CENTRAL_ADMIN_METHODS, handleCentralAdmin, parseCentralAdminClaims } from "../src/central-admin";
+import { AdminApiImpl } from "../src/admin-settings";
 
 describe("central admin claims", () => {
   const call = { purpose: "admin", sub: "Owner@Acme.com", method: "provisionIntelligence", args: ["data"] };
@@ -23,7 +24,9 @@ describe("central admin claims", () => {
   });
 
   it("only list methods the admin API has", () => {
-    for (const method of Object.keys(CENTRAL_ADMIN_METHODS)) expect(method).toMatch(/^[a-z][A-Za-z]+$/);
+    for (const method of Object.keys(CENTRAL_ADMIN_METHODS)) {
+      expect(typeof (AdminApiImpl.prototype as unknown as Record<string, unknown>)[method], method).toBe("function");
+    }
   });
 });
 
