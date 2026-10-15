@@ -72,7 +72,7 @@ export type AdminSectionId =
 
 // Cards for what is managed on the central portals (admin.tyms.ai, billing.tyms.ai) rather
 // than here. They open the portal page for this workspace and have no detail page of their own.
-type PortalSectionId = 'teammates' | 'billing' | 'assistant-settings' | 'intelligence-products' | 'channels-portal' | 'connectors-portal'
+type PortalSectionId = 'teammates' | 'billing' | 'assistant-settings' | 'intelligence-products' | 'channels-portal' | 'connectors-portal' | 'formats-portal'
 
 type AdminSection = {
   id: AdminSectionId | PortalSectionId
@@ -173,10 +173,20 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
       },
       {
         id: 'formats',
+        central: true,
         title: 'Formats',
         blurb: 'Standard file formats offered across the app.',
         description: 'The standard file formats promoted to everyone across the app.',
         icon: <FileText size={18} />,
+      },
+      {
+        id: 'formats-portal',
+        title: 'Formats',
+        blurb: 'Standard file formats offered across the app. Opens the admin portal.',
+        description: '',
+        icon: <FileText size={18} />,
+        portal: { portal: 'admin', path: '/formats' },
+        central: true,
       },
       {
         id: 'skills',
@@ -693,6 +703,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
       ? portalLink(serverConfig, 'admin', '/products')
       : sectionMeta.id === 'channels' ? portalLink(serverConfig, 'admin', '/channels')
       : sectionMeta.id === 'connectors' ? portalLink(serverConfig, 'admin', '/connectors')
+      : sectionMeta.id === 'formats' ? portalLink(serverConfig, 'admin', '/formats')
       : centralSettingsUrl
     return (
       <div className="mx-auto w-full max-w-[1040px] px-4 sm:px-8 py-16 text-center">

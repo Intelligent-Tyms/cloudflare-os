@@ -1208,6 +1208,12 @@ export interface AdminApi {
    */
   getConnectors(): Promise<AdminResourceVendor[]>;
 
+  /**
+   * The standard formats (AdminSettingsView.formats) and the deployment-wide blueprints that
+   * could be promoted to one, for the admin portal.
+   */
+  getFormats(): Promise<AdminFormatsView>;
+
   /** Enable or disable new account signups. Existing users can still log in while signups are closed. */
   setSignupsEnabled(enabled: boolean): Promise<void>;
 
@@ -1553,6 +1559,20 @@ export type TeamChatChannelChanges = {
 // directory (multi-tenant installations). The workshop keeps no member list of its own.
 export type TeamView = {
   members: TeamMember[];
+};
+
+/** The result of `AdminApi.getFormats()`. */
+export type AdminFormatsView = {
+  /** The promoted blueprints in menu order, disabled and missing ones included. */
+  formats: AdminFormat[];
+  /** Featured and catalog blueprints not promoted yet. */
+  candidates: {
+    blueprintId: string;
+    title: string;
+    description: string;
+    /** What the blueprint says it produces, if it declares that. */
+    declared?: BlueprintOutput;
+  }[];
 };
 
 /** A partial edit to one promoted format. Absent fields are left alone. */
