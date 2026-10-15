@@ -59,6 +59,7 @@ export async function getServerConfig(env: Cloudflare.Env): Promise<ServerConfig
     banner: config.banner.text,
     bannerColor: config.banner.color,
     accentColor: config.accentColor,
+    settingsManagedCentrally: config.centralSettingsVersion > 0,
     // Fleet identity for display and citation rendering; both absent on standalone deployments.
     tenantSlug: env.CF_AI_GATEWAY_TENANT?.trim() || undefined,
     intelligenceBaseDomain: env.INTELLIGENCE_BASE_DOMAIN?.trim() || undefined,

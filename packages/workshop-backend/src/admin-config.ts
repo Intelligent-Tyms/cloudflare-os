@@ -78,6 +78,13 @@ export type AdminConfig = {
    * the deployment offers.
    */
   formats: FormatCuration[];
+
+  /**
+   * The central settings version applied (central-settings.ts), or 0 while this deployment
+   * keeps its own. Non-zero means the organization profile, instructions, site name, accent
+   * color, notice and banner are edited on the admin portal, not here.
+   */
+  centralSettingsVersion: number;
 };
 
 /**
@@ -118,6 +125,7 @@ export const DEFAULT_ADMIN_CONFIG: AdminConfig = {
   disabledSkills: [],
   disabledModels: [],
   formats: [],
+  centralSettingsVersion: 0,
 };
 
 /**
@@ -343,6 +351,9 @@ export function parseAdminConfig(raw: string | null): AdminConfig {
       disabledSkills: [...new Set(strings(p.disabledSkills).filter(name => name))],
       disabledModels: [...new Set(strings(p.disabledModels).filter(id => id))],
       formats: parseFormats(p.formats),
+      centralSettingsVersion: typeof p.centralSettingsVersion === "number"
+          && Number.isInteger(p.centralSettingsVersion) && p.centralSettingsVersion > 0
+          ? p.centralSettingsVersion : 0,
     };
   } catch {
     return { ...DEFAULT_ADMIN_CONFIG };

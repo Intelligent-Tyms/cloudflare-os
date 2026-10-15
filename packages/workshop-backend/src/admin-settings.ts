@@ -16,9 +16,14 @@ import { getAiGatewayConfig } from './ai-gateway.js';
 import { formatBlueprintsManifestVersion, installBlueprintArchive, installFormatBlueprints } from './format-blueprints.js';
 import { FORMAT_BLUEPRINTS } from './generated/format-blueprints.js';
 import * as intelligenceDirectory from './intelligence-directory.js';
+import { CENTRAL_SETTINGS_POLL_MS, CentralSettings, centralSettingsOf, hasCentralSettings, pullCentralSettings, seedCentralSettings } from './central-settings.js';
 import { INTELLIGENCE_CONNECTORS, type IntelligenceConnectorSetup } from './intelligence-setup.js';
 
 const logger = createWorkshopLogger("workshop.admin.settings");
+
+// The AdminConfig fields the admin portal owns once central settings are applied.
+const CENTRAL_SETTING_KEYS = new Set<keyof CentralSettings>(
+    ["organizationProfile", "instanceInstructions", "siteName", "accentColor", "announcement", "banner"]);
 
 // listDeploymentSkills/installSkillPackage are optional on GatekeeperVendor (like createAccount):
 // callers gate on the VendorDescription flags and view the stub through the Required shape, since
@@ -381,7 +386,50 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
    * scalar values; this just persists atomically.
    */
   updateAdminConfig(patch: Partial<AdminConfig>): Promise<void> {
-    return this.#mutateAdminConfig(config => ({ ...config, ...patch }));
+    return this.#mutateAdminConfig(config => {
+      if (config.centralSettingsVersion > 0
+          && Object.keys(patch).some(key => CENTRAL_SETTING_KEYS.has(key as keyof CentralSettings))) {
+        throw new Error("This setting is managed on the admin portal.");
+      }
+      return { ...config, ...patch };
+    });
+  }
+
+  // --- Central settings (central-settings.ts) ---
+
+  /**
+   * Start pulling the central settings if that isn't running yet. Like the format install, the
+   * DO doesn't wake merely because someone deployed, so API traffic calls this once per isolate
+   * (server.ts); from then on the alarm keeps the pull going.
+   */
+  async ensureCentralSettingsSync(): Promise<void> {
+    if (!hasCentralSettings(this.env)) return;
+    if (await this.ctx.storage.getAlarm() === null) await this.ctx.storage.setAlarm(Date.now());
+  }
+
+  async alarm(): Promise<void> {
+    if (!hasCentralSettings(this.env)) return;
+    try {
+      await this.syncCentralSettings();
+    } catch (error) {
+      // The last version applied stays in force; the next pull tries again.
+      logger.warn("failed to sync central settings", { event: "central_settings.sync.failed", error });
+    }
+    await this.ctx.storage.setAlarm(Date.now() + CENTRAL_SETTINGS_POLL_MS);
+  }
+
+  /**
+   * Pull the central settings and apply a version not applied yet. The first pull finds none
+   * and seeds them with this deployment's own values, which then come back as version 1.
+   */
+  async syncCentralSettings(): Promise<void> {
+    let applied = this.#config().centralSettingsVersion;
+    let pull = await pullCentralSettings(this.env, applied);
+    if (pull.kind === "absent") pull = await seedCentralSettings(this.env, centralSettingsOf(this.#config()));
+    if (pull.kind !== "settings" || pull.version === applied) return;
+    let { version, settings } = pull;
+    await this.#mutateAdminConfig(config => ({ ...config, ...settings, centralSettingsVersion: version }));
+    logger.info("applied central settings", { event: "central_settings.applied", sequence: version });
   }
 
   /**

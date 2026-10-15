@@ -42,6 +42,9 @@ const logger = createWorkshopLogger("workshop.server");
 // fetch handler), so later requests skip the call. The DO holds the real answer.
 let formatBlueprintInstallStarted = false;
 
+// Set once we've asked the AdminSettings DO to keep its central settings pull running.
+let centralSettingsSyncStarted = false;
+
 function publicBlueprintInfo(id: string, metadata: BlueprintPublicInfo['metadata']): BlueprintPublicInfo {
   return {
     id,
@@ -1060,6 +1063,18 @@ export default {
     }
 
     if (url.pathname === "/api") {
+      // Keep the central settings pull running (a no-op without a control plane, and once its
+      // alarm is set). Same once-per-isolate trigger as the format install below.
+      if (!centralSettingsSyncStarted) {
+        centralSettingsSyncStarted = true;
+        ctx.waitUntil(ctx.exports.AdminSettings.getByName("").ensureCentralSettingsSync()
+            .catch((err: unknown) => {
+              centralSettingsSyncStarted = false;
+              logger.warn("failed to start the central settings sync", {
+                event: "central_settings.trigger.failed", error: err,
+              });
+            }));
+      }
       // Make sure the bundled format blueprints are installed. The AdminSettings DO doesn't wake
       // merely because someone deployed, so the install needs a trigger; hanging it off API
       // traffic means a fresh deployment is provisioned by its first visitor. Fire-and-forget,

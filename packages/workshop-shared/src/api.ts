@@ -1654,6 +1654,12 @@ export type ServerConfig = {
    * opens payment details.
    */
   billingPortalUrl?: string;
+
+  /**
+   * The organization profile, instructions, site name, accent color, notice and banner are
+   * edited on the admin portal (adminPortalUrl) rather than this deployment's /admin.
+   */
+  settingsManagedCentrally: boolean;
 };
 
 /**
