@@ -16,7 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { RpcStub } from "capnweb";
 import type { AuthenticatedApi, Overseer, PublicApi } from "@gadgets/workshop-shared/api";
 import {
-  centralAdminCall, startTestGatekeeperHarness, TEST_GATEKEEPER_WORKER, TEST_VENDOR_ID,
+  startTestGatekeeperHarness, TEST_GATEKEEPER_WORKER, TEST_VENDOR_ID,
   type Harness,
 } from "../src/harness.js";
 import {
@@ -39,11 +39,6 @@ beforeAll(async () => {
   interceptor = new NetworkInterceptor();
   interceptor.install();
   harness = await startTestGatekeeperHarness();
-
-  // This fork defaults auto-provisioning vendors to "enabled" (forced accounts, hidden from the
-  // connected-accounts listing these tests poll). Mark the fixture vendor "optional" so users
-  // provision and manage its account themselves, which is the mode the tests are written against.
-  await centralAdminCall(harness, "setGatekeeperMode", [TEST_VENDOR_ID, "optional"]);
 });
 
 afterAll(async () => {
@@ -71,11 +66,15 @@ function thingUrl(name: string): string {
   return `https://gadgets-test.example/things/${name}`;
 }
 
-/** Mint this user's test-gatekeeper account -- no auth flow -- and read it back. */
+/**
+ * Mint this user's test-gatekeeper account -- no auth flow -- and read it back. The fixture
+ * auto-provisions and offers resources, so while it is on (the default) its account is forced:
+ * made for everyone and left out of the listing unless asked for.
+ */
 async function provisionAccount(api: RpcStub<AuthenticatedApi>): Promise<ConnectedAccount> {
   await api.provisionAmbientAccount(TEST_VENDOR_ID);
   return waitFor("the test account to be provisioned", async () => {
-    const accounts = await listConnectedAccounts(api);
+    const accounts = await listConnectedAccounts(api, { includeForcedAutoProvisionedAccounts: true });
     return accounts.find(a => a.vendorId === TEST_VENDOR_ID) ?? null;
   });
 }

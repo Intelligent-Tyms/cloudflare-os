@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { RpcStub, RpcTarget, newWebSocketRpcSession } from "capnweb";
 import type {
-  AuthenticatedApi, ConnectedAccountsSubscriber, ObserverAccountChoice, ObserverBindingNeed,
+  AuthenticatedApi, ConnectedAccountsFilter, ConnectedAccountsSubscriber, ObserverAccountChoice, ObserverBindingNeed,
   ObserverConfigCallback, PublicApi,
 } from "@gadgets/workshop-shared/api";
 import type {
@@ -97,7 +97,7 @@ export function accountLabel(account: ConnectedAccount): string {
 
 /** Read the user's connected accounts by driving subscribeConnectedAccounts() to its ready() call. */
 export async function listConnectedAccounts(
-    api: RpcStub<AuthenticatedApi>): Promise<ConnectedAccount[]> {
+    api: RpcStub<AuthenticatedApi>, filter?: ConnectedAccountsFilter): Promise<ConnectedAccount[]> {
   const accounts: ConnectedAccount[] = [];
   let settle: () => void;
   const ready = new Promise<void>(resolve => { settle = resolve; });
@@ -118,7 +118,7 @@ export async function listConnectedAccounts(
   // duplicate of the subscriber, then our original -- and covers the path where the subscribe call
   // itself throws.
   using subscriber = new RpcStub(new Subscriber());
-  using _subscription = await api.subscribeConnectedAccounts(subscriber);
+  using _subscription = await api.subscribeConnectedAccounts(subscriber, filter);
   await ready;
   return accounts;
 }
