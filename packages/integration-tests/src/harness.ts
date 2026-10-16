@@ -26,14 +26,6 @@ export const TEST_GATEKEEPER_WORKER = "gatekeeper-test";
 export const TEST_GATEKEEPER_BINDING = "TEST";
 export const TEST_VENDOR_ID = TEST_GATEKEEPER_BINDING.toLowerCase();
 
-// Workspace administration happens on the central admin portal, which reaches a deployment
-// through admin calls (workshop-backend central-admin.ts): JWTs signed with the central handoff
-// key, POSTed to /api/central/admin. The harness plays the portal: it turns central login on
-// with a key of its own and signs those calls itself (centralAdminCall).
-const HANDOFF_AUDIENCE = "integration-tests";
-const handoffKey = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]) as CryptoKeyPair;
-const handoffPublicKey = Buffer.from(await crypto.subtle.exportKey("spki", handoffKey.publicKey)).toString("base64");
-
 // The slice of wrangler.jsonc the harness reads or rewrites. Loose on purpose: everything else a
 // config declares flows through untouched, and wrangler re-validates the whole file when the worker
 // boots -- this schema only guards the fields this file touches, so a broken config fails here with
@@ -99,13 +91,6 @@ function workshopConfig(
   }));
 
   // No CF_ACCESS_AUD, so /api takes the unauthenticated path and password signup is available.
-  // Central login is on only so admin calls verify; nobody signs in through it here.
-  config.vars = {
-    ...config.vars,
-    CENTRAL_LOGIN_URL: "https://login.invalid",
-    HANDOFF_PUBLIC_KEY: handoffPublicKey,
-    HANDOFF_AUDIENCE,
-  };
 
   // Gadget code is never executed here (a gatekeeper is in observer scope purely by having a
   // vendorId), so drop the Worker Loader rather than requiring it to start.
@@ -168,25 +153,4 @@ export function startTestGatekeeperHarness(): Promise<Harness> {
   return startHarness({
     gatekeepers: [{ binding: TEST_GATEKEEPER_BINDING, dir: TEST_GATEKEEPER_DIR }],
   });
-}
-
-const base64url = (data: string | ArrayBuffer) => Buffer.from(data as string).toString("base64url");
-
-/**
- * Run one admin call on the Workshop as the admin portal would (a CentralAdminApi method, e.g.
- * `setGatekeeperMode`), returning its result. Throws with the Workshop's refusal.
- */
-export async function centralAdminCall(harness: Harness, method: string, args: unknown[] = []): Promise<unknown> {
-  const now = Math.floor(Date.now() / 1000);
-  const claims = { purpose: "admin", sub: "admin@integration.test", method, args, aud: HANDOFF_AUDIENCE, iat: now, exp: now + 60 };
-  const unsigned = `${base64url(JSON.stringify({ alg: "EdDSA", typ: "JWT" }))}.${base64url(JSON.stringify(claims))}`;
-  const signature = await crypto.subtle.sign("Ed25519", handoffKey.privateKey, new TextEncoder().encode(unsigned));
-  const response = await fetch(new URL("/api/central/admin", harness.url), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ token: `${unsigned}.${base64url(signature)}` }),
-  });
-  const body = await response.json() as { result?: unknown; error?: string };
-  if (!response.ok) throw new Error(`${method}: ${body.error ?? response.status}`);
-  return body.result;
 }
