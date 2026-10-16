@@ -18,7 +18,6 @@ export default defineConfig({
         compatibilityFlags: ['experimental', 'nodejs_compat'],
         durableObjects: {
           TEST_OVERSEER: { className: 'OverseerDurableObject', useSQLite: true },
-          TEST_ADMIN_SETTINGS: { className: 'AdminSettings', useSQLite: true },
         },
       },
     }),

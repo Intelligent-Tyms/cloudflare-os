@@ -11,7 +11,7 @@ import { AdminConfig, DEFAULT_ADMIN_CONFIG, FormatCuration, MAX_AGENT_HINT, defa
 import { SITE_LOGO_R2_KEY, validateSiteLogo } from './site-logo.js';
 import { ambientGatekeeperMode, DEFAULT_AMBIENT_GATEKEEPER_MODE } from './provisioning-policy.js';
 import { buildGatekeeperVendorMap } from './auth/auth-vendors.js';
-import { UserDurableObject, type UserAiModelRecord } from './user.js';
+import { UserDurableObject } from './user.js';
 import { getAiGatewayConfig } from './ai-gateway.js';
 import { formatBlueprintsManifestVersion, installBlueprintArchive, installFormatBlueprints } from './format-blueprints.js';
 import { FORMAT_BLUEPRINTS } from './generated/format-blueprints.js';
@@ -68,12 +68,6 @@ function makeAdminSettingsStorage(storage: DurableObjectStorage) {
       featuredBlueprints: collection<BlueprintPublicInfo>()({
         primaryKey: 'id',
       }),
-      // Retired: models admins added with their own provider keys, before every deployment's
-      // models came from the AI Gateway. Declared only so the constructor can purge them (the
-      // records carry API tokens); drop this and quickModel once the fleet has run the purge.
-      aiModels: collection<UserAiModelRecord>()({
-        primaryKey: record => record.profile.id,
-      }),
     },
     singletons: {
       // Authoritative deployment admin config. Mirrored to BLUEPRINTS KV (ADMIN_CONFIG_KEY) so the
@@ -90,9 +84,6 @@ function makeAdminSettingsStorage(storage: DurableObjectStorage) {
       // exactly once per blueprint: an admin who then removes a format keeps it removed, while a
       // deployment that installed before curation existed still gets promoted.
       promotedFormatBlueprints: <string[]>[],
-
-      // Retired with aiModels (see there): the id of the added model used for chat titles.
-      quickModel: <string | null>null,
 
       // The catalog last reported to the control plane (central-settings.ts reportCatalog):
       // its fingerprint, when it was sent, and when it was last listed to compare.
@@ -128,7 +119,6 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
     super(ctx, env);
 
     this.storage = makeAdminSettingsStorage(ctx.storage);
-    this.#purgeRetiredModels();
     this.users = this.ctx.exports.UserDurableObject;
     this.vendors = buildGatekeeperVendorMap(env);
   }
@@ -518,13 +508,6 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
   }
 
   // --- Deployment AI models ---
-
-  // Delete the models admins once added with their own provider keys (and the quick model that
-  // pointed at one). Synchronous storage, so the constructor can run it before any request.
-  #purgeRetiredModels(): void {
-    for (let model of [...this.storage.aiModels.list()]) this.storage.aiModels.delete(model.profile.id);
-    if (this.storage.quickModel.get() !== null) this.storage.quickModel.put(null);
-  }
 
   // The model catalog offered to every user: the AI Gateway's, minus the models switched off on
   // the admin portal; empty without a gateway. Several callers treat the first entry as the
