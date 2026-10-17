@@ -144,6 +144,9 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
   setOwnDisplayName(name: string): Promise<void> {
     return this.#user.setOwnDisplayName(name);
   }
+  setOwnCommitEmail(email: string | null): Promise<void> {
+    return this.#user.setOwnCommitEmail(email);
+  }
   async searchUsers(query: string, excludeIds: string[]): Promise<UserDirectoryRecord[]> {
     if (!(await this.#userSearchEnabled())) return [];
     return retryOnDoReset(() => this.ctx.exports.UserDirectoryDurableObject.getByName("")
@@ -322,12 +325,6 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
       throw err;
     }
     started = true;
-    recordAnalytics(this.ctx, this.env, {
-      event_name: "gadget_opened",
-      user_id: userId,
-      gadget_id: id,
-      source: shareKey ? "share_key" : "direct",
-    });
     return result;
   }
 

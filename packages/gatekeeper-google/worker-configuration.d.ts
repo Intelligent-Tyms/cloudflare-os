@@ -6,7 +6,7 @@ interface __BaseEnv_Env {
 declare namespace Cloudflare {
 	interface GlobalProps {
 		mainModule: typeof import("./src/google");
-		durableNamespaces: "UserAccount" | "GmailGatekeeperImpl" | "BigQueryGatekeeperImpl" | "GoogleCalendarGatekeeperImpl" | "GoogleSheetsGatekeeperImpl" | "VendorSetupStore" | "GoogleDriveGatekeeperImpl" | "GoogleDocGatekeeperImpl";
+		durableNamespaces: "UserAccount" | "GmailGatekeeperImpl" | "BigQueryGatekeeperImpl" | "GoogleCalendarGatekeeperImpl" | "GoogleSheetsGatekeeperImpl" | "VendorSetupStore" | "GoogleDriveGatekeeperImpl" | "GoogleDocGatekeeperImpl" | "GoogleChatGatekeeperImpl";
 	}
 	interface Env extends __BaseEnv_Env {}
 }

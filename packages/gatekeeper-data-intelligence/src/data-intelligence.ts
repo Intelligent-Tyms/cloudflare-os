@@ -9,7 +9,7 @@
 // and the account's singleton facet is installed into every workspace. See the README.
 import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 import { skipRpcValidation, validateRpc } from "capnweb-validate";
-import { createLogger } from "@gadgets/backend-utils/logger";
+import { createLogger } from "@gadgets/observability/logger";
 import {
   boundAgentPromptContext,
   type AccountDescription,

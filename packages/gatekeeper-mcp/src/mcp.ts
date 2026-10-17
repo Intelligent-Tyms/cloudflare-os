@@ -9,7 +9,7 @@
 // endpoint. See `sharing-policy.ts` and the README.
 import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 import { validateRpc, skipRpcValidation } from "capnweb-validate";
-import { createLogger } from "@gadgets/backend-utils/logger";
+import { createLogger } from "@gadgets/observability/logger";
 import {
   stripTrailingSlashes,
   type AccountDescription,
