@@ -13,7 +13,6 @@ import { getAiGatewayConfig } from "./ai-gateway.js";
 import { utcDayKey, nextUtcMidnightIso, DailyQuotaResult } from "./ai-gateway-billing/limits/config.js";
 import type { AdminSettings } from "./admin-settings.js";
 import { isReservedBlueprintKey, readBlueprintKvRecord } from "./blueprint-archive.js";
-import { readBlueprintKvRecordViaCatalog } from "./template-catalog.js";
 import { filterEnabledResources, isResourceDisabled, readAdminConfig } from "./admin-config.js";
 import { connectableResources, memberConnectPatterns, type ConnectorCaller } from "./connector-access.js";
 import { buildGatekeeperVendorMap } from "./auth/auth-vendors.js";
@@ -1178,7 +1177,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   }
 
   async addBlueprintToLibrary(id: string): Promise<void> {
-    let kvRecord = await readBlueprintKvRecordViaCatalog(this.env, this.ctx.exports, id);
+    let kvRecord = await readBlueprintKvRecord(this.env, id);
     if (!kvRecord) {
       throw new Error("Template not found.");
     }
