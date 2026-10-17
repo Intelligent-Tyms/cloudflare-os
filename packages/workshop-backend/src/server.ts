@@ -20,8 +20,7 @@ import { GatekeeperUiFrame } from "@gadgets/workshop-shared/gatekeeper";
 import { LanguageModelGatekeeper } from "./ai-models";
 import { getAiGatewayConfig } from "./ai-gateway.js";
 import { AdminSettings } from "./admin-settings.js";
-import { BlueprintKvRecord, buildBlueprintArchiveStream, sanitizeBlueprintOutput, parseBlueprintArchive, randomBlueprintId, readBlueprintContent, readBlueprintKvRecord } from "./blueprint-archive.js";
-import { listFeaturedWithCatalog, readBlueprintKvRecordViaCatalog } from "./template-catalog.js";
+import { BlueprintKvRecord, buildBlueprintArchiveStream, sanitizeBlueprintOutput, listFeaturedBlueprintsFromKv, parseBlueprintArchive, randomBlueprintId, readBlueprintContent, readBlueprintKvRecord } from "./blueprint-archive.js";
 import { GatekeeperConnectCallbackImpl, normalizeUsername, UserDurableObject, CLOUDFLARE_VENDOR_ID } from "./user";
 import { OverseerDurableObject, GatekeeperLoopback, CodeModeTailLoopback, AgentSpawnerGatekeeper, GatekeeperHookLoopback, GadgetTailLoopback, AgentSelfLoopback, TransientStubLoopback } from "./overseer";
 import { ExternalMessageGateway } from "./external-message-gateway";
@@ -413,7 +412,7 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
   }
 
   async listFeaturedBlueprints(): Promise<BlueprintPublicInfo[]> {
-    return (await listFeaturedWithCatalog(this.env)).map(
+    return (await listFeaturedBlueprintsFromKv(this.env)).map(
         blueprint => publicBlueprintInfo(blueprint.id, blueprint.metadata));
   }
 
@@ -472,8 +471,8 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     blueprintId: string,
     bindings: Record<string, BlueprintBindingAssignment>
   ): Promise<RpcStub<Overseer>> {
-    // 1. Read blueprint from KV (installing it from the catalog first if that is where it lives).
-    let kvRecord = await readBlueprintKvRecordViaCatalog(this.env, this.ctx.exports, blueprintId);
+    // 1. Read blueprint from KV.
+    let kvRecord = await readBlueprintKvRecord(this.env, blueprintId);
     if (!kvRecord) throw new Error("Template not found.");
 
     // 2. Read gzip-compressed Yjs doc from R2 and decompress.
@@ -950,14 +949,14 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
   }
 
   async getBlueprint(id: string): Promise<BlueprintPublicInfo | null> {
-    let kvRecord = await readBlueprintKvRecordViaCatalog(this.env, this.ctx.exports, id);
+    let kvRecord = await readBlueprintKvRecord(this.env, id);
     if (!kvRecord) return null;
 
     return publicBlueprintInfo(id, kvRecord.metadata);
   }
 
   async downloadBlueprint(id: string): Promise<ReadableStream<Uint8Array>> {
-    let kvRecord = await readBlueprintKvRecordViaCatalog(this.env, this.ctx.exports, id);
+    let kvRecord = await readBlueprintKvRecord(this.env, id);
     if (!kvRecord) throw new Error("Template not found.");
 
     let r2Object = await this.env.BLUEPRINT_CONTENT.get(`${id}/${kvRecord.metadata.version}`);
