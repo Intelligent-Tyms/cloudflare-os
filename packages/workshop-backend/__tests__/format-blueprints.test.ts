@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { parseBlueprintArchive, parseBlueprintKvRecord, sanitizeBlueprintOutput } from "../src/blueprint-archive.js";
-import { formatBlueprintsManifestVersion, installFormatBlueprints } from "../src/format-blueprints.js";
+import { deleteInstalledBlueprint, formatBlueprintsManifestVersion, installFormatBlueprints, RETIRED_BLUEPRINT_IDS } from "../src/format-blueprints.js";
 import { FORMAT_BLUEPRINTS } from "../src/generated/format-blueprints.js";
 
 async function readBlueprintFile(
@@ -164,5 +164,67 @@ describe("bundled format blueprints", () => {
     }
 
     expect(formatBlueprintsManifestVersion()).toBe(before);
+  });
+});
+
+// KV and R2 stand-ins with the read, list and delete calls the withdrawal makes. `list` pages two
+// keys at a time so the cursor loop is exercised; like R2's, the cursor marks a key, not an offset,
+// so deleting a page before fetching the next skips nothing.
+function makeStores(kvEntries: Record<string, string>, r2Keys: string[]) {
+  let kv = new Map(Object.entries(kvEntries));
+  let r2 = new Set(r2Keys);
+  return {
+    kv,
+    r2,
+    env: {
+      BLUEPRINTS: {
+        get: async (key: string) => kv.get(key) ?? null,
+        delete: async (key: string) => { kv.delete(key); },
+      },
+      BLUEPRINT_CONTENT: {
+        list: async ({prefix, cursor}: {prefix: string, cursor?: string}) => {
+          let keys = [...r2].filter(key => key.startsWith(prefix) && (!cursor || key > cursor))
+              .toSorted();
+          let page = keys.slice(0, 2);
+          let truncated = keys.length > 2;
+          return {objects: page.map(key => ({key})), truncated, cursor: truncated ? page.at(-1) : undefined};
+        },
+        delete: async (keys: string[]) => { for (let key of keys) r2.delete(key); },
+      },
+    } as unknown as Pick<Cloudflare.Env, "BLUEPRINTS" | "BLUEPRINT_CONTENT">,
+  };
+}
+
+describe("retired blueprints", () => {
+  it("never retires a blueprint the deployment still bundles", () => {
+    for (let entry of FORMAT_BLUEPRINTS) {
+      expect(RETIRED_BLUEPRINT_IDS).not.toContain(entry.blueprintId);
+    }
+  });
+
+  it("deletes a deployment-installed blueprint's record and every content version", async () => {
+    let {kv, r2, env} = makeStores(
+        {"tyms.crm": JSON.stringify({metadata: {}}), "tyms.crmx": JSON.stringify({metadata: {}})},
+        ["tyms.crm/1", "tyms.crm/2", "tyms.crm/3", "tyms.crmx/1"]);
+
+    expect(await deleteInstalledBlueprint(env, "tyms.crm")).toBe(true);
+
+    expect(kv.has("tyms.crm")).toBe(false);
+    expect([...r2]).toEqual(["tyms.crmx/1"]);
+    expect(kv.has("tyms.crmx")).toBe(true);
+  });
+
+  it("clears orphaned content when the record is already gone", async () => {
+    let {r2, env} = makeStores({}, ["tyms.tasks/1"]);
+    expect(await deleteInstalledBlueprint(env, "tyms.tasks")).toBe(true);
+    expect(r2.size).toBe(0);
+  });
+
+  it("leaves a user-published blueprint alone", async () => {
+    let {kv, r2, env} = makeStores(
+        {"tyms.tasks": JSON.stringify({metadata: {}, ownerId: "abc"})}, ["tyms.tasks/1"]);
+    expect(await deleteInstalledBlueprint(env, "tyms.tasks")).toBe(false);
+    expect(kv.has("tyms.tasks")).toBe(true);
+    expect(r2.has("tyms.tasks/1")).toBe(true);
   });
 });
