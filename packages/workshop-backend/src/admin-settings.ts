@@ -12,7 +12,7 @@ import { ambientGatekeeperMode, DEFAULT_AMBIENT_GATEKEEPER_MODE } from './provis
 import { buildGatekeeperVendorMap } from './auth/auth-vendors.js';
 import { UserDurableObject } from './user.js';
 import { getAiGatewayConfig } from './ai-gateway.js';
-import { formatBlueprintsManifestVersion, installFormatBlueprints } from './format-blueprints.js';
+import { deleteInstalledBlueprint, formatBlueprintsManifestVersion, installFormatBlueprints, RETIRED_BLUEPRINT_IDS } from './format-blueprints.js';
 import { FORMAT_BLUEPRINTS } from './generated/format-blueprints.js';
 import * as intelligenceDirectory from './intelligence-directory.js';
 import { CENTRAL_CATALOG_CHECK_MS, CENTRAL_CATALOG_REFRESH_MS, CENTRAL_SETTINGS_POLL_MS, CentralCatalog, CentralSettings, CentralSettingsPull, adoptCentralSettings, catalogFingerprint, centralSettingsOf, fetchCentralLogo, hasCentralSettings, pullCentralSettings, reportCatalog, seedCentralSettings } from './central-settings.js';
@@ -83,6 +83,10 @@ function makeAdminSettingsStorage(storage: DurableObjectStorage) {
       // exactly once per blueprint: an admin who then removes a format keeps it removed, while a
       // deployment that installed before curation existed still gets promoted.
       promotedFormatBlueprints: <string[]>[],
+
+      // Retired blueprint ids (RETIRED_BLUEPRINT_IDS) already withdrawn from this deployment, so
+      // each is removed once and the check after that is a set lookup.
+      withdrawnRetiredBlueprints: <string[]>[],
 
       // The catalog last reported to the control plane (central-settings.ts reportCatalog):
       // its fingerprint, when it was sent, and when it was last listed to compare.
@@ -169,10 +173,51 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
       });
     }
 
+    await this.#withdrawRetiredBlueprints();
+
     // Promotion is checked on every run, not just after an install, so a deployment that installed
     // before curation existed still ends up offering its bundled formats.
     await this.#promoteBundledFormats();
     return complete;
+  }
+
+  // Withdraw each retired blueprint once: out of the featured mirror and the standard formats
+  // first, so nothing offers it while its records go, then its KV record and R2 content. A failure
+  // leaves the rest pending for the next run rather than failing the install.
+  async #withdrawRetiredBlueprints(): Promise<void> {
+    let withdrawn = new Set(this.storage.withdrawnRetiredBlueprints.get());
+    let pending = RETIRED_BLUEPRINT_IDS.filter(id => !withdrawn.has(id));
+    if (pending.length === 0) return;
+
+    try {
+      let featuredChanged = false;
+      for (let id of pending) {
+        if (this.storage.featuredBlueprints.get(id)) {
+          this.storage.featuredBlueprints.delete(id);
+          featuredChanged = true;
+        }
+      }
+      if (featuredChanged) await this.#writeFeaturedSnapshot();
+
+      await this.#mutateFormats(formats => {
+        let next = formats.filter(f => !pending.includes(f.blueprintId));
+        return next.length === formats.length ? null : next;
+      });
+
+      for (let id of pending) {
+        let deleted = await deleteInstalledBlueprint(this.env, id);
+        withdrawn.add(id);
+        this.storage.withdrawnRetiredBlueprints.put([...withdrawn]);
+        logger.info("withdrew retired blueprint", {
+          event: "formats.retired.withdrawn", blueprintId: id,
+          outcome: deleted ? "ok" : "error", reason: deleted ? undefined : "user-owned",
+        });
+      }
+    } catch (err) {
+      logger.error("failed to withdraw retired blueprints", {
+        event: "formats.retired.failed", error: err,
+      });
+    }
   }
 
   // Offer each bundled blueprint as a standard format, once ever. A separate one-shot decision per

@@ -10,7 +10,7 @@
 // with none installed simply has no standard formats.
 
 import { BlueprintMetadata, BlueprintPublicInfo } from "@gadgets/workshop-shared/api";
-import { BlueprintKvRecord, parseBlueprintArchive } from "./blueprint-archive.js";
+import { BlueprintKvRecord, parseBlueprintArchive, parseBlueprintKvRecord } from "./blueprint-archive.js";
 import { BundledFormatBlueprint, FORMAT_BLUEPRINTS } from "./generated/format-blueprints.js";
 import { fingerprint } from "./admin-config.js";
 import { createWorkshopLogger } from "./observability";
@@ -94,4 +94,40 @@ export async function installFormatBlueprints(env: InstallEnv): Promise<Blueprin
     }
   }
   return installed;
+}
+
+/**
+ * Blueprints Tyms deployments once installed but no longer ship: the Tyms app templates, bundled
+ * through FORMAT_BLUEPRINTS_DIR or installed from the since-removed template catalog. AdminSettings
+ * withdraws each one once per deployment.
+ */
+export const RETIRED_BLUEPRINT_IDS: readonly string[] = [
+  "tyms.tasks", "tyms.crm", "tyms.services", "tyms.recon", "tyms.goaml",
+];
+
+/**
+ * Delete a deployment-installed blueprint: its KV record and every stored version of its content.
+ * Returns false, touching nothing, when the id belongs to a user-published blueprint -- only the
+ * deployment's own copies (no owner) are this installer's to remove. Apps already created from the
+ * blueprint are unaffected; each holds its own copy of the code.
+ */
+export async function deleteInstalledBlueprint(
+    env: Pick<Cloudflare.Env, "BLUEPRINTS" | "BLUEPRINT_CONTENT">, blueprintId: string)
+    : Promise<boolean> {
+  let raw = await env.BLUEPRINTS.get(blueprintId);
+  if (raw) {
+    if (parseBlueprintKvRecord(raw).ownerId) return false;
+    // Metadata first, the reverse of installOne(): content without metadata is merely orphaned,
+    // metadata without content is a broken blueprint.
+    await env.BLUEPRINTS.delete(blueprintId);
+  }
+  let cursor: string | undefined;
+  do {
+    let page = await env.BLUEPRINT_CONTENT.list({prefix: `${blueprintId}/`, cursor});
+    if (page.objects.length > 0) {
+      await env.BLUEPRINT_CONTENT.delete(page.objects.map(object => object.key));
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return true;
 }
