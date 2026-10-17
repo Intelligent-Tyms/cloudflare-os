@@ -9,6 +9,7 @@ declare namespace Cloudflare {
     MCP_PORTAL_TOKEN?: string;
     MCP_PORTAL_TRUST_ANNOTATIONS?: string;
     MCP_PORTAL_SHARING?: string;
+    MCP_PORTAL_HIDDEN_SERVER_IDS?: string;
     MCP_CLIENT_NAME?: string;
     MCP_ALLOW_INSECURE?: string;
   }

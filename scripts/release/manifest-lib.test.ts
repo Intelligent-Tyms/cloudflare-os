@@ -13,7 +13,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectAssets, collectModules, stableStringify } from "./hash-lib.ts";
 import {
-  findDeployablePackages, generateManifest, readDeployInputs, readWranglerConfig,
+  generateManifest, readDeployablePackages, readDeployInputs,
 } from "./manifest-lib.ts";
 
 const RELEASE = dirname(fileURLToPath(import.meta.url));
@@ -26,7 +26,7 @@ const PLACEHOLDER_RE =
     /^\$(ACCOUNT_ID|PUBLIC_BASE_URL|KV_[A-Z0-9_]+_ID|R2_[A-Z0-9_]+_NAME|WORKER_NAME\([a-z0-9-]+\)|SECRET\([A-Z0-9_]+\))/;
 
 function buildTestManifest() {
-  const workers = findDeployablePackages(join(ROOT, "packages")).map((pkg) => {
+  const workers = readDeployablePackages(join(ROOT, "packages")).map((pkg) => {
     const bundleDir = join(TESTDATA, "fixture-bundles", pkg.name);
     assert.ok(existsSync(bundleDir),
         `missing fixture bundle for new deployable package: add scripts/release/testdata/` +
@@ -34,7 +34,7 @@ function buildTestManifest() {
     const { mainModule, modules } = collectModules(bundleDir);
     return {
       pkgName: pkg.name,
-      config: readWranglerConfig(pkg.dir),
+      config: pkg.config,
       mainModule,
       modules,
       deployInputs: readDeployInputs(pkg.dir),
@@ -188,7 +188,7 @@ test("worker entries carry the deploy contract", () => {
 
 test("per-package deploy-inputs.json files are well-formed when present", () => {
   const KINDS = new Set(["secret", "var", "workerName"]);
-  for (const pkg of findDeployablePackages(join(ROOT, "packages"))) {
+  for (const pkg of readDeployablePackages(join(ROOT, "packages"))) {
     const inputs = readDeployInputs(pkg.dir);
     if (inputs === undefined) continue;
     assert.ok(Array.isArray(inputs), `${pkg.name}/deploy-inputs.json must be an array`);
@@ -208,4 +208,15 @@ test("per-package deploy-inputs.json files are well-formed when present", () => 
       }
     }
   }
+});
+
+// The `gatekeeper-` prefix means "gatekeeper", not "deployable": discovery keys on wrangler.jsonc
+// alone, so a library may share it (`gatekeeper-kit` here, `gatekeeper-shared` internally). Pinned
+// because the failure is otherwise indirect and puzzling — a stray wrangler.jsonc would make the
+// kit a deployable, `workerKind` would type it a gatekeeper from its name, and the deploy wizard
+// would demand CLIENT_ID/CLIENT_SECRET for a library before letting anyone install it.
+test("a gatekeeper-prefixed library is not a deployable worker", () => {
+  const deployable = readDeployablePackages(join(ROOT, "packages")).map((pkg) => pkg.name);
+  assert.ok(!deployable.includes("gatekeeper-kit"),
+      "gatekeeper-kit is a library; adding a wrangler.jsonc would publish it as a connector");
 });

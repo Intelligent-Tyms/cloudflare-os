@@ -439,6 +439,13 @@
             "VendorSetupStore"
           ],
           "tag": "v4"
+        },
+        {
+          "new_sqlite_classes": [
+            "GoogleDriveGatekeeperImpl",
+            "GoogleDocGatekeeperImpl"
+          ],
+          "tag": "v5"
         }
       ],
       "modules": [
@@ -632,6 +639,12 @@
             "McpGatekeeperImpl"
           ],
           "tag": "v0"
+        },
+        {
+          "new_sqlite_classes": [
+            "VendorSetupStore"
+          ],
+          "tag": "v1"
         }
       ],
       "modules": [

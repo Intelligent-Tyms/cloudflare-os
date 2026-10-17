@@ -41,6 +41,25 @@ export function portalTrust(env: Env): ServerTrust {
   return (env.MCP_PORTAL_TRUST_ANNOTATIONS ?? "").toLowerCase() === "true" ? "vetted" : "byo";
 }
 
+/** Whether an upstream server is hidden by deployment configuration. */
+export function isPortalServerHidden(env: Env, serverId: string): boolean {
+  if (!serverId) return false;
+  return (env.MCP_PORTAL_HIDDEN_SERVER_IDS ?? "")
+    .split(",")
+    .some(hiddenId => hiddenId.trim() === serverId);
+}
+
+/**
+ * Refuses deployment-hidden servers at the grant boundary. The configurator filter is presentation,
+ * not authority: an agent can supply a resource URL directly.
+ */
+export function requirePortalServerVisible(env: Env, serverId: string): void {
+  if (!isPortalServerHidden(env, serverId)) return;
+  throw new Error(
+    `The portal server "${serverId}" is available through its native connector instead.`,
+  );
+}
+
 /**
  * Who may open a Gadget bound to a server behind the portal besides its owner. Deployment
  * configuration like the trust tier, and `owner-only` unless `MCP_PORTAL_SHARING` names another

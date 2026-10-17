@@ -72,6 +72,7 @@ import {
   loadPortalToken,
   parsePortalConfig,
   PORTAL_SETUP_NAMES,
+  isPortalServerHidden,
   portalAuthRequiresReconnect,
   portalCatalogValidationMode,
   portalResource,
@@ -79,6 +80,7 @@ import {
   PORTAL_SHARING_OPTIONS,
   portalSharingFor,
   portalTrust,
+  requirePortalServerVisible,
   requirePortalServerScope,
   type PortalSetupValues,
   isPortalToolGrantable,
@@ -171,6 +173,7 @@ async function validatePortalScope(
 ): Promise<{ scope: ToolScope & { serverId: string }; upstream: PortalServer | undefined }> {
   const scope = parseToolScope(requested);
   requirePortalServerScope(scope);
+  requirePortalServerVisible(env, scope.serverId);
 
   const listing = await tryListPortalServers(env, account, endpoint);
   if (listing === null) {
@@ -716,19 +719,21 @@ class McpServerConfiguratorUI extends RpcTarget implements McpServerConfigurator
   // endpoint that does not implement the portal contract or currently fronts nothing; either case
   // leaves the form unsubmittable.
   async listServerOptions(): Promise<ConfiguratorUIOption[]> {
-    return (await this.#portalServers()).map(upstream => ({
-      value: upstream.id,
-      title: upstream.name,
-      // A server can be configured but switched off for this session, making a grant onto it valid
-      // but presently empty, which the person choosing should see.
-      meta: upstream.enabled ? undefined : "disabled in portal",
-    }));
+    return (await this.#portalServers())
+      .filter(upstream => !isPortalServerHidden(this.#env, upstream.id))
+      .map(upstream => ({
+        value: upstream.id,
+        title: upstream.name,
+        // A server can be configured but switched off for this session, making a grant onto it valid
+        // but presently empty, which the person choosing should see.
+        meta: upstream.enabled ? undefined : "disabled in portal",
+      }));
   }
 
   // Tools the grant may cover within one portal upstream server. The survey is checked before the
   // detailed catalog is fetched, and `toolGrantOptions` decides what each source says.
   async listToolOptions(serverId: string): Promise<ConfiguratorUIOption[]> {
-    if (!isValidToolName(serverId)) return [];
+    if (!isValidToolName(serverId) || isPortalServerHidden(this.#env, serverId)) return [];
     if (!(await this.#portalServers()).some(server => server.id === serverId)) return [];
     const server = await this.#server();
     const tools = await withClient(this.#env, this.#account, server.endpoint,

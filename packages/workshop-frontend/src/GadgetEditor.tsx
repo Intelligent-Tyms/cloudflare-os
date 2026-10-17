@@ -29,7 +29,6 @@ import {
   AiChatAuthorInfo,
   ConsoleLogSubscriber,
   ConsoleLogEvent,
-  ActionLogEntry,
   WorkpieceId,
   WorkpieceSummary,
   BlueprintOutput,
@@ -47,7 +46,12 @@ import WorkpiecePicker, {
   WORKPIECE_RAIL_COLLAPSED_WIDTH,
   WORKPIECE_RAIL_EXPANDED_WIDTH,
 } from './WorkpiecePicker'
-import ChatInterface, { type StreamingProposedChanges, type ActiveFileTarget } from './ChatInterface'
+import ChatInterface, {
+  type ActiveFileTarget,
+  type ChatCodeChanges,
+  type ChatLiveChangeRows,
+  type ChatLiveEditPreviews,
+} from './ChatInterface'
 import { formatOf } from './components/format/formats'
 import { FormatGlyph } from './components/format/FormatVisuals'
 import ShareModal from './ShareModal'
@@ -59,7 +63,7 @@ import { useDiscuss } from './components/team-chat/discuss-context'
 
 // "Send to Discuss" lives in the Stream chunk; only loaded when someone opens it.
 const DiscussSharePicker = lazy(() => import('./components/team-chat/DiscussSharePicker'))
-import { useActions } from './useActions'
+import { useActionEntries, useActions } from './useActions'
 import DeleteConfirmationDialog from './components/DeleteConfirmationDialog'
 import ReconnectingChip from './components/ReconnectingChip'
 import WorkspaceOpenErrorPage from './components/WorkspaceOpenErrorPage'
@@ -67,6 +71,7 @@ import { useWorkspaceOpen } from './useWorkspaceOpen'
 import { reportIssue } from './errorReporting'
 import GadgetExportMenu from './GadgetExportMenu'
 import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER, MENU_POSITIONER_STYLE } from './components/menuStyles'
+import { isImeComposing } from './keyboardEvent'
 
 const NO_GADGETS: ReadonlySet<WorkpieceId> = new Set()
 
@@ -657,9 +662,17 @@ export default function GadgetEditor() {
   // ── code / chat state ────────────────────────────────────────────────────────
   const [uiReloadTrigger, setUiReloadTrigger] = useState(0)
   const [autoApproveReloadTrigger, setAutoApproveReloadTrigger] = useState(0)
-  const [proposedChanges, setProposedChanges] = useState<Uint8Array | undefined>(undefined)
-  const [draftProposedChanges, setDraftProposedChanges] = useState<StreamingProposedChanges | undefined>(undefined)
-  const [streamingProposedChanges, setStreamingProposedChanges] = useState<StreamingProposedChanges | undefined>(undefined)
+  // The selected chat's code-branch snapshot (see ChatCodeChanges in ChatInterface): its code
+  // base and the current epoch's recorded changes, plumbed from the chat subscription into the
+  // code view, which layers them over the per-pin commit-derived doc base.
+  const [chatChanges, setChatChanges] = useState<ChatCodeChanges | undefined>(undefined)
+  // The selected chat's live (unmaterialized) change row stream, stable per chat; the code view
+  // subscribes to it rather than reading rows through renders (see ChatLiveChangeRows).
+  const [liveRows, setLiveRows] = useState<ChatLiveChangeRows | undefined>(undefined)
+  // The selected chat's live edit-preview stream (the agent's in-progress writeFile/editFile
+  // content), likewise subscription-shaped (see ChatLiveEditPreviews).
+  const [liveEditPreviews, setLiveEditPreviews] =
+    useState<ChatLiveEditPreviews | undefined>(undefined)
   const [streamingActiveFileState, setStreamingActiveFileState] = useState<{
     chatId: number
     file: ActiveFileTarget | null | undefined
@@ -724,6 +737,13 @@ export default function GadgetEditor() {
         && (!w.hidden || w.id === urlWorkpieceId))
   }, [allGadgets, effectiveSelectedChatId, urlWorkpieceId])
 
+  // Gadgets still pending (created within) the selected chat: their chat content builds up from
+  // nothing rather than from a pinned commit (see GadgetCodeInterface's pendingGadgetIds).
+  const pendingGadgetIds = useMemo(() => new Set(
+    allGadgets.filter(w => w.chatId !== undefined && w.chatId === effectiveSelectedChatId)
+      .map(w => w.id)
+  ), [allGadgets, effectiveSelectedChatId])
+
   // The selected gadget: explicit URL state wins, followed by the app open in this session (only
   // accepted apps are persisted), then the workspace default and the first visible gadget.
   const selectedGadgetId = useMemo(() => {
@@ -773,7 +793,6 @@ export default function GadgetEditor() {
     }
   }, [id, workpiecesReady, workspaceView, allGadgets, metadata?.defaultGadgetId])
 
-  const selectedFilesRoot = selectedGadgetSummary?.filesRoot
   // The stub for the selected gadget arrives via an effect; during a switch it briefly lags the
   // selection, in which case gadget-dependent views render their empty states for a frame.
   const selectedGadgetStub =
@@ -790,16 +809,24 @@ export default function GadgetEditor() {
       ? streamingActiveFile.filename
       : undefined
 
-  const { actionsById } = useActions(overseer?.stub ?? null)
-  // Hook bindings change once in a while, but `actionsById` is a fresh Map on every action-log
-  // frame. Track just the bindHook enable states so the refetch isn't driven at animation rate.
-  const hookSignature = useMemo(() => {
-    const parts: string[] = []
-    for (const record of actionsById.values()) {
-      if (record.type === 'bindHook') parts.push(`${record.hookId}:${record.enabled}`)
-    }
-    return parts.join()
-  }, [actionsById])
+  const overseerStub = overseer?.stub ?? null
+  const { pending: pendingActions } = useActions(overseerStub)
+  // Hook bindings change once in a while; fold the entry stream into a signature over just the
+  // bindHook enable states, in state only when it changes, so the refetch below isn't driven at
+  // animation rate. listHooks() is the authoritative initial source; entries only trigger
+  // refetches. useActionEntries replays already-received entries on mount, repopulating the ref
+  // after the reset when the stub changes.
+  const hookStatesRef = useRef(new Map<number, string>())
+  const [hookSignature, setHookSignature] = useState('')
+  useEffect(() => {
+    hookStatesRef.current = new Map()
+    setHookSignature('')
+  }, [overseerStub])
+  useActionEntries(overseerStub, record => {
+    if (record.type !== 'bindHook') return
+    hookStatesRef.current.set(record.id, `${record.hookId}:${record.enabled}`)
+    setHookSignature([...hookStatesRef.current.values()].join())
+  })
   const [hookedGadgetIds, setHookedGadgetIds] = useState<ReadonlySet<WorkpieceId>>(NO_GADGETS)
   useEffect(() => {
     if (!overseer || metadata === null || isUseOnly) return
@@ -812,30 +839,32 @@ export default function GadgetEditor() {
     // Clear on teardown so a workspace switch never shows the previous workspace's indicators.
     return () => { cancelled = true; setHookedGadgetIds(NO_GADGETS) }
   }, [overseer, hookSignature, metadata !== null, isUseOnly])
-  const pendingActions = useMemo(() => {
-    const pending: ActionLogEntry[] = []
-    for (const record of actionsById.values()) {
-      if (record.state === 'pending') pending.push(record)
-    }
-    return pending
-  }, [actionsById])
-  const pendingActionsCount = pendingActions.length
+  const pendingActionCount = pendingActions.length
 
   // Whether the *selected* gadget has code. When no gadget is selected, the code interface is
   // unmounted and raw `hasCode` can't update, but a gadget-less workspace has no code to show.
-  const effectiveHasCode = selectedFilesRoot !== undefined
+  const effectiveHasCode = selectedGadgetSummary !== undefined
     ? hasCode
     : workpiecesReady ? false : null
 
   const codeStateReady = effectiveHasCode !== null
   const hasCodeRelatedState = effectiveHasCode === true
     || hasAnyProposedChanges
-    || streamingProposedChanges !== undefined
+    || streamingActiveFile != null
   const layoutModeReady = chatListReady && (codeStateReady || hasCodeRelatedState)
 
+  // Whether any gadget has committed code, known synchronously from the workpiece summaries (a
+  // head commit only exists once a chat's changes have been accepted). `hasCode` can't serve
+  // here: it reflects the *fetched* head tree, so on the first accept the proposed changes clear
+  // before the new head's tree arrives, and simple mode must not flash on during that window --
+  // the URL-alignment effect below would strip the chat from the URL, dropping the user back to
+  // the chat list once the tree loads and the mode flips back. (Kept out of layoutModeReady /
+  // hasCodeRelatedState so initial-load sequencing is unchanged.)
+  const hasCommittedCode = allGadgets.some(g => g.commitId !== undefined)
+
   // Wait for all initial subscriptions before choosing the new-workspace chat-only layout.
-  const simpleMode = layoutModeReady && !hasCodeRelatedState && singleInitialChat
-    && visibleGadgets.length <= 1
+  const simpleMode = layoutModeReady && !hasCodeRelatedState && !hasCommittedCode
+    && singleInitialChat && visibleGadgets.length <= 1
   const hasAnyApps = allGadgets.length > 0
   const showingActivity = workspaceView?.mode === 'activity'
   const showFullEditor = layoutModeReady && (
@@ -1063,9 +1092,8 @@ export default function GadgetEditor() {
   }, [])
 
   useEffect(() => {
-    setProposedChanges(undefined)
-    setDraftProposedChanges(undefined)
-    setStreamingProposedChanges(undefined)
+    setChatChanges(undefined)
+    setLiveRows(undefined)
     setStreamingActiveFileState(null)
     setHasCode(null)
     setChatCount(null)
@@ -1321,7 +1349,14 @@ export default function GadgetEditor() {
   }, [overseer])
 
   // ── reload UI when preview branch/code changes ────────────────────────────────
-  useEffect(() => { setUiReloadTrigger(t => t + 1) }, [previewChatId, proposedChanges])
+  useEffect(() => {
+    // Every loaded chat has a code snapshot, even when it has no proposed changes. Only a chat
+    // that actually owns the preview should invalidate the iframe; chatId changes themselves
+    // remount GadgetUISession when entering or leaving a preview.
+    if (previewChatId !== undefined && chatChanges?.chatId === previewChatId) {
+      setUiReloadTrigger(t => t + 1)
+    }
+  }, [previewChatId, chatChanges])
 
   // ── user info ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1489,6 +1524,7 @@ export default function GadgetEditor() {
                 value={titleInput}
                 onChange={e => setTitleInput(e.target.value)}
                 onKeyDown={e => {
+                  if (isImeComposing(e)) return
                   if (e.key === 'Enter') handleSaveTitle()
                   if (e.key === 'Escape') handleCancelEdit()
                 }}
@@ -1544,11 +1580,7 @@ export default function GadgetEditor() {
             currentUserId={userInfo?.id ?? null}
           />
 
-          <ActivityNotifications
-            overseer={overseer.stub}
-            pendingActions={pendingActions}
-            onViewActivity={openActivity}
-          />
+          <ActivityNotifications overseer={overseer.stub} onViewActivity={openActivity} />
 
           {showReconnecting && <ReconnectingChip />}
 
@@ -1639,14 +1671,14 @@ export default function GadgetEditor() {
         </button>
         <button
           type="button"
-          onClick={() => openActivity(pendingActionsCount > 0 ? 'review' : 'history')}
+          onClick={() => openActivity(pendingActionCount > 0 ? 'review' : 'history')}
           aria-current={paneShowsActivity ? 'page' : undefined}
           className={`relative flex h-9 min-w-0 flex-1 items-center justify-center rounded-lg px-3 text-[14px] font-medium ${
             paneShowsActivity ? 'bg-kumo-tint text-kumo-default' : 'text-kumo-subtle'
           }`}
         >
           Activity
-          {pendingActionsCount > 0 && (
+          {pendingActionCount > 0 && (
             <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-kumo-brand" />
           )}
         </button>
@@ -1667,7 +1699,7 @@ export default function GadgetEditor() {
           />
           <DropdownMenu.Content className={MENU_CONTENT} style={MENU_POSITIONER_STYLE}>
             <DropdownMenu.Item
-              disabled={selectedFilesRoot === undefined}
+              disabled={selectedGadgetSummary === undefined}
               onClick={() => openMobilePane('code')}
               className={MENU_ITEM}
             >
@@ -1769,9 +1801,9 @@ export default function GadgetEditor() {
                   overseer={overseer.stub}
                   selectedChatId={effectiveSelectedChatId}
                   onNavigateToChat={navigateToChat}
-                  onProposedChangesChange={setProposedChanges}
-                  onDraftProposedChangesChange={setDraftProposedChanges}
-                  onStreamingProposedChangesChange={updates => setStreamingProposedChanges(updates)}
+                  onChatChangesChange={setChatChanges}
+                  onLiveRowsChange={setLiveRows}
+                  onLiveEditPreviewsChange={setLiveEditPreviews}
                   onStreamingActiveFileChange={handleStreamingActiveFileChange}
                   pendingConsoleLogCount={consoleLogCount}
                   consoleLogPreview={
@@ -1865,7 +1897,7 @@ export default function GadgetEditor() {
                       key={tab.value}
                       active={activityView === tab.value}
                       label={tab.label}
-                      count={tab.value === 'review' ? pendingActionsCount : undefined}
+                      count={tab.value === 'review' ? pendingActionCount : undefined}
                       onClick={() => setActivityView(tab.value)}
                     />
                   ))
@@ -1938,7 +1970,7 @@ export default function GadgetEditor() {
                     key={tab.value}
                     active={activityView === tab.value}
                     label={tab.label}
-                    count={tab.value === 'review' ? pendingActionsCount : undefined}
+                    count={tab.value === 'review' ? pendingActionCount : undefined}
                     onClick={() => setActivityView(tab.value)}
                   />
                 ))}
@@ -2009,16 +2041,17 @@ export default function GadgetEditor() {
             </div>
 
             <div className={activeTab === 'code' ? 'h-full' : 'hidden'}>
-              {overseer && selectedFilesRoot !== undefined ? (
+              {overseer && selectedGadgetSummary ? (
                 <GadgetCodeInterface
                   overseer={overseer.stub}
-                  filesRoot={selectedFilesRoot}
+                  workpieceId={selectedGadgetSummary.id}
+                  headCommitId={selectedGadgetSummary.commitId}
                   height="100%"
-                  onCodeChange={() => setUiReloadTrigger(t => t + 1)}
                   selectedChatId={effectiveSelectedChatId}
-                  proposedChanges={proposedChanges}
-                  draftProposedChanges={draftProposedChanges}
-                  streamingProposedChanges={streamingProposedChanges}
+                  chatChanges={chatChanges}
+                  liveRows={liveRows}
+                  liveEditPreviews={liveEditPreviews}
+                  pendingGadgetIds={pendingGadgetIds}
                   streamingActiveFile={streamingActiveFileForSelected}
                   isAgentActive={isAgentActive}
                   isVisible={activeTab === 'code'}
@@ -2066,8 +2099,8 @@ export default function GadgetEditor() {
                 const target = allGadgets.find(g => g.id === id)
                 if (target) setRemoveFromViewTarget(target)
               }}
-              pendingActivityCount={pendingActionsCount}
-              onOpenActivity={() => openActivity(pendingActionsCount > 0 ? 'review' : 'history')}
+              pendingActivityCount={pendingActionCount}
+              onOpenActivity={() => openActivity(pendingActionCount > 0 ? 'review' : 'history')}
             />
           </div>
         )}

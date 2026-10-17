@@ -27,9 +27,15 @@
       "tag": "v3",
       "new_sqlite_classes": ["GoogleSheetsGatekeeperImpl"]
     },
+    // Tyms fork: v4 is ours (VendorSetupStore, already applied in production), so upstream's
+    // migrations land one tag later than upstream numbers them (upstream v4 = our v5, and so on).
     {
       "tag": "v4",
       "new_sqlite_classes": ["VendorSetupStore"]
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": [ "GoogleDriveGatekeeperImpl", "GoogleDocGatekeeperImpl" ]
     }
   ],
   "observability": {
