@@ -219,8 +219,8 @@ data it serves). See [`sharing-policy.ts`](../mcp-shared/src/sharing-policy.ts).
 
 `owner-only` is the safe reading. Being able to authenticate to a server is not evidence of being
 allowed to see what the *owner* read from it, and the Gadget runs on the owner's credentials
-throughout. Writes still work — the alternative, marking every observation `prohibitAllSharing`,
-would latch a lockdown that blocks every action for the rest of the session. To share the work
+throughout. Writes still work — the alternative, marking every observation `containsRestrictedData`,
+would latch a restricted mode that blocks every action for the rest of the session. To share the work
 rather than the binding, publish the Gadget as a blueprint and let each person connect their own
 server.
 
@@ -272,8 +272,8 @@ used by any app" so the owner can remove them (`Overseer.removeUnboundGatekeeper
   compatibility flag in `wrangler.jsonc`, which makes workerd reject reserved IP ranges after
   resolution on every request and redirect hop. It does not apply under `wrangler dev`, which is
   what keeps `MCP_ALLOW_INSECURE` usable locally.
-- **Sharing UI reports late.** `GadgetMetadata.sharingProhibited` derives only from
-  `prohibitAllSharing`, so creating a share key for an `owner-only` binding appears to succeed and
+- **Sharing UI reports late.** `GadgetMetadata.containsRestrictedData` derives only from
+  `ObservationDescription.containsRestrictedData`, so creating a share key for an `owner-only` binding appears to succeed and
   fails when the recipient opens it. Fixing this needs a kernel change.
 - **Replay is a check on success, not on content.** A `same-account` server whose reads succeed
   for every account (public data behind a login, a search that quietly filters by caller) admits

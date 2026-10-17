@@ -54,6 +54,7 @@ import {
   ArrowUpRight,
   LayoutTemplate as Blueprint,
   ArrowRightLeft,
+  GitBranch,
   type LucideIcon,
 } from "lucide-react";
 import { RpcStub, RpcTarget } from "capnweb";
@@ -635,6 +636,8 @@ function getToolCallSummary(
       const output = outputOf?.(tc);
       return { verb: `Created ${output?.noun ?? "app"}`, target: tc.input.title };
     }
+    case "createWorktree":
+      return { verb: "Created worktree", target: tc.input.title };
     case "executeCode": {
       // Prefer the first non-empty line as a preview. `code` may be absent while the tool call's
       // input is still streaming in, so guard against undefined.
@@ -744,6 +747,8 @@ function describeToolCallCount(toolName: AiToolCall["toolName"], count: number):
       return `Saved ${pluralize(count, "resource")}`;
     case "createGadget":
       return `Created ${pluralize(count, "app")}`;
+    case "createWorktree":
+      return `Created ${pluralize(count, "worktree")}`;
     case "observeUserChanges":
       return `Observed ${pluralize(count, "change set")}`;
     case "giveUp":
@@ -789,6 +794,8 @@ function getToolIcon(
       return Link2;
     case "createGadget":
       return Plus;
+    case "createWorktree":
+      return GitBranch;
     case "listBlueprints":
       return Blueprint;
     case "listWorkspaces":
@@ -823,6 +830,8 @@ function getProvisionalToolLabel(toolName: AiToolCall["toolName"] | null | undef
       return "Saving resource";
     case "createGadget":
       return "Creating app";
+    case "createWorktree":
+      return "Creating worktree";
     case "executeCode":
       return "Running code";
     case "webFetch":
@@ -852,6 +861,7 @@ function getProvisionalToolVerb(toolName: AiToolCall["toolName"]): string {
     case "setGadgetBinding": return "Wiring up";
     case "saveCapsuleAsBinding": return "Saving";
     case "createGadget": return "Creating app";
+    case "createWorktree": return "Creating worktree";
     case "executeCode": return "Running code";
     case "webFetch": return "Fetching";
     case "observeUserChanges": return "Observing user changes";
@@ -881,6 +891,7 @@ function describeProvisionalToolCount(toolName: AiToolCall["toolName"], count: n
     case "setGadgetBinding": return `Wiring up ${pluralize(count, "binding")}`;
     case "saveCapsuleAsBinding": return `Saving ${pluralize(count, "resource")}`;
     case "createGadget": return `Creating ${pluralize(count, "app")}`;
+    case "createWorktree": return `Creating ${pluralize(count, "worktree")}`;
     case "observeUserChanges": return `Observing ${pluralize(count, "change set")}`;
     case "giveUp": return "Stopping";
     case "listBlueprints": return "Listing templates";
@@ -2503,13 +2514,22 @@ interface ChatInterfaceProps {
   onSidebarResize?: (width: number) => void;
   renderExtraTab?: () => React.ReactNode;
   onHasAnyCodeChange?: (hasAnyCode: boolean) => void;
-  onSelectedChatHasProposedChangesChange?: (hasProposedChanges: boolean) => void;
+  // The workpieces the selected chat proposes changes to (empty when none is selected or it
+  // proposes nothing); see AiChatMetadata.proposedChangeWorkpieces.
+  onSelectedChatProposedChangesChange?: (workpieceIds: readonly WorkpieceId[]) => void;
   constrainChatWidth?: boolean;
   onOpenGadget: (gadgetId: WorkpieceId) => void;
 
   // The output format a workpiece was built as, so a created-app card can name and draw it as the
   // Document (or whatever) it is rather than a generic app.
   outputOfWorkpiece: (gadgetId: WorkpieceId) => BlueprintOutput | undefined;
+}
+
+// Whether a chat proposes changes the client can act on: the server delivers the touched
+// workpieces (worktree-only changes deliver none, deliberately -- see
+// AiChatMetadata.proposedChangeWorkpieces), so the pending-changes affordances key off this.
+function chatHasProposedChanges(meta: AiChatMetadata): boolean {
+  return (meta.proposedChangeWorkpieces?.length ?? 0) > 0;
 }
 
 // Bucket a chat's lastActive into a time grouping for the chat list.
@@ -2685,7 +2705,7 @@ function ChatInterface({
   onSidebarResize,
   renderExtraTab,
   onHasAnyCodeChange,
-  onSelectedChatHasProposedChangesChange,
+  onSelectedChatProposedChangesChange,
   constrainChatWidth,
   onOpenGadget,
   outputOfWorkpiece,
@@ -3008,7 +3028,7 @@ function ChatInterface({
   // Notify parent when any chat has proposed changes (code written but not merged).
   const onHasAnyCodeChangeRef = useRef(onHasAnyCodeChange);
   onHasAnyCodeChangeRef.current = onHasAnyCodeChange;
-  const anyHasProposedChanges = chatList.some(c => c.hasProposedChanges);
+  const anyHasProposedChanges = chatList.some(chatHasProposedChanges);
   useEffect(() => {
     if (chatListReady) {
       onHasAnyCodeChangeRef.current?.(anyHasProposedChanges);
@@ -3148,17 +3168,22 @@ function ChatInterface({
     }
   }, [overseer, toasts]);
 
-  const onSelectedChatHasProposedChangesChangeRef = useRef(onSelectedChatHasProposedChangesChange);
-  onSelectedChatHasProposedChangesChangeRef.current = onSelectedChatHasProposedChangesChange;
+  const onSelectedChatProposedChangesChangeRef = useRef(onSelectedChatProposedChangesChange);
+  onSelectedChatProposedChangesChangeRef.current = onSelectedChatProposedChangesChange;
+  // Keyed on the list's *content*: metadata is redelivered wholesale on every lastActive bump,
+  // and pushing a fresh (but equal) array into the parent's state each time would re-render it
+  // for nothing.
+  const currentProposedWorkpieces = currentChatMetadata?.proposedChangeWorkpieces;
+  const currentProposedWorkpiecesKey = currentProposedWorkpieces?.join(",") ?? "";
+  const metadataLoaded = currentChatMetadata !== undefined;
   useEffect(() => {
-    if (selectedChatId !== null && currentChatMetadata === undefined) {
+    if (selectedChatId !== null && !metadataLoaded) {
       return;
     }
 
-    onSelectedChatHasProposedChangesChangeRef.current?.(
-      currentChatMetadata?.hasProposedChanges === true,
-    );
-  }, [currentChatMetadata?.hasProposedChanges, currentChatMetadata, selectedChatId]);
+    onSelectedChatProposedChangesChangeRef.current?.(currentProposedWorkpieces ?? []);
+    // oxlint-disable-next-line exhaustive-deps -- currentProposedWorkpieces is covered by its key.
+  }, [currentProposedWorkpiecesKey, metadataLoaded, selectedChatId]);
 
   const currentProvisionalState =
     selectedChatId !== null
@@ -5229,7 +5254,7 @@ function ChatInterface({
                             <span className="h-1.5 w-1.5 rounded-full bg-kumo-brand animate-pulse" />
                             Working
                           </span>
-                        ) : !isRenaming && chat.hasProposedChanges ? (
+                        ) : !isRenaming && chatHasProposedChanges(chat) ? (
                           <Tooltip content="This conversation has pending changes" asChild>
                             <span className="inline-flex flex-shrink-0 cursor-pointer items-center gap-1 text-[11px] leading-4 font-medium text-kumo-warning">
                               <span className="h-1.5 w-1.5 rounded-full bg-kumo-warning" />
@@ -6071,14 +6096,21 @@ function ChatInterface({
 
                         {msg.type === "agentCallback" && (
                           <div className="max-w-[860px] text-[14px] leading-5 tracking-[-0.25px] text-kumo-subtle">
-                            <div className="flex items-center gap-3 px-1.5 py-1">
-                              <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center text-kumo-inactive" aria-hidden="true">
-                                <Code size={16} />
-                              </span>
-                              <span className="min-w-0 truncate font-mono text-[13px]">
-                                self.{msg.methodName}()
-                              </span>
-                            </div>
+                            <Tooltip content={`Call received at ${formatFullTimestamp(msg.timestamp)}`} asChild>
+                              <div className="flex items-center gap-3 px-1.5 py-1">
+                                <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center text-kumo-inactive" aria-hidden="true">
+                                  <Code size={16} />
+                                </span>
+                                <span className="min-w-0 truncate font-mono text-[13px]">
+                                  {msg.methodName}()
+                                </span>
+                                {msg.bindingName !== undefined && (
+                                  <span className="min-w-0 flex-shrink truncate font-mono text-[12px] leading-4 text-kumo-inactive">
+                                    env.{msg.bindingName}
+                                  </span>
+                                )}
+                              </div>
+                            </Tooltip>
                             {msg.argsSummary && (
                               <div className="ml-8 mt-1">
                                 <pre className="max-h-24 overflow-auto rounded-xl border border-kumo-line/70 bg-kumo-base p-3 font-mono text-[12px] leading-[18px] text-kumo-subtle whitespace-pre-wrap">
@@ -6317,7 +6349,8 @@ function ChatInterface({
                           : undefined
                     }
                     draftUpdateBanner={(() => {
-                      if (!currentChatMetadata?.hasProposedChanges) return null;
+                      if (!currentChatMetadata ||
+                          !chatHasProposedChanges(currentChatMetadata)) return null;
 
                       // Accepting always merges everything the chat proposes (drafts swept in,
                       // no partial accepts -- see Overseer.mergeChanges()), so the banner needs

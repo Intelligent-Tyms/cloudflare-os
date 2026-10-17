@@ -12,13 +12,8 @@ import { createWorkshopLogger } from "./observability";
 
 const logger = createWorkshopLogger("workshop.agent.catalog");
 
-export type AgentCatalogSnapshot = {
-  gatekeeperId: number;
-  catalog: AgentCatalog | null;
-};
-
-// Cached skill list for one always-available resource, persisted beside the catalog snapshots in
-// the chat context (see AiChatAgentContext.alwaysAvailableSkills).
+// Cached skill list for one always-available resource, persisted in the chat context
+// (see AiChatAgentContext.alwaysAvailableSkills).
 export type AgentSkillSnapshot = {
   gatekeeperId: number;
   skills: AgentSkillList | null;
@@ -101,20 +96,6 @@ async function completeSnapshots<T>(
         .toSorted(([left], [right]) => left - right)
         .map(([gatekeeperId, data]) => ({gatekeeperId, data})),
     changed: missing.length > 0 || removedStaleEntries,
-  };
-}
-
-export async function completeAgentCatalogSnapshot(
-    existing: AgentCatalogSnapshot[] | undefined,
-    gatekeeperIds: number[],
-    loadCatalog: (gatekeeperId: number) => Promise<AgentCatalog | null>):
-    Promise<{snapshots: AgentCatalogSnapshot[], changed: boolean}> {
-  let {snapshots, changed} = await completeSnapshots(
-      existing?.map(entry => ({gatekeeperId: entry.gatekeeperId, data: entry.catalog})),
-      gatekeeperIds, loadCatalog, "agent catalog");
-  return {
-    snapshots: snapshots.map(({gatekeeperId, data}) => ({gatekeeperId, catalog: data})),
-    changed,
   };
 }
 

@@ -62,6 +62,9 @@ function makeSubject(hiddenServerIds = "jira"): {
         get: vi.fn(() => account),
       },
       McpGatekeeperImpl: vi.fn(),
+      // Tyms fork: the portal's setup is admin-entered at runtime. An empty store falls back to the
+      // deploy-time env below, as a deployment with no admin-entered setup does.
+      VendorSetupStore: { getByName: vi.fn(() => ({ getValues: vi.fn(async () => ({})) })) },
     },
   };
   const env = {

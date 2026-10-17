@@ -26,6 +26,7 @@ import { useDocumentTitle } from '../useDocumentTitle'
 import { useServerConfig, useSiteName } from '../ServerConfigContext'
 import { centralConnectorsLink } from '../portalLinks'
 import { AccountsSubscriberAdapter } from '../accountsSubscriber'
+import { openConnectWindow } from '../connectHandoff'
 
 // Legacy path: the Integrations page now lives at /integrations (see routes/integrations.tsx,
 // which reuses ConnectorsPage). This route only redirects old links and bookmarks. The page
@@ -659,10 +660,9 @@ export function ConnectorsPage() {
         refreshGatekeeperApps(authenticatedApi)
       } else {
         // Pinned to the presented connector's own resource.
-        const { url } = target?.presented
+        openConnectWindow(target?.presented
           ? await authenticatedApi.connectAccount(target.presented.parentId, [target.presented.resourceUrlPattern])
-          : await authenticatedApi.connectAccount(vendorId, resourceUrlPatterns)
-        window.open(url, '_blank', 'noopener,noreferrer')
+          : await authenticatedApi.connectAccount(vendorId, resourceUrlPatterns))
       }
       handleCloseModal()
     } catch (err) {
@@ -677,15 +677,13 @@ export function ConnectorsPage() {
     if (!modalTarget || modalTarget.kind !== 'manage') return
     setEnsuringResourceUrlPatterns((prev) => [...new Set([...prev, ...resourceUrlPatterns])])
     try {
-      const result = await authenticatedApi.ensureAccountResources(
+      const flow = await authenticatedApi.ensureAccountResources(
         modalTarget.accountId,
         resourceUrlPatterns,
       )
-      if (result.url) {
-        window.open(result.url, '_blank', 'noopener,noreferrer')
-      }
-      // On success the new grant arrives via subscribeConnectedAccounts(); the toggle reflects it
-      // once `grantedResourceUrlPatterns` updates.
+      if (flow) openConnectWindow(flow)
+      // The popup redeems the ticket itself; the new grant arrives via subscribeConnectedAccounts(),
+      // and the toggle reflects it once `grantedResourceUrlPatterns` updates.
     } catch (err) {
       console.error('Failed to expand account access:', err)
       toasts.add({ title: 'Failed to request additional access', variant: 'error' })
@@ -718,8 +716,7 @@ export function ConnectorsPage() {
   const handleReconnect = async (accountId: number) => {
     setReconnectingAccountId(accountId)
     try {
-      const { url } = await authenticatedApi.reconnectAccount(accountId)
-      window.open(url, '_blank', 'noopener,noreferrer')
+      openConnectWindow(await authenticatedApi.reconnectAccount(accountId))
     } catch (err) {
       console.error('Failed to reconnect account:', err)
       toasts.add({ title: failureTitle(err, 'Failed to reconnect account'), variant: 'error' })

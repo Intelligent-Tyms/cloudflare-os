@@ -53,6 +53,7 @@ export async function getServerConfig(env: Cloudflare.Env): Promise<ServerConfig
     centralLoginUrl: hasCentralLogin(env) ? env.CENTRAL_LOGIN_URL : undefined,
     cloudflareLimitsEnabled: isCloudflareLimitsEnabled(env),
     signupsEnabled: config.signupsEnabled,
+    userSearchEnabled: config.userSearchEnabled,
     siteName: config.siteName,
     siteLogo: siteLogoImage(config.siteLogoConfigured),
     announcement: config.announcement,
