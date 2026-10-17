@@ -1,5 +1,5 @@
 import { RpcStub } from "capnweb";
-import { GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiModelConfig, CollaboratorRole, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, GadgetMetadata, BlueprintMetadata, BlueprintLibrarySummary, BlueprintSource, BlueprintUserSummary, BLUEPRINT_SCREENSHOT_R2_PREFIX, GatekeeperVendorInfo, BlueprintOutput, OutputSummary, WorkpieceId, ListOutputsResult, AUTH_ERROR_CODES, createAuthError, AssistantProfile, isFreePlanModel, ConnectFlowStart } from '@gadgets/workshop-shared/api';
+import { GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiModelConfig, CollaboratorRole, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, GadgetMetadata, BlueprintMetadata, BlueprintLibrarySummary, BlueprintSource, BlueprintUserSummary, BLUEPRINT_SCREENSHOT_R2_PREFIX, GatekeeperVendorInfo, BlueprintOutput, OutputSummary, WorkpieceId, ListOutputsResult, AUTH_ERROR_CODES, createAuthError, AssistantProfile, isFreePlanModel, ConnectFlowStart, validateCommitEmail } from '@gadgets/workshop-shared/api';
 import { usageCollector } from "./usage-collector";
 import { TeamChat } from "./team-chat.js";
 import type { ChannelRoutableWorkspace } from "@gadgets/workshop-shared/external-message-gateway";
@@ -8,6 +8,7 @@ import { shouldAutoProvisionAccount, ambientGatekeeperMode } from "./provisionin
 import { CloudflareGatekeeperUser } from "@gadgets/workshop-shared/cloudflare-gatekeeper";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { createTypedStorage, collection } from "@gadgets/typed-storage";
+import { recordAnalytics } from "./analytics";
 import { createWorkshopLogger } from "./observability";
 import { getAiGatewayConfig } from "./ai-gateway.js";
 import { utcDayKey, nextUtcMidnightIso, DailyQuotaResult } from "./ai-gateway-billing/limits/config.js";
@@ -577,7 +578,17 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
         name: email.split("@")[0],
         id: email,
       });
+      recordAnalytics(this.ctx, this.env, {
+        event_name: "account_created",
+        user_id: this.ctx.id.toString(),
+        source: "gatekeeper",
+      });
     }
+    recordAnalytics(this.ctx, this.env, {
+      event_name: "user_authenticated",
+      user_id: this.ctx.id.toString(),
+      source: "gatekeeper",
+    });
     return this.#newSessionToken();
   }
 
@@ -712,6 +723,17 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     this.storage.profile.put(profile);
     this.storage.profileRev.put(this.storage.profileRev.get() + 1);
     this.#syncDirectory();
+  }
+
+  async setOwnCommitEmail(email: string | null): Promise<void> {
+    let profile = this.storage.profile.get();
+    if (email === null) {
+      delete profile.commitEmail;
+    } else {
+      validateCommitEmail(email);
+      profile.commitEmail = email;
+    }
+    this.storage.profile.put(profile);
   }
 
   // AI models are deployment-wide and admin-managed (see AdminSettings); these forward so every
@@ -2275,10 +2297,12 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
 
     // Block whole gatekeepers + disabled resources at this single core-side chokepoint where a
     // resourceUrl becomes a capability (reached only via the user/UI-facing Overseer.newGatekeeper
-    // and blueprint instantiation — never from gadget or agent code).
+    // and blueprint instantiation — never from gadget or agent code). An ambient gatekeeper an admin
+    // set to "disabled" is blocked here too.
     let config = await readAdminConfig(this.env);
     let vendorId = account.vendorId.toLowerCase();
-    if (config.disabledGatekeepers.includes(vendorId)) {
+    if (config.disabledGatekeepers.includes(vendorId) ||
+        ambientGatekeeperMode(config, vendorId, this.env) === "disabled") {
       throw new Error(
           `The "${account.vendorId}" integration is disabled on this deployment by an administrator.`);
     }

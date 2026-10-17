@@ -13,7 +13,7 @@
 // tolerates staleness: a cold cache answers "byo" (the conservative tier) and kicks a
 // background refresh, converging within one call. Withdrawing an entry takes effect within the
 // TTL; the tool-catalog cache is keyed on the tier and refetches when it flips.
-import { createLogger } from "@gadgets/backend-utils/logger";
+import { createLogger } from "@gadgets/observability/logger";
 import type { SupportedResource } from "@gadgets/workshop-shared/gatekeeper";
 import type { McpLogFields } from "@gadgets/mcp-shared/log";
 import { sameEndpoint } from "@gadgets/mcp-shared/scope";
