@@ -11,6 +11,7 @@ export type WorkshopObservabilityFields = {
   blueprintId: string;
   callbackInitiated: boolean;
   chatId: number;
+  commitCount: number;
   connectionType: string;
   durableObjectId: string;
   durationMs: number;

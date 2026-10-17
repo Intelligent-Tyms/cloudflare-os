@@ -3,6 +3,7 @@ import { Dialog, DropdownMenu, useKumoToastManager } from '@cloudflare/kumo'
 import { Ellipsis, Download, Pencil, Plus, Trash2, X } from 'lucide-react'
 import DeleteConfirmationDialog from './components/DeleteConfirmationDialog'
 import { WorkshopButton, WorkshopIconButton, WorkshopInput } from './components/WorkshopControls'
+import { isImeComposing } from './keyboardEvent'
 
 interface FileSidebarProps {
   files: string[]
@@ -228,6 +229,7 @@ export default function FileSidebar({
               value={newFileName}
               onChange={(e) => setNewFileName(e.target.value)}
               onKeyDown={(e) => {
+                if (isImeComposing(e)) return
                 if (e.key === 'Enter') {
                   e.preventDefault()
                   handleCreateFile()
@@ -362,6 +364,7 @@ function FileRow({
           onChange={(event) => setRenameValue(event.target.value)}
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => {
+            if (isImeComposing(event)) return
             if (event.key === 'Enter') {
               event.preventDefault()
               onRenameSubmit(renameValue)

@@ -10,6 +10,7 @@ import { compressAvatar, avatarBlobUrl } from './avatarUtils'
 import UsageSettings from './components/billing/UsageSettings'
 import { PRIMARY_BTN, ICON_BTN, INPUT, SectionLabel, FieldLabel } from './components/settingsControls'
 import { useDocumentTitle } from './useDocumentTitle'
+import { isImeComposing } from './keyboardEvent'
 
 // On-language password field: same input/focus treatment as the rest of the app, with an inline
 // show/hide toggle (replacing Kumo's SensitiveInput, which read as dated against the new look).
@@ -288,6 +289,7 @@ export default function SettingsPage() {
                     value={nameInput}
                     onChange={(e) => setNameInput(e.target.value)}
                     onKeyDown={(e) => {
+                      if (isImeComposing(e)) return
                       if (e.key === 'Enter') handleSaveName()
                       if (e.key === 'Escape') handleCancelEdit()
                     }}

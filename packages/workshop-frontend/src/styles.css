@@ -119,7 +119,8 @@
 
   /* Tooltip */
   --color-kumo-tip-shadow: #0a0a0a14;
-  --color-kumo-tip-stroke: transparent;
+  --color-kumo-arrow-edge: var(--color-kumo-line);
+  --color-kumo-arrow-stroke: transparent;
 
   /* Text color tokens — neutral near-black scale */
   --text-color-kumo-default: #0a0a0a;
@@ -231,7 +232,8 @@
   --color-kumo-success-tint: #0d2f26;
 
   --color-kumo-tip-shadow: #00000066;
-  --color-kumo-tip-stroke: #2a2a2a;
+  --color-kumo-arrow-edge: transparent;
+  --color-kumo-arrow-stroke: var(--color-kumo-line);
 
   --text-color-kumo-default: #ededed;
   --text-color-kumo-default-hover: #ffffff;
@@ -332,18 +334,30 @@ h1, h2, h3, h4 {
       top: auto !important;
       right: env(safe-area-inset-right) !important;
       bottom: calc(var(--app-bottom) + env(safe-area-inset-bottom)) !important;
-      left: env(safe-area-inset-left) !important;
+      left: 50% !important;
       width: calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right)) !important;
       max-width: none !important;
       max-height: calc(var(--app-height) - 8px - env(safe-area-inset-top)) !important;
       border-bottom-right-radius: 0 !important;
       border-bottom-left-radius: 0 !important;
-      translate: 0 0 !important;
+      translate: -50% 0 !important;
       transform: none !important;
     }
 
     body .responsive-dialog :is(input, textarea, select) {
       font-size: 16px;
+    }
+
+    body .connect-connector-dialog {
+      top: 50% !important;
+      bottom: auto !important;
+      right: auto !important;
+      left: 50% !important;
+      width: calc(100vw - 32px) !important;
+      max-height: calc(var(--app-height) - 32px) !important;
+      border-bottom-right-radius: var(--radius-xl) !important;
+      border-bottom-left-radius: var(--radius-xl) !important;
+      translate: -50% -50% !important;
     }
   }
 }

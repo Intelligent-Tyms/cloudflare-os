@@ -10,9 +10,8 @@ export default defineConfig({
     },
   })],
   test: {
-    fileParallelism: false,
     exclude: ["__tests__/vite-config.test.ts"],
     include: ["__tests__/*.test.ts"],
-    setupFiles: ["../../scripts/assert-workerd.ts"],
+    setupFiles: ["@gadgets/scripts/assert-workerd"],
   },
 });
