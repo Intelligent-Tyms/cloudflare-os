@@ -11,6 +11,7 @@ export type WorkshopObservabilityFields = {
   blueprintId: string;
   callbackInitiated: boolean;
   chatId: number;
+  claimedType: string;
   commitCount: number;
   connectionType: string;
   durableObjectId: string;
@@ -20,16 +21,21 @@ export type WorkshopObservabilityFields = {
   failureCount: number;
   gadgetId: string;
   gatekeeperId: number | string;
+  handoffKind: "connect" | "restore";
+  hookId: number;
   /** How long something had gone unused when the logged event happened. */
   idleMs: number;
   logBytes: number;
   modelId: string;
   observerId: string;
+  oidCount: number;
+  oidPrefix: string;
   operation: string;
-  outcome: "ok" | "error" | "usage_limit" | "callbacks_stalled" | "no_email" | "signups_disabled";
+  outcome: "ok" | "error" | "usage_limit" | "no_email" | "signups_disabled";
   path: string;
   /** What led to the logged event: a short slug, or an error message. */
   reason: string;
+  recordedType: string;
   resourceTitle: string;
   runningAgents: number;
   sequence: number;

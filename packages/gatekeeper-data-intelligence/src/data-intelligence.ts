@@ -342,6 +342,11 @@ export class DataIntelligenceAccount
     throw new Error("Data Intelligence has no connect flow; reconnect it under Admin → Intelligence.");
   }
 
+  /** reconnect() never starts a flow, so no stage can exist to commit. */
+  commitReconnect(_stageId: string): Promise<void> {
+    throw new Error("Data Intelligence has no connect flow; reconnect it under Admin → Intelligence.");
+  }
+
   async getAuthenticatedEmail(): Promise<string | null> {
     return null;
   }

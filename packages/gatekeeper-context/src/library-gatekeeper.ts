@@ -198,6 +198,9 @@ export class ContextAccount
   reconnect(): never {
     throw new Error("The Context Library is a singleton gatekeeper; it has no connect flow.");
   }
+  commitReconnect(_stageId: string): never {
+    throw new Error("The Context Library is a singleton gatekeeper; it has no connect flow.");
+  }
   async getAuthenticatedEmail(): Promise<string | null> {
     return null;
   }
@@ -311,30 +314,20 @@ export class ContextGatekeeper
     };
   }
 
-  // Collections only: skills reach the prompt's <available_skills> section through
-  // listAgentSkills, which has its own budget and honors the admin disabledSkills curation, so
-  // repeating them here would both double-advertise every skill and leak disabled ones.
-  async getAgentCatalog(
-      authorizer: NativeRpcStub<ObservationAuthorizer>): Promise<AgentCatalog> {
+  /**
+   * Not an observation: the catalog reaches every chat's prompt automatically, so nothing in it may
+   * need observer verification. Reading an item through the session is the observation.
+   *
+   * Collections only: skills reach the prompt's <available_skills> section through
+   * listAgentSkills, which has its own budget and honors the admin disabledSkills curation, so
+   * repeating them here would both double-advertise every skill and leak disabled ones.
+   */
+  async getAgentCatalog(): Promise<AgentCatalog> {
     let domain = this.ctx.props.sharingDomain;
     let userLibrary = this.#userLibraries().get(
       this.#userLibraries().idFromName(domainName(domain, this.ctx.props.accountId)));
     let collections = await loadEnabledContextCollections(this.env, domain, userLibrary);
-    let catalog = buildContextCatalog(collections, []);
-    if (catalog.entries.length > 0) {
-      let collectionIds = [...new Set(catalog.entries.map(entry => {
-        let slash = entry.id.indexOf("/");
-        return slash < 0 ? entry.id : entry.id.slice(0, slash);
-      }))];
-      let check = await this.#observers().prepareObservation(collectionIds);
-      await authorizer.authorizeObservation({
-        title: "Context catalog",
-        description: `Listed ${catalog.entries.length} available Context item(s).`,
-        excludeObservers: check.excludeObservers,
-      });
-      check.commit();
-    }
-    return catalog;
+    return buildContextCatalog(collections, []);
   }
 
   // Every skill in the enabled collections, for the <available_skills> prompt section. Listing
