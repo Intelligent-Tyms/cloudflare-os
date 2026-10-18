@@ -149,6 +149,7 @@ vi.mock('./components/ReconnectingChip', () => ({ default: () => null }))
 vi.mock('./components/SiteLogo', () => ({ default: () => null }))
 vi.mock('./components/UserMenu', () => ({ default: () => null }))
 vi.mock('./components/WorkspaceOpenErrorPage', () => ({ default: () => null }))
+vi.mock('./features/notifications/WorkspaceNotificationsMenu', () => ({ WorkspaceNotificationsMenu: () => null }))
 
 import GadgetEditor from './GadgetEditor'
 import { isChatVisible } from './features/notifications/visibleChat'
