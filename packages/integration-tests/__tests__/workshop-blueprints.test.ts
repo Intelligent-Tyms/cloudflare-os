@@ -14,7 +14,7 @@ import {
   type Harness,
 } from "../src/harness.js";
 import { scriptedModelRouter } from "../src/mock-model.js";
-import { NetworkInterceptor } from "../src/network-interceptor.js";
+import { NetworkInterceptor, type Handler } from "../src/network-interceptor.js";
 import {
   accountLabel, connect, listConnectedAccounts, logIn, nextUsernames, signUp, stubFor, waitFor,
   WorkpieceRecorder,
@@ -22,7 +22,13 @@ import {
 
 let harness: Harness | undefined;
 const models = scriptedModelRouter();
-const network = new NetworkInterceptor({ handlers: [models.handler] });
+// Workers AI /run responses for the decision model test's account, served in order.
+const DECISION_ACCOUNT = "decision-account";
+const decisionResponses: Response[] = [];
+const decisionHandler: Handler = (url, method) =>
+  method === "POST" && url.pathname === `/client/v4/accounts/${DECISION_ACCOUNT}/ai/run`
+    ? decisionResponses.shift() ?? null : null;
+const network = new NetworkInterceptor({ handlers: [models.handler, decisionHandler] });
 
 beforeAll(async () => {
   network.install();

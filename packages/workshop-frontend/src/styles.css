@@ -497,20 +497,6 @@ html {
   );
 }
 
-[data-mode="dark"] .themed-prompt-card-shadow {
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--color-kumo-fill-hover) 42%, transparent),
-    0 1px 2px rgba(0, 0, 0, 0.24),
-    0 10px 28px -16px rgba(0, 0, 0, 0.45);
-}
-
-[data-mode="dark"] .themed-prompt-card-shadow:focus-within {
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--color-kumo-fill-hover) 52%, transparent),
-    0 1px 2px rgba(0, 0, 0, 0.28),
-    0 14px 34px -14px rgba(0, 0, 0, 0.55);
-}
-
 [data-mode="dark"] .themed-surface-inset {
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-kumo-line) 80%, transparent);
 }

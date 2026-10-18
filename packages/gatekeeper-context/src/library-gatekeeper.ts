@@ -24,9 +24,10 @@ import type {
   SkillPackage,
   SlashCommandDescriptor, SlashCommandProvider, SlashCommandResult,
 } from "@gadgets/workshop-shared/gatekeeper";
+import { ObservationGate } from "@gadgets/gatekeeper-kit/observers";
 import { LibraryReadSession } from "./library-read.js";
 import { ContextApiImpl, loadEnabledContextCollections } from "./context-api.js";
-import { ContextObserverTracker } from "./context-observers.js";
+import { contextObserverStrategy } from "./context-observers.js";
 import type { ContextVerifierApi } from "./context-observers.js";
 import {
   buildAgentSkillCommands, buildAgentSkillList, buildAgentSkillMessage, buildContextCatalog,
@@ -219,16 +220,19 @@ export class ContextAccount
 export class ContextVerifier
     extends WorkerEntrypoint<Cloudflare.Env, ContextAccountProps>
     implements ContextVerifierApi {
-  async hasCollectionAccess(sharingDomain: string, collectionId: string): Promise<boolean> {
-    if (sharingDomain !== this.ctx.props.sharingDomain) return false;
+  async hasCollectionsAccess(sharingDomain: string, collectionIds: string[]): Promise<boolean[]> {
+    if (sharingDomain !== this.ctx.props.sharingDomain) return collectionIds.map(() => false);
     let userLibraries = this.ctx.exports.UserLibraryDurableObject;
-    let registries = this.ctx.exports.LibraryRegistryDurableObject;
-    let [owns, isPublic] = await Promise.all([
-      userLibraries.get(userLibraries.idFromName(
-        domainName(sharingDomain, this.ctx.props.accountId))).hasOwned(collectionId),
-      registries.getByName(sharingDomain).isPublic(collectionId),
-    ]);
-    return owns || isPublic;
+    let userLibrary = userLibraries.get(userLibraries.idFromName(
+      domainName(sharingDomain, this.ctx.props.accountId)));
+    let registry = this.ctx.exports.LibraryRegistryDurableObject.getByName(sharingDomain);
+    return Promise.all(collectionIds.map(async collectionId => {
+      let [owns, isPublic] = await Promise.all([
+        userLibrary.hasOwned(collectionId),
+        registry.isPublic(collectionId),
+      ]);
+      return owns || isPublic;
+    }));
   }
 }
 
@@ -239,9 +243,9 @@ export class ContextGatekeeper
     implements Gatekeeper<LibraryReadSession> {
   #collections() { return this.ctx.exports.ContextCollectionDurableObject; }
   #userLibraries() { return this.ctx.exports.UserLibraryDurableObject; }
-  #observers() {
-    return new ContextObserverTracker(this.ctx.storage.kv, this.ctx.props.sharingDomain);
-  }
+  // One strategy over the same storage object for the DO's lifetime: the kit coordinates in-flight
+  // reads in memory keyed on it.
+  readonly #observers = contextObserverStrategy(this.ctx.storage.kv, this.ctx.props.sharingDomain);
 
   #loadSkills(collections: EnabledCollectionInfo[]): Promise<CollectionSkills[]> {
     return loadSkillsForCollections(collections, collectionId => {
@@ -267,15 +271,15 @@ export class ContextGatekeeper
   }
 
   #newReadSession(authorizer: NativeRpcStub<ObservationAuthorizer>): LibraryReadSession {
-    // The read session uses this authorizer after startSession() returns, so it owns a duplicate.
-    let ownedAuthorizer = authorizer.dup();
+    // The read session uses this authorizer after startSession() returns, so its gate owns a
+    // duplicate.
+    let gate = new ObservationGate(authorizer.dup(), this.#observers);
     try {
       return new LibraryReadSession(
         this.#collections(), this.#userLibraries(),
-        this.ctx.props.sharingDomain, this.ctx.props.accountId, ownedAuthorizer,
-        collectionIds => this.#observers().prepareObservation(collectionIds));
+        this.ctx.props.sharingDomain, this.ctx.props.accountId, gate);
     } catch (err) {
-      ownedAuthorizer[Symbol.dispose]?.();
+      gate[Symbol.dispose]();
       throw err;
     }
   }
@@ -346,13 +350,11 @@ export class ContextGatekeeper
       let slash = skill.id.indexOf("/");
       return slash < 0 ? skill.id : skill.id.slice(0, slash);
     }))];
-    let check = await this.#observers().prepareObservation(collectionIds);
-    await authorizer.authorizeObservation({
+    // A one-shot gate over the call's own authorizer stub, which RPC releases with the call.
+    await new ObservationGate(authorizer, this.#observers).authorize({
       title: "Agent skills",
       description: `Listed ${list.skills.length} available Agent Skill(s).`,
-      excludeObservers: check.excludeObservers,
-    });
-    check.commit();
+    }, {kind: "collections", ids: collectionIds});
     return list;
   }
 
@@ -377,15 +379,11 @@ export class ContextGatekeeper
     }
     if (indexes.length === 0) return null;
 
-    let check = await this.#observers().prepareObservation(
-        indexes.map(index => index.collectionId));
-    await authorizer.authorizeObservation({
+    await new ObservationGate(authorizer, this.#observers).authorize({
       title: "Authoritative Knowledge context",
       description:
           `Provided ${indexes.length} canonical folder index(es) as assistant context.`,
-      excludeObservers: check.excludeObservers,
-    });
-    check.commit();
+    }, {kind: "collections", ids: indexes.map(index => index.collectionId)});
     return boundAgentPromptContext(buildPromptContextBlock(indexes));
   }
 
@@ -411,12 +409,11 @@ export class ContextGatekeeper
    * collections actually revealed and verify every observer against each one.
    */
   async addObserver(id: string, user: Fetcher<GatekeeperUserVerifier>): Promise<void> {
-    await this.#observers().addObserver(
-      id, user as unknown as Fetcher<ContextVerifierApi>);
+    await this.#observers.addObserver(id, user);
   }
 
   async removeObserver(id: string): Promise<void> {
-    this.#observers().removeObserver(id);
+    await this.#observers.removeObserver(id);
   }
 
   /** Read-only gatekeeper: no actions are submitted, so these callbacks should never run. */

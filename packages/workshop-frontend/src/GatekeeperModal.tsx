@@ -208,6 +208,7 @@ export default function GatekeeperModal({
   const [vendors, setVendors] = useState<VendorOption[]>([])
 
   const [availableModels, setAvailableModels] = useState<AiChatAuthorInfo[]>([])
+  const [decisionModels, setDecisionModels] = useState<AiChatAuthorInfo[]>([])
   const [selectedModelId, setSelectedModelId] = useState<string | undefined>()
 
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null)
@@ -375,11 +376,13 @@ export default function GatekeeperModal({
     setSpawnerEnv(
       (spawnerEnvCandidatesRef.current ?? []).map(entry => ({ ...entry, enabled: true })))
 
-    authenticatedApi.listModels().then(models => {
+    Promise.all([authenticatedApi.listModels(), authenticatedApi.listModels('decision')])
+        .then(([models, decisions]) => {
       if (cancelled) return
       setAvailableModels(models)
+      setDecisionModels(decisions)
+      setSelectedModelId((models[0] ?? decisions[0])?.id)
       if (models.length > 0) {
-        setSelectedModelId(models[0].id)
         const lastSelected = localStorage.getItem('lastSelectedModel')
         if (lastSelected && models.some(m => m.id === lastSelected)) {
           setSpawnerModelId(lastSelected)
@@ -860,7 +863,8 @@ export default function GatekeeperModal({
 
                 {selectedConnection.id === 'ai-model' && (
                   <AiModelConnectionConfig
-                    availableModels={availableModels}
+                    chatModels={availableModels}
+                    decisionModels={decisionModels}
                     selectedModelId={selectedModelId}
                     onSelectedModelIdChange={setSelectedModelId}
                     selectContainer={selectPortalContainer}
