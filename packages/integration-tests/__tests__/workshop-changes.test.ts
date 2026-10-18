@@ -1,20 +1,21 @@
 import type { RpcStub } from "capnweb";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import type {
-  AiChatAuthorInfo, AiChatMessage, AiChatMetadata, AiChatStreamEvent, AiChatSubscriber, AuthenticatedApi, Overseer, PublicApi, WorkpieceId,
+  AiChatAuthorInfo, AiChatMessage, AiChatMetadata, AiChatStreamEvent, AiChatSubscriber, AuthenticatedApi,
+  GadgetMetadata, Overseer, PublicApi, WorkpieceId,
 } from "@gadgets/workshop-shared/api";
 import {
   applyCodeChange, diffFiles, type CodeChange, type CodeContent,
 } from "@gadgets/workshop-shared/code-change";
 import { loadAllChatHistory, openAgentSession } from "../src/agent-session.js";
-import { startTestGatekeeperHarness, TEST_VENDOR_ID, type Harness } from "../src/harness.js";
+import { settleRestart, startTestGatekeeperHarness, TEST_VENDOR_ID, type Harness } from "../src/harness.js";
 import {
   scriptedModelRouter, SCRIPTED_MODEL_ID, type ChatCompletionStep, type RoutedScriptedModel,
 } from "../src/mock-model.js";
 import { NetworkInterceptor } from "../src/network-interceptor.js";
 import {
-  connect, listConnectedAccounts, logIn, nextUsernames, RpcTarget, signUp, stubFor, waitFor,
-  WorkpieceRecorder,
+  connect, listConnectedAccounts, logIn, nextUsernames, restartWorkspace, RpcTarget, signUp,
+  streamGeneration, stubFor, waitFor, WorkpieceRecorder,
 } from "../src/rpc-client.js";
 
 type AppliedChange = {
@@ -62,7 +63,7 @@ afterAll(async () => {
 async function withClient<T>(
     auth: (api: RpcStub<PublicApi>) => Promise<RpcStub<AuthenticatedApi>>,
     open: (api: RpcStub<AuthenticatedApi>) => Promise<RpcStub<Overseer>>,
-    fn: (client: Client) => Promise<T>): Promise<T> {
+    fn: (client: Client, api: RpcStub<AuthenticatedApi>) => Promise<T>): Promise<T> {
   using publicApi = connect(harness.url);
   using api = await auth(publicApi);
   using ws = await open(api);
@@ -73,19 +74,23 @@ async function withClient<T>(
   using _workpieces = await ws.subscribeToWorkpieces(workpiecesStub);
   using _chats = await ws.subscribeToChat(chatsStub);
   await workpieces.loaded;
-  return await fn({ ws, workpieces, chats });
+  return await fn({ ws, workpieces, chats }, api);
 }
 
-function withOwner<T>(fn: (client: Client) => Promise<T>, model?: RoutedScriptedModel): Promise<T> {
-  return withClient(api => signUp(api, nextUsernames("owner")[0]!), async api => {
+function withOwner<T>(
+    fn: (client: Client, api: RpcStub<AuthenticatedApi>, username: string) => Promise<T>,
+    model?: RoutedScriptedModel): Promise<T> {
+  const username = nextUsernames("owner")[0]!;
+  return withClient(api => signUp(api, username), async api => {
     // Tyms fork: models come only from the AI Gateway, so a scripted per-user model can't be added.
     if (model !== undefined) throw new Error("Per-user models are not supported on this deployment.");
     return api.newGadget();
-  }, fn);
+  }, (client, api) => fn(client, api, username));
 }
 
-/** Reopen the sole workspace of an agent session's account over a fresh connection. */
-function reopen<T>(username: string, fn: (client: Client) => Promise<T>): Promise<T> {
+/** Reopen an account's sole workspace over a fresh connection. */
+function reopen<T>(
+    username: string, fn: (client: Client, api: RpcStub<AuthenticatedApi>) => Promise<T>): Promise<T> {
   return withClient(api => logIn(api, username), async api => {
     const [workspace] = await waitFor("the session's workspace", async () => {
       const workspaces = await api.listGadgets();
@@ -95,18 +100,14 @@ function reopen<T>(username: string, fn: (client: Client) => Promise<T>): Promis
   }, fn);
 }
 
-const toolCall = (name: string, args: Record<string, unknown>): ChatCompletionStep =>
-  ({ toolCall: { id: `call-${name}`, name, arguments: args } });
+const toolCall = (name: string, args: Record<string, unknown>, id = name): ChatCompletionStep =>
+  ({ toolCall: { id: `call-${id}`, name, arguments: args } });
 
 const files = (gadgetId: number, path: string, text?: string): CodeContent =>
   new Map([[gadgetId, new Map(text === undefined ? [] : [[path, text]])]]);
 
 const edit = (gadgetId: number, path: string, before: string | undefined, after: string) =>
   diffFiles(files(gadgetId, path, before), files(gadgetId, path, after));
-
-const textAfter = (changes: AppliedChange[], gadgetId: number, path: string, base: string) =>
-  changes.reduce((content, { change }) => applyCodeChange(content, change), files(gadgetId, path, base))
-    .get(gadgetId)?.get(path);
 
 const changesOf = (chats: ChatRecorder, chatId: number, count: number) =>
   waitFor(`${count} changes to chat ${chatId}`, async () => {
@@ -120,6 +121,13 @@ const headOf = (workpieces: WorkpieceRecorder, gadgetId: WorkpieceId, after?: st
     return summary?.type === "gadget" && summary.commitId !== undefined &&
         summary.commitId !== after ? summary.commitId : null;
   });
+
+const textAfter = (changes: AppliedChange[], gadgetId: number, path: string, base: string) =>
+  changes.reduce((content, { change }) => applyCodeChange(content, change), files(gadgetId, path, base))
+    .get(gadgetId)?.get(path);
+
+const parentsOf = async (ws: RpcStub<Overseer>, commitId: string) =>
+  (await ws.getCommitLog(commitId, 1))[0]?.parents;
 
 async function expectText(ws: RpcStub<Overseer>, commitId: string, path: string, text: string) {
   expect(await ws.readFilesAtCommit(commitId, [path])).toEqual([[path, { kind: "text", text }]]);
@@ -192,59 +200,244 @@ it.concurrent.skip("accepting agent changes makes the gadget, its code and its b
   });
 });
 
+// Tyms fork: skipped until the harness can serve a scripted model through a mocked AI Gateway
+// (models are gateway-only here, so the scripted per-user model this test needs can't be added).
+it.concurrent.skip("one accept commits both gadgets a chat built, each with only its own code",
+    async () => {
+  const built = [{ name: "A", path: "a.txt", text: "made for A\n" },
+                 { name: "B", path: "b.txt", text: "made for B\n" }];
+  const model = models.script([
+    ...built.map(({ name }) =>
+      toolCall("createGadget", { title: name, bindingName: name }, `create-${name}`)),
+    ...built.map(({ name, path, text }) =>
+      toolCall("writeFile", { workpiece: name, filename: path, content: text }, `write-${name}`)),
+    ...built.map(({ name }) => toolCall("setGadgetBinding",
+      { gadget: name, source: "TEST_AMBIENT", name: "DATA" }, `bind-${name}`)),
+    { text: "Done." },
+  ]);
+  await using session = await openAgentSession(harness.url, {
+    modelId: SCRIPTED_MODEL_ID, userModel: model.userModel, ambientVendorIds: [TEST_VENDOR_ID],
+  });
+  const { outcome, history } = await session.runTurn("Build two apps bound to the test data.");
+  expect(outcome).toEqual({ status: "completed" });
+  expect(model.remainingSteps()).toBe(0);
+  const chatId = history[0]!.chatId;
+  const changes = history.flatMap(message => message.type === "changes" ? [message] : []);
+  const created = changes.flatMap(message => message.createdGadgets ?? []);
+  const gadgets = built.map(gadget => ({ ...gadget,
+    gadgetId: created.find(({ bindingName }) => bindingName === gadget.name)!.gadgetId }));
+  const [a, b] = gadgets.map(({ gadgetId }) => gadgetId) as [WorkpieceId, WorkpieceId];
+  const [{ target }] = changes.flatMap(message => message.addedBindings ?? []);
+
+  const [headA, headB] = await reopen(session.username, async ({ ws, workpieces }) => {
+    expect((await ws.listChats()).find(chat => chat.id === chatId)?.proposedChangeWorkpieces
+        ?.toSorted()).toEqual([a, b].toSorted());
+    expect(await ws.mergeChanges(chatId)).toEqual({ outcome: "merged" });
+    const heads = [];
+    for (const { gadgetId, path, text } of gadgets) {
+      const head = await headOf(workpieces, gadgetId);
+      expect(await ws.listTree(head)).toEqual([{ name: path, kind: "file" }]);
+      await expectText(ws, head, path, text);
+      using gadget = await ws.getGadget(gadgetId);
+      expect(await gadget.listBindings())
+          .toContainEqual(expect.objectContaining({ name: "DATA", target }));
+      heads.push(head);
+    }
+    return heads as [string, string];
+  });
+
+  await reopen(session.username, async ({ ws, workpieces }) => {
+    const editA = await ws.newChat("Edit A", null);
+    await ws.submitCodeChange(editA, {
+      generation: 0, revision: 0, clientId: "editor", seq: 1,
+      pins: [{ gadgetId: a, baseCommit: headA }],
+      change: edit(a, "a.txt", built[0]!.text, "edited A\n"),
+    });
+    expect(await ws.mergeChanges(editA)).toEqual({ outcome: "merged" });
+    const head = await headOf(workpieces, a, headA);
+    await expectText(ws, head, "a.txt", "edited A\n");
+    expect((await ws.getCommitLog(head, 2)).map(commit => commit.oid)).toEqual([head, headA]);
+  });
+  // A fresh snapshot, so a stray update to B can't still be in flight.
+  await reopen(session.username, async ({ workpieces }) => {
+    expect(workpieces.summaries.get(b)).toMatchObject({ commitId: headB });
+  });
+});
+
 const MARKERS = "line1\n<<<<<<< mainline\nOURS\n||||||| merged base\nline2\n=======\nTHEIRS\n" +
     ">>>>>>> this chat\nline3\n";
 
 it.concurrent.for([
   {
     lines: "different", base: "a\nb\nc\nd\ne\n", ours: "A\nb\nc\nd\ne\n", theirs: "a\nb\nc\nd\nE\n",
-    conflictPaths: [], draft: "A\nb\nc\nd\nE\n", resolved: undefined,
+    conflicted: false, draft: "A\nb\nc\nd\nE\n", resolved: undefined,
   },
   {
     lines: "the same", base: "line1\nline2\nline3\n", ours: "line1\nOURS\nline3\n",
-    theirs: "line1\nTHEIRS\nline3\n", conflictPaths: ["APP/app.txt"], draft: MARKERS,
+    theirs: "line1\nTHEIRS\nline3\n", conflicted: true, draft: MARKERS,
     resolved: "line1\nOURS + THEIRS\nline3\n",
   },
 ])("a stale chat edited on $lines lines pulls in mainline and merges", async row => {
   await withOwner(async client => {
-    const { ws, workpieces, chats } = client;
-    const { gadgetId, head } = await seedGadget(client, "app.txt", row.base);
+    const { ws, workpieces } = client;
+    const { gadgetId, head } = await seedGadget(client, "client.js", row.base);
+    using gadget = await ws.getGadget(gadgetId);
     const chatA = await ws.newChat("A", null);
     const chatB = await ws.newChat("B", null);
     const pins = [{ gadgetId, baseCommit: head }];
     await ws.submitCodeChange(chatA, {
       generation: 0, revision: 0, clientId: "a", seq: 1, pins,
-      change: edit(gadgetId, "app.txt", row.base, row.ours),
+      change: edit(gadgetId, "client.js", row.base, row.ours),
     });
     await ws.submitCodeChange(chatB, {
       generation: 0, revision: 0, clientId: "b", seq: 1, pins,
-      change: edit(gadgetId, "app.txt", row.base, row.theirs),
+      change: edit(gadgetId, "client.js", row.base, row.theirs),
     });
+    const codeBaseOfB = async () => (await ws.listChats()).find(chat => chat.id === chatB)?.codeBase;
+    const preview = async () => (await gadget.getUiBundle(chatB))?.jsCode;
 
     expect(await ws.mergeChanges(chatA)).toEqual({ outcome: "merged" });
     const mainline = await headOf(workpieces, gadgetId, head);
     expect(await ws.mergeChanges(chatB)).toEqual({ outcome: "stale" });
-    expect((await ws.listChats()).find(chat => chat.id === chatB)?.codeBase?.generation).toBe(0);
+    expect((await codeBaseOfB())?.generation).toBe(0);
     expect(workpieces.summaries.get(gadgetId)).toMatchObject({ commitId: mainline });
-    await expectText(ws, mainline, "app.txt", row.ours);
+    await expectText(ws, mainline, "client.js", row.ours);
 
-    expect(await ws.updateChatFromMainline(chatB)).toEqual({ conflictPaths: row.conflictPaths });
-    const changes = await changesOf(chats, chatB, 2);
-    expect(textAfter(changes, gadgetId, "app.txt", row.base)).toBe(row.draft);
+    // The update is a merge commit of mainline and the chat's files before it, and the chat's
+    // pin re-roots there. The message that says so carries no change of its own.
+    const conflictPaths = row.conflicted ? ["client.js"] : [];
+    const update = async () => {
+      expect(await ws.updateChatFromMainline(chatB))
+          .toEqual({ conflictPaths: conflictPaths.map(path => `APP/${path}`) });
+      const message = (await changesMessages(ws, chatB)).findLast(entry => entry.mainlineMerge);
+      expect(message?.change).toBeUndefined();
+      expect(message?.mainlineMerge?.gadgets).toEqual(
+          [{ gadgetId, baseCommit: head, chatCommit: expect.any(String), conflictPaths }]);
+      const [{ chatCommit }] = message!.mainlineMerge!.gadgets!;
+      const [{ baseCommit: merged }] = message!.pins!;
+      expect(message?.pins).toEqual([{ gadgetId, baseCommit: merged, mergedCommit: mainline }]);
+      expect(await parentsOf(ws, merged)).toEqual([mainline, chatCommit]);
+      expect(await parentsOf(ws, chatCommit)).toEqual([head]);
+      await expectText(ws, chatCommit, "client.js", row.theirs);
+      await expectText(ws, merged, "client.js", row.draft);
+      expect(await preview()).toBe(row.draft);
+      return { message: message!, merged };
+    };
 
+    const first = await update();
+    const rerooted = await codeBaseOfB();
+    expect(rerooted).toMatchObject({
+      generation: 1, revision: 0, pins: [{ gadgetId, baseCommit: first.merged, mergedCommit: mainline }],
+    });
+    expect(rerooted).not.toHaveProperty("prior");
+
+    // Reverting the update puts the chat back as it was before, stale again.
+    await ws.revertChanges(chatB, first.message.sequence);
+    expect(await preview()).toBe(row.theirs);
+    expect((await codeBaseOfB())?.pins).toEqual([{ gadgetId, baseCommit: head, mergedCommit: head }]);
+    expect(await ws.mergeChanges(chatB)).toEqual({ outcome: "stale" });
+
+    const { merged } = await update();
     if (row.resolved !== undefined) {
-      const update = (await changesMessages(ws, chatB)).find(message => message.mainlineMerge);
-      await expect(ws.revertChanges(chatB, update!.sequence))
-          .rejects.toThrow("Cannot revert changes that include an update from mainline");
-      const { generation, revision } = changes.at(-1)!;
+      const { generation, revision } = (await codeBaseOfB())!;
       await ws.submitCodeChange(chatB, {
         generation, revision, clientId: "b", seq: 2,
-        change: edit(gadgetId, "app.txt", row.draft, row.resolved),
+        change: edit(gadgetId, "client.js", row.draft, row.resolved),
       });
+      expect(await preview()).toBe(row.resolved);
     }
     expect(await ws.mergeChanges(chatB)).toEqual({ outcome: "merged" });
-    await expectText(ws, await headOf(workpieces, gadgetId, mainline), "app.txt",
-        row.resolved ?? row.draft);
+
+    // The merge commit becomes the gadget's head, or the parent of one holding the resolution.
+    const accepted = await headOf(workpieces, gadgetId, mainline);
+    await expectText(ws, accepted, "client.js", row.resolved ?? row.draft);
+    if (row.resolved === undefined) expect(accepted).toBe(merged);
+    else expect(await parentsOf(ws, accepted)).toEqual([merged]);
+  });
+});
+
+it.concurrent("two simultaneous chat merges choose one complete version", async () => {
+  await withOwner(async client => {
+    const { ws, workpieces } = client;
+    const base = "base\n";
+    const { gadgetId, head } = await seedGadget(client, "app.txt", base);
+    const texts = ["from chat A\n", "from chat B\n"];
+    const chatIds = [];
+    for (const [i, text] of texts.entries()) {
+      const chatId = await ws.newChat(`Chat ${i}`, null);
+      await ws.submitCodeChange(chatId, {
+        generation: 0, revision: 0, clientId: `editor-${i}`, seq: 1,
+        pins: [{ gadgetId, baseCommit: head }], change: edit(gadgetId, "app.txt", base, text),
+      });
+      chatIds.push(chatId);
+    }
+
+    const outcomes = (await Promise.all(chatIds.map(chatId => ws.mergeChanges(chatId))))
+        .map(result => result.outcome);
+    expect(outcomes.toSorted()).toEqual(["merged", "stale"]);
+    const mainline = await headOf(workpieces, gadgetId, head);
+    await expectText(ws, mainline, "app.txt", texts[outcomes.indexOf("merged")]!);
+    const log = await ws.getCommitLog(mainline, 2);
+    expect(log.map(commit => commit.oid)).toEqual([mainline, head]);
+    expect(log[0]!.parents).toEqual([head]);
+  });
+});
+
+it.concurrent("a second session follows renames, drafts, merges and reverts", async () => {
+  await withOwner(async (writer, _api, username) => {
+    const { id } = await writer.ws.getMetadata();
+    await withClient(api => logIn(api, username), api => api.openGadget(id), async reader => {
+      const metadataEvents: GadgetMetadata[] = [];
+      using _metadata = await reader.ws.subscribeToMetadata(metadata => {
+        metadataEvents.push(metadata);
+      });
+      const initialMetadata = await waitFor("the reader's metadata", async () =>
+        metadataEvents[0] ?? null);
+      const title = "Synchronized workspace";
+      await writer.ws.setTitle(title);
+      expect(await waitFor("the renamed workspace", async () =>
+        metadataEvents.find(metadata => metadata.title === title) ?? null))
+          .toEqual({ ...initialMetadata, title });
+
+      using gadget = writer.ws.createGadget("Shared App", undefined, "APP");
+      const gadgetId = await gadget.getId();
+      const initialHead = await headOf(writer.workpieces, gadgetId);
+      const readerChat = (chatId: number, test: (chat: AiChatMetadata) => boolean) =>
+        waitFor(`chat ${chatId} in the second session`, async () => {
+          const chat = reader.chats.chats.get(chatId);
+          return chat !== undefined && test(chat) ? chat : null;
+        });
+      const propose = async (chatId: number, baseCommit: string, before: string | undefined,
+                             after: string) => {
+        await writer.ws.submitCodeChange(chatId, {
+          generation: 0, revision: 0, clientId: "writer", seq: 1,
+          pins: [{ gadgetId, baseCommit }], change: edit(gadgetId, "shared.txt", before, after),
+        });
+        const chat = await readerChat(chatId, chat => chat.proposedChangeWorkpieces !== undefined);
+        expect(chat.proposedChangeWorkpieces).toEqual([gadgetId]);
+      };
+
+      const merged = await writer.ws.newChat("Merge this draft", null);
+      const chatTitle = "Renamed shared chat";
+      await writer.ws.setChatTitle(merged, chatTitle);
+      await readerChat(merged, chat => chat.title === chatTitle);
+      await propose(merged, initialHead, undefined, "merged\n");
+      expect(await writer.ws.mergeChanges(merged)).toEqual({ outcome: "merged" });
+      const mergedHead = await headOf(reader.workpieces, gadgetId, initialHead);
+      const author = { name: username, email: `${username}@localhost` };
+      const log = [
+        { oid: mergedHead, parents: [initialHead], message: `Accept changes from chat: ${chatTitle}\n` },
+        { oid: initialHead, parents: [], message: "Create gadget: Shared App\n" },
+      ].map(commit => ({ ...commit, author, timestamp: expect.any(Date) }));
+      expect(await reader.ws.getCommitLog(mergedHead)).toEqual(log);
+
+      const reverted = await writer.ws.newChat("Revert this draft", null);
+      await propose(reverted, mergedHead, "merged\n", "merged\nreverted\n");
+      await writer.ws.revertChanges(reverted, 0);
+      await readerChat(reverted, chat => chat.proposedChangeWorkpieces === undefined);
+      expect(reader.workpieces.summaries.get(gadgetId)).toMatchObject({ commitId: mergedHead });
+      expect(await reader.ws.getCommitLog(mergedHead)).toEqual(log);
+    });
   });
 });
 
@@ -476,6 +669,81 @@ it.concurrent("draft and mainline code run separately across merge and revert", 
 
     await ws.revertChanges(chatId, (await changesMessages(ws, chatId)).at(-1)!.sequence);
     expect(await running(chatId)).toEqual(["v2", "v2"]);
+  });
+});
+
+type StatefulGadget = RpcStub<{
+  version(): string;
+  put(key: string, value: string): void;
+  get(key: string): string | null;
+}>;
+
+const stateServer = (version: string) => `import { DurableObject } from "cloudflare:workers";
+export class Gadget extends DurableObject {
+  version() { return "${version}"; }
+  async put(key, value) { await this.ctx.storage.put(key, value); }
+  async get(key) { return (await this.ctx.storage.get(key)) ?? null; }
+}
+`;
+
+/** Run `act` on a gadget's server (mainline, or `chatId`'s draft), then read back its state. */
+async function gadgetState(ws: RpcStub<Overseer>, gadgetId: WorkpieceId, chatId?: number,
+                           act?: (facet: StatefulGadget) => unknown) {
+  using gadget = await ws.getGadget(gadgetId);
+  using facet = await gadget.connectToGadget(chatId) as StatefulGadget;
+  await act?.(facet);
+  return { version: await facet.version(), k: await facet.get("k") };
+}
+
+it.concurrent("gadget state survives code changes and restart but is not copied to a blueprint",
+    async () => {
+  const v2State = { version: "v2", k: "v1-data" };
+  const { username, gadgetId, generation } = await withOwner(async (client, _api, username) => {
+    const { ws, workpieces } = client;
+    const { gadgetId, head } = await seedGadget(client, "server.js", stateServer("v1"));
+    expect(await gadgetState(ws, gadgetId, undefined, facet => facet.put("k", "v1-data")))
+        .toEqual({ version: "v1", k: "v1-data" });
+
+    const v2Chat = await ws.newChat("V2", null);
+    await ws.submitCodeChange(v2Chat, {
+      generation: 0, revision: 0, clientId: "editor", seq: 1, pins: [{ gadgetId, baseCommit: head }],
+      change: edit(gadgetId, "server.js", stateServer("v1"), stateServer("v2")),
+    });
+    expect(await ws.mergeChanges(v2Chat)).toEqual({ outcome: "merged" });
+    const v2Head = await headOf(workpieces, gadgetId, head);
+    expect(await gadgetState(ws, gadgetId)).toEqual(v2State);
+
+    const v3Chat = await ws.newChat("V3", null);
+    await ws.submitCodeChange(v3Chat, {
+      generation: 0, revision: 0, clientId: "editor", seq: 1, pins: [{ gadgetId, baseCommit: v2Head }],
+      change: edit(gadgetId, "server.js", stateServer("v2"), stateServer("v3")),
+    });
+    await ws.finalizeChatDraft(v3Chat);
+    expect((await gadgetState(ws, gadgetId, v3Chat)).version).toBe("v3");
+
+    // There is no public mainline revert (`revertChanges` on a merged message is a no-op), so
+    // reverting a later draft is the revert users can reach.
+    await ws.revertChanges(v3Chat, (await changesMessages(ws, v3Chat)).at(-1)!.sequence);
+    expect(await gadgetState(ws, gadgetId)).toEqual(v2State);
+
+    const generation = await streamGeneration(ws);
+    await restartWorkspace(harness.url, ws);
+    await settleRestart();
+    return { username, gadgetId, generation };
+  });
+
+  await reopen(username, async ({ ws }, api) => {
+    expect(await streamGeneration(ws)).not.toBe(generation);
+    expect(await gadgetState(ws, gadgetId)).toEqual(v2State);
+
+    using source = await ws.getGadget(gadgetId);
+    const blueprint = await source.createBlueprint("Stateful app", "V2 without its state");
+    using installed = await api.newGadgetFromBlueprint(blueprint.id, {});
+    const { defaultGadgetId } = await installed.getMetadata();
+    if (defaultGadgetId === undefined) throw new Error("Installed workspace has no default Gadget");
+    expect(await gadgetState(installed, defaultGadgetId))
+        .toEqual({ version: "v2", k: null });
+    expect(await gadgetState(ws, gadgetId)).toEqual(v2State);
   });
 });
 

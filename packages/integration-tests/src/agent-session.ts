@@ -1012,11 +1012,13 @@ export async function openAgentSession(
       throw new Error("Per-user models are not supported on this deployment; serve " +
           `"${options.modelId}" through the AI Gateway instead.`);
     }
-    const models = await authenticated.listModels();
-    if (!models.some(model => model.id === options.modelId)) {
-      throw new Error(`Model "${options.modelId}" is not available to the test account`);
+    // setPreferredModel accepts any model that resolves, not only the ones listModels() offers, so
+    // an eval can compare a superseded (hidden) model with its replacement.
+    try {
+      await authenticated.setPreferredModel(options.modelId);
+    } catch (cause) {
+      throw new Error(`Model "${options.modelId}" is not available to the test account`, { cause });
     }
-    await authenticated.setPreferredModel(options.modelId);
     await authenticated.completeOnboarding();
 
     const accounts = new Map<string, ConnectedAccount>();

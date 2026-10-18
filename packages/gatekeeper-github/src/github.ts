@@ -26,12 +26,20 @@ import {
   ActionDescriptionBuilder, buildDescription, codeSpan, type RenderedDescription,
 } from "@gadgets/gatekeeper-kit/action-description";
 import { connectHandoffPageHtml, htmlResponse } from "@gadgets/gatekeeper-kit/connect-pages";
+import {
+  clearCredentialExpiryLatch, notifyCredentialsExpiredOnce,
+} from "@gadgets/gatekeeper-kit/credential-expiry";
 import { commitStagedCredentials, stageCredentials } from "@gadgets/gatekeeper-kit/credential-stage";
+import {
+  CredentialCoordinator, isCredentialsExpired, type RejectionVerdict,
+} from "@gadgets/gatekeeper-kit/credentials";
 import {
   GitHubApi,
   GitHubApiError,
   exchangeAuthCode,
+  refreshGitHubGrant,
   revokeOAuthToken,
+  type GitHubOAuthGrant,
   type ConditionalRequestResult,
   type GitHubCompareResponse,
   type GitHubIssueCommentResponse,
@@ -116,6 +124,7 @@ import {
   GitHubIssueConfiguratorUI,
   GitHubPullRequestConfiguratorUI,
   GitHubRepoConfiguratorUI,
+  type GitHubApiRunner,
 } from "./github-configurators";
 import GITHUB_ISSUE_CONFIGURATOR_HTML from "./generated/github-issue-configurator-ui.txt";
 import GITHUB_PULL_REQUEST_CONFIGURATOR_HTML from "./generated/github-pull-request-configurator-ui.txt";
@@ -1538,6 +1547,15 @@ export class VendorSetupStore extends DurableObject<Env> {
   }
 }
 
+const CREDENTIALS_EXPIRED_MESSAGE =
+  "GitHub credentials have expired or been revoked. Please reconnect the account.";
+
+/**
+ * Stands in for the identity of a token the account no longer serves, so the coordinator's
+ * moved-past gate adjudicates it. Never equal to a real identity, which is a hex nonce.
+ */
+const REPLACED_TOKEN_IDENTITY = "replaced-token";
+
 export class UserAccount extends DurableObject<Env> {
   // The tenant whose OAuth app this account authenticates against, fixed when the account is
   // created; "" (or unset, for accounts created before tenants existed) is the owning
@@ -1554,9 +1572,40 @@ export class UserAccount extends DurableObject<Env> {
     this.ctx.storage.kv.put("tenant", tenant);
   }
 
+  readonly #creds = new CredentialCoordinator<GitHubOAuthGrant>(this.ctx.storage.kv, {
+    expiresAt: grant => grant.expiresAt,
+    // The layout before expiring grants were supported, which only ever held non-expiring ones.
+    legacyKeys: ["accessToken", "scopes"],
+    upgrade: kv => {
+      const accessToken = kv.get<string>("accessToken");
+      if (!accessToken) return undefined;
+      // That layout latched its expiry notice before delivering it, so a failed delivery left a
+      // dead account showing as connected. Re-arm the latch as the grant migrates: at worst the
+      // Workshop hears of one death twice.
+      clearCredentialExpiryLatch(this.ctx.storage.kv);
+      return { accessToken, scopes: kv.get<string[]>("scopes") ?? [] };
+    },
+    // GitHub revokes one token at a time (see revokeOAuthToken), so dropping a refresh that a
+    // reconnect or revoke overtook cannot touch the grant that won.
+    discardMint: grant => this.#revokeToken(grant.accessToken, this.#tenant()),
+    vendorId: VENDOR_ID,
+  });
+
+  /** How the coordinator refreshes a grant and announces its death to the Workshop. */
+  readonly #recovery = {
+    // Tyms fork: the tenant's own OAuth app (admin-entered setup), not the deploy-time one.
+    refresh: async (grant: GitHubOAuthGrant): Promise<GitHubOAuthGrant> => {
+      const app = await resolveOAuthApp(this.env, this.ctx.exports, this.#tenant());
+      if (!app) throw new Error("GitHub OAuth is not configured.");
+      return await refreshGitHubGrant(app.clientId, app.clientSecret, CREDENTIALS_EXPIRED_MESSAGE)(grant);
+    },
+    notify: () => notifyCredentialsExpiredOnce(this.ctx.storage.kv,
+      this.ctx.storage.kv.get<Fetcher<GatekeeperConnectCallback>>("callback"), VENDOR_ID),
+  };
+
   async setCallback(callback: Fetcher<GatekeeperConnectCallback>, initiationNonce: string,
                     requestedScopes?: string[], ephemeral?: boolean, tenant: string = ""): Promise<void> {
-    if (!this.ctx.storage.kv.get<string>("accessToken")) {
+    if (!this.#creds.stored()) {
       await this.ctx.storage.setAlarm(Date.now() + 3600 * 1000);
     }
 
@@ -1574,7 +1623,6 @@ export class UserAccount extends DurableObject<Env> {
   }
 
   async prepareReconnect(initiationNonce: string): Promise<void> {
-    this.ctx.storage.kv.put("expiredNotified", false);
     this.ctx.storage.kv.put<StoredNonce>("nonce", {
       value: initiationNonce,
       expiresAt: Date.now() + INITIATION_NONCE_LIFETIME_MS,
@@ -1634,15 +1682,12 @@ export class UserAccount extends DurableObject<Env> {
       const stageId = stageCredentials(this.ctx.storage.kv, grant, Date.now());
       handoff = await callback.reconnectComplete(stageId);
     } else {
-      this.ctx.storage.kv.put("accessToken", grant.accessToken);
-      this.ctx.storage.kv.put("scopes", grant.scopes);
-      this.ctx.storage.kv.put("expiredNotified", false);
+      this.#creds.connect(grant);
       try {
         const props = { userObjectId: this.ctx.id.toString() };
         handoff = await callback.complete(this.ctx.exports.GatekeeperUserImpl({ props }));
       } catch (error) {
-        this.ctx.storage.kv.delete("accessToken");
-        this.ctx.storage.kv.delete("scopes");
+        this.#creds.clear();
         throw error;
       }
       // Auth-only sign-in grants are transient: the caller read the email via complete(), so
@@ -1660,62 +1705,110 @@ export class UserAccount extends DurableObject<Env> {
 
   /** Makes the grant staged under `stageId` live; see GatekeeperUser.commitReconnect. */
   async commitReconnect(stageId: string): Promise<void> {
-    const grant = commitStagedCredentials<Awaited<ReturnType<typeof exchangeAuthCode>>>(
-      this.ctx.storage.kv, Date.now(), stageId);
+    const grant = commitStagedCredentials<GitHubOAuthGrant>(this.ctx.storage.kv, Date.now(), stageId);
     if (!grant) throw new Error("No reconnect is awaiting confirmation. Please try again.");
-    this.ctx.storage.kv.put("accessToken", grant.accessToken);
-    this.ctx.storage.kv.put("scopes", grant.scopes);
-    this.ctx.storage.kv.put("expiredNotified", false);
+    this.#creds.connect(grant);
   }
 
-  getAccessToken(): string {
-    const accessToken = this.ctx.storage.kv.get<string>("accessToken");
-    if (!accessToken) {
-      throw new Error("GitHub credentials have not been configured for this account.");
-    }
-    return accessToken;
+  /**
+   * @returns The current access token, refreshing an expiring grant shortly before it expires.
+   * @throws `CredentialsExpiredError` when the account is disconnected or its grant is dead, after
+   * notifying the Workshop of a death.
+   */
+  async getAccessToken(): Promise<string> {
+    const { creds } = await this.#creds.snapshot(this.#recovery.refresh, this.#recovery);
+    return creds.accessToken;
   }
 
   getScopes(): string[] {
-    return this.ctx.storage.kv.get<string[]>("scopes") ?? [];
+    return this.#creds.stored()?.scopes ?? [];
   }
 
-  async noteCredentialsExpired(): Promise<void> {
-    if (this.ctx.storage.kv.get<boolean>("expiredNotified")) {
-      return;
-    }
-
-    this.ctx.storage.kv.put("expiredNotified", true);
-    const callback = this.ctx.storage.kv.get<Fetcher<GatekeeperConnectCallback>>("callback");
-    if (callback) {
-      await callback.credentialsExpired();
-    }
+  /**
+   * Adjudicates GitHub's rejection of `accessToken`, notifying the Workshop when the grant is
+   * dead. Using a refresh token makes GitHub reject the access token it replaced, so a request
+   * that presented a token this account has since replaced -- by a refresh or a reconnect -- failed
+   * stale. A rejection of the current token refreshes past it where the grant can.
+   */
+  async reportTokenRejected(accessToken: string): Promise<RejectionVerdict> {
+    const identity = this.#creds.stored()?.accessToken === accessToken
+      ? this.#creds.identity()
+      : REPLACED_TOKEN_IDENTITY;
+    return await this.#creds.adjudicateRejection(identity, this.#recovery);
   }
 
   async alarm(): Promise<void> {
     // Drop the account if the flow never completed, or if this was a transient auth-only sign-in
     // grant (used once to read the email for login).
-    if (!this.ctx.storage.kv.get<string>("accessToken") || this.ctx.storage.kv.get<boolean>("ephemeral")) {
+    if (!this.#creds.stored() || this.ctx.storage.kv.get<boolean>("ephemeral")) {
       await this.ctx.storage.deleteAll();
     }
   }
 
   async revoke(): Promise<void> {
-    const accessToken = this.ctx.storage.kv.get<string>("accessToken");
-    const app = accessToken ? await resolveOAuthApp(this.env, this.ctx.exports, this.#tenant()) : null;
-    if (accessToken && app) {
-      try {
-        await revokeOAuthToken(accessToken, app.clientId, app.clientSecret);
-      } catch (error) {
-        logger.error("failed to revoke GitHub OAuth token", {
-          event: "oauth.token.revoke.failed", error,
-        });
-      }
-    }
-
+    const grant = this.#creds.stored();
+    // Captured before storage is cleared below: the revoke must reach the tenant's own OAuth app.
+    const tenant = this.#tenant();
+    // Fence before the first await: a refresh landing later is then discarded and its tokens
+    // revoked (see discardMint), rather than stored after this capture and deleted unrevoked.
+    this.#creds.clear();
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
+    if (grant) await this.#revokeToken(grant.accessToken, tenant);
   }
+
+  async #revokeToken(accessToken: string, tenant: string): Promise<void> {
+    const app = await resolveOAuthApp(this.env, this.ctx.exports, tenant);
+    if (!app) return;
+    try {
+      await revokeOAuthToken(accessToken, app.clientId, app.clientSecret);
+    } catch (error) {
+      logger.error("failed to revoke GitHub OAuth token", {
+        event: "oauth.token.revoke.failed", error,
+      });
+    }
+  }
+}
+
+/**
+ * Runs `fn` against GitHub as `account`. GitHub's rejection of the token a request presented is
+ * the account's to adjudicate, so a token replaced while the request was in flight fails as
+ * retryable rather than marking the account expired. With `replayable`, which only calls safe to
+ * run twice may pass, such a failure instead reruns `fn` once with the replacement token.
+ */
+async function withAccountApi<T>(
+  account: DurableObjectStub<UserAccount>, fn: (api: GitHubApi) => Promise<T>,
+  options: { replayable?: true } = {},
+): Promise<T> {
+  for (let replays = options.replayable ? 1 : 0; ; replays--) {
+    let presented: string | undefined;
+    const api = new GitHubApi(async () => (presented = await account.getAccessToken()));
+    try {
+      return await fn(api);
+    } catch (error) {
+      if (isCredentialsExpired(error)) {
+        throw new Error(CREDENTIALS_EXPIRED_MESSAGE, { cause: error });
+      }
+      if (!(error instanceof GitHubApiError && error.isAuthError) || presented === undefined) {
+        throw error;
+      }
+      const verdict = await account.reportTokenRejected(presented);
+      if (verdict === "expired") throw new Error(CREDENTIALS_EXPIRED_MESSAGE, { cause: error });
+      if (verdict !== "superseded") throw error;
+      if (replays > 0) continue;
+      throw new Error("GitHub credentials were renewed during this request. Please retry it.",
+        { cause: error });
+    }
+  }
+}
+
+/** Runs replay-safe GitHub reads as the account behind `userObjectId`; see withAccountApi. */
+function accountReader(
+  exports: Cloudflare.Exports, userObjectId: string,
+): GitHubApiRunner {
+  // The stub is made per call: a configurator outlives the request that created it.
+  return fn => withAccountApi(
+    exports.UserAccount.get(exports.UserAccount.idFromString(userObjectId)), fn, { replayable: true });
 }
 
 type GatekeeperUserImplProps = {
@@ -1728,16 +1821,7 @@ export class GatekeeperUserImpl extends WorkerEntrypoint<Env, GatekeeperUserImpl
     const id = this.ctx.exports.UserAccount.idFromString(this.ctx.props.userObjectId);
     const account = this.ctx.exports.UserAccount.get(id);
     const scopes = await account.getScopes();
-    const api = new GitHubApi(async () => await account.getAccessToken());
-    try {
-      return await fn(api, scopes);
-    } catch (error) {
-      if (error instanceof GitHubApiError && error.isAuthError) {
-        await account.noteCredentialsExpired();
-        throw new Error("GitHub credentials have expired or been revoked. Please reconnect the account.", { cause: error });
-      }
-      throw error;
-    }
+    return await withAccountApi(account, api => fn(api, scopes));
   }
 
   async describe(): Promise<AccountDescription> {
@@ -1802,30 +1886,26 @@ export class GatekeeperUserImpl extends WorkerEntrypoint<Env, GatekeeperUserImpl
   async startResourceConfigurator(
     resourceUrlPattern: string,
   ): Promise<ResourceConfiguratorFrame> {
-    const getToken = async () => {
-      const id = this.ctx.exports.UserAccount.idFromString(this.ctx.props.userObjectId);
-      const account = this.ctx.exports.UserAccount.get(id);
-      return await account.getAccessToken();
-    };
+    const read = accountReader(this.ctx.exports, this.ctx.props.userObjectId);
 
     if (resourceUrlPattern === REPO_RESOURCE.urlPattern) {
       return {
         iframeHtml: GITHUB_REPO_CONFIGURATOR_HTML,
-        ui: new RpcStub(new GitHubRepoConfiguratorUI(getToken)),
+        ui: new RpcStub(new GitHubRepoConfiguratorUI(read)),
       };
     }
 
     if (resourceUrlPattern === ISSUE_RESOURCE.urlPattern) {
       return {
         iframeHtml: GITHUB_ISSUE_CONFIGURATOR_HTML,
-        ui: new RpcStub(new GitHubIssueConfiguratorUI(getToken)),
+        ui: new RpcStub(new GitHubIssueConfiguratorUI(read)),
       };
     }
 
     if (resourceUrlPattern === PULL_REQUEST_RESOURCE.urlPattern) {
       return {
         iframeHtml: GITHUB_PULL_REQUEST_CONFIGURATOR_HTML,
-        ui: new RpcStub(new GitHubPullRequestConfiguratorUI(getToken)),
+        ui: new RpcStub(new GitHubPullRequestConfiguratorUI(read)),
       };
     }
 
@@ -1897,11 +1977,8 @@ export interface GitHubVerifierApi extends GatekeeperUserVerifier {
 export class GitHubVerifier extends WorkerEntrypoint<Env, GitHubVerifierProps>
     implements GitHubVerifierApi {
   async hasRepoAccess(owner: string, repo: string): Promise<boolean> {
-    const id = this.ctx.exports.UserAccount.idFromString(this.ctx.props.userObjectId);
-    const account = this.ctx.exports.UserAccount.get(id);
-    const api = new GitHubApi(async () => await account.getAccessToken());
     try {
-      await api.getRepo(owner, repo);
+      await accountReader(this.ctx.exports, this.ctx.props.userObjectId)(api => api.getRepo(owner, repo));
       return true;
     } catch (error) {
       // GitHub returns 404 for private repos the token cannot see (to avoid leaking existence), and
@@ -1935,17 +2012,16 @@ export class GitHubGatekeeperImpl extends DurableObject<Env, GitHubGatekeeperImp
   }
 
   async #withApi<T>(fn: (api: GitHubApi) => Promise<T>): Promise<T> {
-    const account = this.#userAccount();
-    const api = new GitHubApi(async () => await account.getAccessToken());
-    try {
-      return await fn(api);
-    } catch (error) {
-      if (error instanceof GitHubApiError && error.isAuthError) {
-        await account.noteCredentialsExpired();
-        throw new Error("GitHub credentials have expired or been revoked. Please reconnect the account.", { cause: error });
-      }
-      throw error;
-    }
+    return await withAccountApi(this.#userAccount(), fn);
+  }
+
+  /**
+   * `#withApi` for reads safe to send twice: a token a refresh replaced in flight reruns `fn` once
+   * instead of failing. An apply's follow-up reads need this, since failing them after GitHub
+   * accepted the mutation leaves the action pending, and retrying it repeats the mutation.
+   */
+  async #readApi<T>(fn: (api: GitHubApi) => Promise<T>): Promise<T> {
+    return await withAccountApi(this.#userAccount(), fn, { replayable: true });
   }
 
   #counterKey(name: string): string {
@@ -2311,7 +2387,7 @@ export class GitHubGatekeeperImpl extends DurableObject<Env, GitHubGatekeeperImp
     let changedCount = 0;
 
     for (let page = 1; ; page += 1) {
-      const batch = await this.#withApi(api =>
+      const batch = await this.#readApi(api =>
         api.listPullRequestReviewComments(
           this.ctx.props.owner,
           this.ctx.props.repo,
@@ -3598,7 +3674,7 @@ export class GitHubGatekeeperImpl extends DurableObject<Env, GitHubGatekeeperImp
       cacheKey,
       ENTITY_CACHE_TTL_MS,
       async etag => {
-        const firstPage = await this.#withApi(api =>
+        const firstPage = await this.#readApi(api =>
           api.listReviewCommentsForReviewConditional(
             this.ctx.props.owner,
             this.ctx.props.repo,
@@ -3616,7 +3692,7 @@ export class GitHubGatekeeperImpl extends DurableObject<Env, GitHubGatekeeperImp
         const results = [...firstPage.data];
         if (firstPage.data.length === 100) {
           const rest = await this.#fetchAllPages((page, perPage) =>
-            this.#withApi(api =>
+            this.#readApi(api =>
               api.listReviewCommentsForReview(
                 this.ctx.props.owner,
                 this.ctx.props.repo,

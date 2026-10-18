@@ -1,19 +1,24 @@
 import { RpcStub } from "capnweb";
-import { GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiModelConfig, CollaboratorRole, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, GadgetMetadata, BlueprintMetadata, BlueprintLibrarySummary, BlueprintSource, BlueprintUserSummary, BLUEPRINT_SCREENSHOT_R2_PREFIX, GatekeeperVendorInfo, BlueprintOutput, OutputSummary, WorkpieceId, ListOutputsResult, AUTH_ERROR_CODES, createAuthError, AssistantProfile, isFreePlanModel, ConnectFlowStart, validateCommitEmail } from '@gadgets/workshop-shared/api';
+import { GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiModelConfig, CollaboratorRole, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, GadgetMetadata, BlueprintMetadata, BlueprintLibrarySummary, BlueprintSource, BlueprintUserSummary, BLUEPRINT_SCREENSHOT_R2_PREFIX, GatekeeperVendorInfo, OutputSummary, ListOutputsResult, AUTH_ERROR_CODES, createAuthError, ConnectFlowStart, validateCommitEmail, AssistantProfile, isFreePlanModel } from '@gadgets/workshop-shared/api';
 import { usageCollector } from "./usage-collector";
 import { TeamChat } from "./team-chat.js";
 import type { ChannelRoutableWorkspace } from "@gadgets/workshop-shared/external-message-gateway";
-import { Gatekeeper, GatekeeperUser, GatekeeperUserVerifier, GatekeeperVendor, AccountDescription, VendorDescription, GatekeeperConnectCallback, SupportedResource, ResourceConfiguratorFrame, AppUiContext, GatekeeperUiFrame, ConnectHandoff } from "@gadgets/workshop-shared/gatekeeper";
+import { Gatekeeper, GatekeeperUser, GatekeeperUserVerifier, GatekeeperVendor, AccountDescription, VendorDescription, GatekeeperConnectCallback, ConnectHandoff, SupportedResource, ResourceConfiguratorFrame, AppUiContext, GatekeeperUiFrame } from "@gadgets/workshop-shared/gatekeeper";
 import { shouldAutoProvisionAccount, ambientGatekeeperMode } from "./provisioning-policy.js";
 import { CloudflareGatekeeperUser } from "@gadgets/workshop-shared/cloudflare-gatekeeper";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
-import { createTypedStorage, collection } from "@gadgets/typed-storage";
+import {
+  makeUserStorage, type BlueprintUserRecord, type CloudflareBilling, type ConnectedAccountRecord,
+  type GadgetRecord, type PendingConnectFlow, type PendingHandoffRecord, type UserAiModelRecord,
+  type UserStorage, type WorkspaceOutputEntry,
+} from "./storage-schema/user-storage.js";
 import { recordAnalytics } from "./analytics";
 import { createWorkshopLogger } from "./observability";
-import { getAiGatewayConfig } from "./ai-gateway.js";
+import { getGatewayModels, type GatewayModels } from "./ai-gateway.js";
 import { utcDayKey, nextUtcMidnightIso, DailyQuotaResult } from "./ai-gateway-billing/limits/config.js";
 import type { AdminSettings } from "./admin-settings.js";
-import { isReservedBlueprintKey, readBlueprintKvRecord } from "./blueprint-archive.js";
+import { deleteBlueprintContent } from "./blueprint-archive.js";
+import { isReservedBlueprintKey, readBlueprintKvRecord } from "./storage-schema/blueprints-kv.js";
 import { filterEnabledResources, isResourceDisabled, readAdminConfig } from "./admin-config.js";
 import { connectableResources, memberConnectPatterns, type ConnectorCaller } from "./connector-access.js";
 import { buildGatekeeperVendorMap } from "./auth/auth-vendors.js";
@@ -28,44 +33,6 @@ const OUTPUTS_BACKFILL_PAGE = 16;
 
 // Display title of the per-user home assistant workspace (see ensureHomeWorkspace).
 export const HOME_WORKSPACE_TITLE = "Assistant";
-
-type ConnectedAccountRecord = {
-  id: number;
-  account: Fetcher<GatekeeperUser>;
-  description: AccountDescription;
-  vendorId: string;   // Derived from the GATEKEEPER_ binding name (e.g. "google", "email").
-  credentialExpiresAt?: Date;    // When credentials are expected to expire, if known.
-  credentialsExpired?: boolean;  // Set true by async notification from gatekeeper.
-  // True if the Workshop created this account automatically via GatekeeperVendor.createAccount()
-  // (no OAuth flow), rather than the user connecting it. Such accounts are protected from manual
-  // disconnect, since deleting one permanently destroys the user's data in that gatekeeper.
-  autoProvisioned?: boolean;
-};
-
-// A connect ("connect") or reconnect/ensureResources ("restore") flow that a gatekeeper has finished
-// but the user's browser has not yet confirmed (see connect-handoff.ts). Keyed by the SHA-256 of the
-// ticket; single-use, and swept by alarm() once `expiresAt` passes.
-type PendingHandoffRecord = {
-  ticketHash: string;
-  kind: "connect" | "restore";
-  accountId: number;
-  expiresAt: Date;
-  credentialExpiresAt?: Date;
-  // The staged account, present for `kind: "connect"` only; becomes the ConnectedAccountRecord.
-  connect?: Pick<ConnectedAccountRecord, "account" | "description" | "vendorId">;
-  // The gatekeeper's id for the staged credentials, present for `kind: "restore"` only; passed back
-  // in commitReconnect() so this ticket can activate no other stage's credentials.
-  stageId?: string;
-};
-
-// A started connect / reconnect / ensure-resources flow, keyed by the hash of the nonce the Workshop
-// tab gave the popup (see ConnectFlowStart); completeConnectHandoff requires the ticket's record and
-// the nonce's flow to name the same account. Single-use, and swept by alarm() once `expiresAt` passes.
-type PendingConnectFlow = {
-  nonceHash: string;
-  accountId: number;
-  expiresAt: Date;
-};
 
 /**
  * Metadata about an auto-provisioned account that provides an agent singleton and/or a management UI.
@@ -101,20 +68,10 @@ function areCredentialsValid(record: ConnectedAccountRecord): boolean {
  */
 export const CLOUDFLARE_VENDOR_ID = "cloudflare";
 
-export type UserAiModelRecord = {
-  profile: AiChatAuthorInfo;
-  config: AiModelConfig;
-}
-
 export type UserChatContext = {
   profile: AiChatAuthorInfo;
   aiModel?: UserAiModelRecord;
   quickModel?: AiModelConfig;
-}
-
-type LoginSessionRecord = {
-  tokenId: string,  // sha256 hash of token, hex-formatted
-  created: Date,
 }
 
 // How long a login session token stays valid. Matches the central identity service's own
@@ -123,85 +80,15 @@ type LoginSessionRecord = {
 // this check existed simply read as expired.
 const SESSION_TTL_MS = 30 * 86_400_000;
 
-// Blueprint record stored in the user's `blueprints` collection.
-type BlueprintUserRecord = {
-  id: string;
-  metadata: BlueprintMetadata;
-  gadgetId?: string;
-  // Source of truth for whether the blueprint is featured deployment-wide.
-  featured?: boolean;
-};
-
-type LibraryBlueprintRecord = {
-  id: string;
-  metadata: BlueprintMetadata;
-  addedAt: Date;
-  uploaded: boolean;
-};
-
-type GadgetRecord = GadgetMetadata & {
-  created: Date;
-  lastActive?: Date;  // if missing, gadget is provisional
-  // If we're not the gadget owner (it was shared with us), `owner` is set (inherited from
-  // GadgetMetadata).
-};
-
-type DiscussNudgeRecord = {
-  cid: string;
-  dueAt: number | null;
-  emailedAt: number;
-};
-
 // How long an unread Discuss message waits before we email about it, and the least time
 // between two emails about the same conversation.
 const DISCUSS_NUDGE_DELAY_MS = 10 * 60 * 1000;
 const DISCUSS_NUDGE_COOLDOWN_MS = 30 * 60 * 1000;
 const DISCUSS_NUDGE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
-type ChannelRouteRecord = {
-  conversationKey: string;
-  workspaceId: string;
-  updatedAt: Date;
-};
-
 function isFullyCreated(g: GadgetRecord): g is GadgetMetadataWithTimestamps {
   return g.lastActive !== undefined;
 }
-
-/**
- * One output of a workspace, as pushed into a user's output index by the Overseer that owns it
- * (see `syncWorkspaceOutputs()`). Carries only what the workspace itself knows: its title,
- * activity time and ownership are joined in from the `gadgets` collection on read, so they can't
- * go stale here.
- */
-export type WorkspaceOutputEntry = {
-  workpieceId: WorkpieceId;
-  title: string;
-  created: Date;
-
-  /** The format the gadget was built as, if it was instantiated from a blueprint declaring one. */
-  output?: BlueprintOutput;
-
-  /** Hidden from lists without being deleted; see WorkpieceSummary.hidden. */
-  hidden?: boolean;
-};
-
-type OutputRecord = WorkspaceOutputEntry & {
-  // The workspace containing this output (an Overseer DO id).
-  workspaceId: string;
-};
-
-// AI Gateway billing state for the optional top-up flow: which Cloudflare account to bill and a
-// cached credit balance. The OAuth tokens themselves live in the connected Cloudflare *gatekeeper*
-// account (vendorId "cloudflare"); billing reads a usable token from there via getUsableAccessToken.
-type CloudflareBilling = {
-  // Selected account, once chosen (auto-selected when the grant sees exactly one).
-  accountId?: string;
-  accountName?: string;
-  // Cached credit balance (USD) and when it was last fetched (unix ms).
-  creditsRemaining?: number | null;
-  creditsUpdatedAt?: number;
-};
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length != b.length) {
@@ -215,130 +102,6 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
 
   return result === 0;
 }
-
-function makeUserStorage(storage: DurableObjectStorage) {
-  return createTypedStorage(storage, {
-    collections: {
-      gadgets: collection<GadgetRecord>()({
-        primaryKey: "id"
-      }),
-      connectedAccounts: collection<ConnectedAccountRecord>()({
-        primaryKey: "id"
-      }),
-      sessions: collection<LoginSessionRecord>()({
-        primaryKey: "tokenId",
-      }),
-      pendingHandoffs: collection<PendingHandoffRecord>()({
-        primaryKey: "ticketHash",
-      }),
-      pendingConnectFlows: collection<PendingConnectFlow>()({
-        primaryKey: "nonceHash",
-      }),
-      blueprints: collection<BlueprintUserRecord>()({
-        primaryKey: "id",
-      }),
-      libraryBlueprints: collection<LibraryBlueprintRecord>()({
-        primaryKey: "id",
-      }),
-      // Outputs of every workspace in `gadgets`, mirrored here by each workspace's Overseer so the
-      // Outputs page is one cheap read of the user's own DO. Entries are meaningful only while the
-      // corresponding `gadgets` record exists; `syncWorkspaceOutputs()` and the `gadgets` deletion
-      // paths keep the two in step.
-      outputs: collection<OutputRecord>()({
-        primaryKey: record => `${record.workspaceId}:${record.workpieceId}`,
-        nonUniqueIndexes: {
-          byWorkspace(record: OutputRecord) { return record.workspaceId; },
-        },
-      }),
-      // Which workspace each external messaging conversation (a Telegram chat, a Slack thread,
-      // an email thread) currently talks to. Absent = the home workspace. Set by the channel
-      // commands (/use, /home), the assistant's switchWorkspace tool, and address hints
-      // (email plus-tags); see ExternalMessageGateway. Keyed by the gateway-prefixed
-      // conversation key ("telegram:<chat>:<topic>"), the same key the Overseer files the
-      // conversation's chat thread under, so switching workspaces resumes the thread that
-      // conversation already has there.
-      // Pending "you have unread messages in Discuss" emails, one record per conversation:
-      // `dueAt` is when to check whether the person has read it (null = nothing pending),
-      // `emailedAt` the last time we emailed about it (for the cooldown).
-      discussNudges: collection<DiscussNudgeRecord>()({
-        primaryKey: "cid",
-      }),
-      channelRoutes: collection<ChannelRouteRecord>()({
-        primaryKey: "conversationKey",
-      }),
-    },
-    singletons: {
-      // AI Gateway billing state (selected account + cached balance) for the optional top-up flow;
-      // null until a Cloudflare account is connected and resolved.
-      cloudflareBilling: <CloudflareBilling | null>null,
-
-      created: false,
-      profile: <AiChatAuthorInfo>{
-        type: "user",
-        name: "User",
-        id: "user@example.com",
-      },
-      // The user's default model pick (chosen during onboarding), referencing an entry of the
-      // deployment-wide catalog (AdminSettings DO). AI models themselves are admin-managed.
-      preferredModel: <string | null>null,
-      // Email me the messages I missed in Discuss while away (default on).
-      discussEmailWhenAway: true,
-
-      // Per-user assistant personalization (name, persona, role, targets, goals, time zone),
-      // rendered into the agent system prompt. null until the user first saves it.
-      assistantProfile: <AssistantProfile | null>null,
-
-      onboardingCompleted: false,
-
-      // Set once the user's pre-existing workspaces have been asked to populate the outputs index
-      // (see #backfillOutputs()). Workspaces created since push on their own.
-      outputsBackfilled: false,
-
-      // The user's home assistant workspace (an ordinary workspace, created on first use).
-      // External messaging gateways (Telegram/Slack) route every conversation here as its
-      // own chat thread instead of minting a workspace per conversation.
-      homeWorkspaceId: <string | null>null,
-
-      // How far that catch-up has got: the last workspace id examined. The sweep runs a page at a
-      // time and resumes here on the next visit.
-      outputsBackfillCursor: "",
-
-      nextAccountId: 0,
-      pinnedBlueprints: <string[]>[],
-
-      // Redeemed central-handoff token ids (jti -> exp millis), making handoff tokens
-      // single-use. Expired entries are pruned on each redemption; the ~60s token TTL keeps
-      // this to a handful of live entries.
-      usedHandoffJtis: <Record<string, number>>{},
-
-      // The user's role ("owner" | "admin" | "member") as asserted by the central identity
-      // service in its signed handoff token, refreshed on every handoff sign-in. Owners and
-      // admins are admins here (see AuthenticatedApiImpl). null = no central role asserted
-      // (pre-role tokens, or non-handoff sign-in), which is a member.
-      centralRole: <string | null>null,
-
-      // Per-user free-tier daily LLM-call counter (only used when ENABLE_CLOUDFLARE_LIMITS is on).
-      // Stores the current UTC day and the calls made that day; a stale `day` implicitly resets the
-      // count. Folds the former standalone RateLimitDO into the user object.
-      dailyLlmCount: <{ day: string; count: number } | null>null,
-
-      // `passwordHash` value as passed to `login()`, but with an extra round of SHA-256 applied.
-      //
-      // null = password disabled (e.g. because some other auth mechanism is used)
-      passwordHashHash: <Uint8Array | null>null,
-      // Current profile revision, bumped every time the user updates their
-      // public-facing profile. Currently this is only bumped when the user
-      // changes their display name.
-      profileRev: 0,
-      // Profile revision the deployment-wide user directory last acknowledged
-      // (-1 = never, which also lazily backfills users created before the
-      // directory existed). See #syncDirectory().
-      directoryRev: -1,
-    }
-  });
-}
-
-type UserStorage = ReturnType<typeof makeUserStorage>;
 
 function unavailableGatekeeperVendorInfo(id: string): GatekeeperVendorInfo {
   return {
@@ -399,14 +162,6 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
-
-    // Migrate data created prior to the minions -> gadgets rename.
-    // TODO(cleanup): Eventually remove this, very few people ever used it as "minions".
-    for (let [key, value] of Array.from(ctx.storage.kv.list({prefix: "minions:"}))) {
-      let newKey = "gadgets:" + key.slice("minions:".length);
-      ctx.storage.kv.put(newKey, value);
-      ctx.storage.kv.delete(key);
-    }
 
     this.storage = makeUserStorage(ctx.storage);
     this.adminSettings = this.ctx.exports.AdminSettings;
@@ -526,20 +281,6 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
       : Promise<string | null> {
     if (this.storage.created.get()) {
       return null;
-    }
-
-    // Do a little migration here for old data.
-    // TODO(soon): Delete this.
-    for (let gadget of Array.from(this.storage.gadgets.list())) {
-      if (!gadget.created || !gadget.lastActive) {
-        if (!gadget.created) {
-          gadget.created = new Date("2026-01-01");
-        }
-        if (!gadget.lastActive) {
-          gadget.lastActive = new Date("2026-01-01");;
-        }
-        this.storage.gadgets.put(gadget);
-      }
     }
 
     this.storage.created.put(true);
@@ -740,18 +481,24 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   // existing caller (including per-workspace Overseers holding a user stub) reads the shared
   // catalog.
   async listModels(): Promise<AiChatAuthorInfo[]> {
-    let models: AiChatAuthorInfo[] = await this.adminSettings.getByName("").listModels();
-    // Free plan, platform gateway mode: offer only the free-plan models (the agent-turn and
-    // model-binding gates enforce the same restriction; this keeps the picker honest). Fails
-    // open when billing is unconfigured or unreachable. Filtering also steers
-    // getExternalMessageChatContext's first-model fallback to an allowed model.
-    if (getAiGatewayConfig(this.env)) {
-      let billing = await usageCollector(this.ctx).getBillingState().catch(() => null);
-      if (billing?.freeDailyLlmCalls != null) {
-        models = models.filter(model => isFreePlanModel(model.id));
-      }
+    return this.#offeredModels(await getGatewayModels(this.env));
+  }
+
+  // The gateway models offered to this user (models are AI-Gateway-only; there are no per-user
+  // models). Free plan, platform gateway mode: offer only the free-plan models (the agent-turn
+  // and model-binding gates enforce the same restriction; this keeps the picker honest). Fails
+  // open when billing is unconfigured or unreachable. Filtering also steers
+  // getExternalMessageChatContext's first-model fallback to an allowed model.
+  async #offeredModels(models: GatewayModels | null): Promise<AiChatAuthorInfo[]> {
+    if (!models) return [];
+    let result = models.list();
+    let billing = await Promise.resolve()
+        .then(() => usageCollector(this.ctx).getBillingState())
+        .catch(() => null);
+    if (billing?.freeDailyLlmCalls != null) {
+      result = result.filter(model => isFreePlanModel(model.id));
     }
-    return models;
+    return result;
   }
 
   async getPreferredModel(): Promise<string | null> {
@@ -821,15 +568,11 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
 
   async setPreferredModel(id: string | null): Promise<void> {
     if (id !== null) {
-      // Validate that the model exists in the deployment catalog (and is not admin-disabled).
-      let gwConfig = getAiGatewayConfig(this.env);
-      let exists = !!gwConfig?.resolveModel(id, await this.#disabledModels());
-      if (!exists) {
-        let disabledRecord = gwConfig?.resolveModel(id);
-        if (disabledRecord) {
-          throw new Error(
-              `${disabledRecord.profile.name} has been disabled by your workspace admin.`);
-        }
+      // Any model that resolves is accepted, hidden ones included (see getExternalMessageChatContext()).
+      // A disabled one is refused by name, so the user learns why.
+      let models = await getGatewayModels(this.env);
+      if (!this.#resolveModel(id, models)) {
+        models?.refuseDisabled(id);
         throw new Error(`No such model: ${id}`);
       }
     }
@@ -935,53 +678,52 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
              resetAt: nextUtcMidnightIso() };
   }
 
-  // The deployment's admin-disabled model ids, from the KV-mirrored admin config (one cheap KV
-  // get; see admin-config.ts). Used wherever gateway models resolve.
-  async #disabledModels(): Promise<Set<string>> {
-    return new Set((await readAdminConfig(this.env)).disabledModels);
-  }
-
   /** DO NOT MAKE PUBLIC -- returns API keys. Pure read: call sites replay it across DO resets
    * via retryOnDoReset, so it must stay free of writes and side effects. */
   async getChatContext(modelId: string | null): Promise<UserChatContext> {
-    let gwConfig = getAiGatewayConfig(this.env);
+    return this.#getChatContext(modelId, await getGatewayModels(this.env));
+  }
 
+  #getChatContext(modelId: string | null, models: GatewayModels | null): UserChatContext {
     let result: UserChatContext = {
       profile: this.storage.profile.get()
     };
     if (modelId) {
-      if (gwConfig) {
-        // Admin-disabled models refuse to resolve here -- this is the enforcement point for
-        // stale client selections, gadget bindings, and crafted requests, not just the picker
-        // filter.
-        result.aiModel = gwConfig.resolveModel(modelId, await this.#disabledModels());
-        if (!result.aiModel) {
-          // Distinguish "disabled by the admin" from "never existed": the surfaced error tells
-          // the user what happened and who can change it.
-          let record = gwConfig.resolveModel(modelId);
-          if (record) {
-            throw new Error(
-                `${record.profile.name} has been disabled by your workspace admin. ` +
-                `Choose another model.`);
-          }
-        }
+      // Admin-disabled models refuse to resolve here -- this is the enforcement point for stale
+      // client selections, gadget bindings, and crafted requests, not just the picker filter.
+      result.aiModel = this.#resolveModel(modelId, models);
+      if (!result.aiModel) {
+        models?.refuseDisabled(modelId);
+        throw new Error(`No such model: ${modelId}`);
       }
-      if (!result.aiModel) throw new Error(`No such model: ${modelId}`);
     }
 
     // The quick model (used for lightweight tasks like title generation) is the gateway's.
-    result.quickModel = gwConfig?.getQuickModelConfig();
+    result.quickModel = models?.gateway.getQuickModelConfig();
     return result;
   }
 
   async getExternalMessageChatContext(existingChatModelId: string | null): Promise<UserChatContext> {
-    let models = await this.listModels();
-    // Prefer the existing chat's model, then the user's preferred model, then the first available model.
-    let selectedModel = models.find(model => model.id === existingChatModelId)
-      ?? models.find(model => model.id === this.storage.preferredModel.get())
-      ?? models[0];
+    // An existing chat keeps its model while it still resolves, even once no longer offered. A new
+    // conversation takes the user's preferred model only while it is still offered, as the web
+    // composer does with its stored choice, and otherwise the first available model.
+    let models = await getGatewayModels(this.env);
+    let selectedModelId = existingChatModelId;
+    if (selectedModelId === null || !this.#resolveModel(selectedModelId, models)) {
+      let offered = await this.#offeredModels(models);
+      let preferredModel = this.storage.preferredModel.get();
+      selectedModelId = (offered.find(model => model.id === preferredModel) ?? offered[0])?.id ?? null;
+    }
 
-    return this.getChatContext(selectedModel?.id ?? null);
+    return this.#getChatContext(selectedModelId, models);
+  }
+
+  /**
+   * Resolve a model ID the way chats do: only gateway models resolve (there are no per-user
+   * models), and a disabled one resolves to nothing.
+   */
+  #resolveModel(id: string, models: GatewayModels | null): UserAiModelRecord | undefined {
+    return models?.get(id) ? models.resolve(id) : undefined;
   }
 
   async listGadgets(): Promise<GadgetMetadataWithTimestamps[]> {
@@ -1320,9 +1062,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
       }
 
       // Delete all R2 objects with the blueprint ID prefix.
-      for (let v = 1; v <= kvRecord.metadata.version; v++) {
-        await this.env.BLUEPRINT_CONTENT.delete(`${id}/${v}`);
-      }
+      await deleteBlueprintContent(this.env, id);
       await this.env.BLUEPRINT_CONTENT.delete(`${BLUEPRINT_SCREENSHOT_R2_PREFIX}${id}`);
 
       // Delete from KV.

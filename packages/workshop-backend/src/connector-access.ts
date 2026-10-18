@@ -7,7 +7,8 @@
 // resource type whose connect flow asks for an address or a credential (see
 // SupportedResource.connectableBy): those are hidden from members and their connects refused.
 import type { SupportedResource } from "@gadgets/workshop-shared/gatekeeper";
-import { type AdminConfig, filterEnabledResources } from "./admin-config.js";
+import { filterEnabledResources } from "./admin-config.js";
+import type { AdminConfig } from "./storage-schema/admin-settings-storage.js";
 
 /**
  * Who is asking about or starting a connection. Whether a user administers the deployment is the

@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 import { cloudflareTest } from '@cloudflare/vitest-pool-workers'
+import { COMPATIBILITY_DATE } from '@gadgets/scripts/worker-config'
 import capnwebValidate from 'capnweb-validate/vite'
 
 // Wrangler ships `*.txt` imports as Text modules (its default module rules; see
@@ -71,8 +72,8 @@ export default defineConfig({
       // The production Worker plus test-only entrypoints (see __tests__/test-worker.ts).
       main: './__tests__/test-worker.ts',
       miniflare: {
-        compatibilityDate: '2026-09-04',
-        // `allow_irrevocable_stub_storage` as in wrangler.jsonc: the user DO persists account stubs.
+        compatibilityDate: COMPATIBILITY_DATE,
+        // `allow_irrevocable_stub_storage` as in cloudflare.config.ts: the user DO persists account stubs.
         compatibilityFlags: ['experimental', 'nodejs_compat', 'allow_irrevocable_stub_storage'],
         streamingTails: ['span-recorder'],
         serviceBindings: { SPAN_RECORDER: { name: 'span-recorder', entrypoint: 'SpanRecorder' } },
@@ -80,12 +81,14 @@ export default defineConfig({
           name: 'span-recorder',
           modules: true,
           script: spanRecorder,
-          compatibilityDate: '2026-09-04',
+          compatibilityDate: COMPATIBILITY_DATE,
           compatibilityFlags: ['experimental', 'streaming_tail_worker'],
         }],
         bindings: { PUBLIC_BASE_URL: 'https://workshop.example/' },
         // The overseer loads gadget code through this, so a test can run a real gadget facet.
         workerLoaders: { LOADER: {} },
+        // Where a blueprint's content is published to and read back from.
+        r2Buckets: ['BLUEPRINT_CONTENT'],
         durableObjects: {
           TEST_OVERSEER: { className: 'OverseerDurableObject', useSQLite: true },
           TEST_USER: { className: 'UserDurableObject', useSQLite: true },
@@ -94,6 +97,8 @@ export default defineConfig({
           // which the overseer instantiates it (with props) as one of its own facets.
           TEST_AGENT_SPAWNER: { className: 'AgentSpawnerGatekeeper', useSQLite: true },
           TEST_USER_DIRECTORY: { className: 'UserDirectoryDurableObject', useSQLite: true },
+          // Likewise only reached through `ctx.exports`, by the overseer deleting a blueprint.
+          TEST_ADMIN_SETTINGS: { className: 'AdminSettings', useSQLite: true },
         },
       },
     }),

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_ADMIN_CONFIG, parseAdminConfig, serializeAdminConfig } from "../src/admin-config";
+import { parseAdminConfig, serializeAdminConfig } from "../src/admin-config";
+import { DEFAULT_ADMIN_CONFIG } from "../src/storage-schema/admin-settings-storage";
 import { adoptCentralSettings, catalogFingerprint, centralSettingsOf, fetchCentralLogo, hasCentralSettings, pullCentralSettings, reportCatalog, sanitizeCentralSettings, seedCentralSettings } from "../src/central-settings";
 
 const configured = {
