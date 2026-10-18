@@ -67,3 +67,26 @@ it.concurrent.skip("each request starts with the whole request before it", async
   expect(model.requests).toHaveLength(3);
   expectEachRequestExtendsThePrevious(model.requests);
 });
+
+// The system prompt lists the workspace's gadgets as the chat first saw them. The agent knows of a
+// gadget it created from its own tool call.
+// Tyms fork: skipped until the harness can serve a scripted model through a mocked AI Gateway
+// (models are gateway-only here, so the scripted per-user model this test needs can't be added).
+it.concurrent.skip("creating a gadget keeps each request a prefix of the next", async () => {
+  const model = models.script([
+    { toolCall: { id: "create", name: "createGadget",
+                  arguments: { title: "Meeting notes", bindingName: "NOTES" } } },
+    { text: "I created it." },
+    { text: "It is there." },
+  ]);
+  await using session = await openAgentSession(harness.url, {
+    modelId: SCRIPTED_MODEL_ID,
+    userModel: model.userModel,
+  });
+
+  expect((await session.runTurn("Make a notes gadget.")).outcome).toEqual({ status: "completed" });
+  await session.acceptChanges();
+  expect((await session.runTurn("Is it there?")).outcome).toEqual({ status: "completed" });
+  expect(model.requests).toHaveLength(3);
+  expectEachRequestExtendsThePrevious(model.requests);
+});

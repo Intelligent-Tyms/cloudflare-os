@@ -14,6 +14,7 @@ export type WorkshopObservabilityFields = {
   claimedType: string;
   commitCount: number;
   connectionType: string;
+  credentialKind: "workshop" | "cloudflare-access";
   durableObjectId: string;
   durationMs: number;
   eventName: string;

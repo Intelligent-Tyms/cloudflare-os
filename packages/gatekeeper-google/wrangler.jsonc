@@ -73,6 +73,24 @@
       "new_sqlite_classes": [
         "GoogleChatGatekeeperImpl"
       ]
+    },
+    {
+      "tag": "v7",
+      "new_sqlite_classes": [
+        "ChatHookDriver"
+      ]
+    },
+    {
+      "tag": "v8",
+      "new_sqlite_classes": [
+        "GmailHookDriver"
+      ]
+    },
+    {
+      "tag": "v9",
+      "new_sqlite_classes": [
+        "GoogleSlidesGatekeeperImpl"
+      ]
     }
   ]
 }

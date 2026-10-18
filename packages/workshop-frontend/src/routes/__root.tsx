@@ -16,6 +16,12 @@ import OnboardingWizard from '../OnboardingWizard'
 import AccountSelectionModal from '../components/billing/AccountSelectionModal'
 import DiscussRoot from '../components/team-chat/DiscussRoot'
 import { AssistantProfileProvider } from '../AssistantProfileContext'
+import { NotificationBridge } from '../features/notifications/NotificationBridge'
+import {
+  DeviceSessionHandoff,
+  hasDeviceSessionParameters,
+} from '../features/native-app/DeviceSessionHandoff'
+import { NativeAppBridge } from '../features/native-app/NativeAppBridge'
 
 export const Route = createRootRoute({
   component: RootComponent,
@@ -112,11 +118,18 @@ function RootComponent() {
   // authenticatedApi is guaranteed non-null here: isLoading, error, and
   // !isAuthenticated branches all return early above.
   if (!authenticatedApi) return null
+  // The native handoff is a dedicated destination: never render the Workshop home page
+  // behind it while the browser is returning credentials to the app.
+  if (hasDeviceSessionParameters(window.location.search)) {
+    return <DeviceSessionHandoff authenticatedApi={authenticatedApi} />
+  }
   return (
     <AuthProvider authenticatedApi={authenticatedApi} onLogout={logout}>
       <FeatureFlagsProvider>
         <TooltipProvider>
           <Toasty>
+            <NotificationBridge authenticatedApi={authenticatedApi} />
+            <NativeAppBridge />
             <AuthenticatedShell
               authenticatedApi={authenticatedApi}
               isWorkspaceEditor={isWorkspaceEditor}

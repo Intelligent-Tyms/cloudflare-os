@@ -21,4 +21,7 @@ export const migrations: DurableObjectMigration[] = [
   { tag: "v4", new_sqlite_classes: ["VendorSetupStore"] },
   { tag: "v5", new_sqlite_classes: ["GoogleDriveGatekeeperImpl", "GoogleDocGatekeeperImpl"] },
   { tag: "v6", new_sqlite_classes: ["GoogleChatGatekeeperImpl"] },
+  { tag: "v7", new_sqlite_classes: ["ChatHookDriver"] },
+  { tag: "v8", new_sqlite_classes: ["GmailHookDriver"] },
+  { tag: "v9", new_sqlite_classes: ["GoogleSlidesGatekeeperImpl"] },
 ];

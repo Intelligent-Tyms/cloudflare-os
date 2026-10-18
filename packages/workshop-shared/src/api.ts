@@ -196,6 +196,34 @@ export interface ConnectedAccountsSubscriber {
   ready(): void;
 }
 
+/** A notification delivered to one authenticated user. */
+export type UserNotification = {
+  /** Stable identifier shared by the live and push delivery attempts. */
+  id: string;
+
+  /** Whether the task finished or is paused on a connection or action-approval prompt. */
+  kind: "taskCompleted" | "permissionRequested";
+
+  /** Workspace containing the task. */
+  workspaceId: string;
+
+  /** Chat containing the task. */
+  chatId: number;
+
+  /** Current human-readable chat title. */
+  chatTitle: string;
+};
+
+/** Callback used by `AuthenticatedApi.subscribeToNotifications()`. */
+export interface NotificationSubscriber extends RpcTarget {
+  /**
+   * Present a notification to the active user. Resolve only once the user has seen it, or is
+   * already viewing its chat; if no subscriber resolves promptly, the backend falls back to mobile
+   * push delivery.
+   */
+  notify(notification: UserNotification): Promise<void>;
+}
+
 /**
  * When listing gatekeeper vendors or connected accounts, you can filter to only vendors/accounts
  * that support certain features. This type specifies the filter.
@@ -472,10 +500,28 @@ export type UserDirectoryRecord = {
   name: string;
 };
 
+/** Routing identity and one-use proof posted by the authenticated browser to redeem a transfer. */
+export type DeviceSessionHandoffStart = {
+  /** Durable Object identifier for the staging user; this value is not secret. */
+  userDoId: string;
+  /** Single-use 256-bit secret in lowercase hex; only its hash is stored server-side. */
+  ticket: string;
+};
+
 /** Top-level API exposed to the user after they have authenticated. */
 export interface AuthenticatedApi extends RpcTarget {
   /** Get profile info for the user who is logged in. */
   whoami(): Promise<AiChatAuthorInfo>;
+
+  /**
+   * Stage a two-minute, single-use device-session transfer for a native app. The state is an
+   * opaque 16–512 character URL-safe value and the key is an uncompressed P-256 public key encoded
+   * as unpadded base64url. The encrypted credential remains server-side until the browser POSTs
+   * the returned ticket to `/api/device-session/callback`, which redirects to the fixed, claimed
+   * HTTPS app link. Repeating a live state reissues its ticket and invalidates the previous one.
+   */
+  beginDeviceSessionHandoff(publicKey: string, state: string)
+    : Promise<DeviceSessionHandoffStart>;
 
   /** Set the user's own display name, seen in chats, etc. */
   setOwnDisplayName(name: string): Promise<void>;
@@ -523,13 +569,28 @@ export interface AuthenticatedApi extends RpcTarget {
   logout(): Promise<void>;
 
   /**
-   * List the AI models available on this deployment.
-   * The catalog is the platform AI Gateway list minus the models switched off on the admin portal.
+   * Connect the native app's one-time central device registration to this authenticated user. Each
+   * registered device gets push; a device that registers again replaces its own subscription. The
+   * deployment never receives an APNs device token or Cloudflare account token.
+   */
+  registerNotificationDevice(deviceRegistrationId: string): Promise<void>;
+
+  /**
+   * Subscribe while this client can visibly present notifications. Dispose the returned handle
+   * when the page becomes hidden so the backend can promptly fall back to mobile push.
+   */
+  subscribeToNotifications(
+      subscriber: RpcStub<NotificationSubscriber>): Promise<RpcStub<{}>>;
+
+  /**
+   * List the AI models of one kind available on this deployment, by default the language models,
+   * which can chat. The catalog is the platform AI Gateway list minus the models switched off on
+   * the admin portal.
    *
    * Note that the list returned here could be different from a particular gadget's Overseer,
    * especially if the gadget is owned by someone else.
    */
-  listModels(): Promise<AiChatAuthorInfo[]>;
+  listModels(kind?: ModelKind): Promise<AiChatAuthorInfo[]>;
 
 
   /**
@@ -1872,6 +1933,13 @@ export type RedactedAiModelConfig = Omit<AiModelConfig,
  */
 export const WORKERS_AI_OUTPUT_LIMIT = 32768;
 
+/**
+ * What a model does, which decides where it can be used. A `"language"` model writes text: it can
+ * chat and back a `LanguageModelBinding`. A `"decision"` model answers typed questions with
+ * probabilities: gadgets can bind it as a `DecisionModelBinding`, but it can't chat.
+ */
+export type ModelKind = "language" | "decision";
+
 /** One entry of SUGGESTED_MODELS. */
 type SuggestedModel = {
   name: string;
@@ -1903,6 +1971,9 @@ type SuggestedModel = {
    * admin can override the default for its AI Gateway.
    */
   hidden?: true;
+
+  /** The model's kind; absent means `"language"`. */
+  kind?: ModelKind;
 };
 
 // The literal is kept apart from the export so SuggestedModelId can derive the model ids from it.
@@ -1923,6 +1994,10 @@ const SUGGESTED_MODEL_CATALOG = {
     "@cf/deepseek-ai/deepseek-v4-pro-0813": {
       name: "DeepSeek V4 Pro 0813 (Workers AI)", contextWindow: 1048576,
       outputLimit: WORKERS_AI_OUTPUT_LIMIT,
+    },
+    "@cf/cloudflare/clef": {name: "Clef (Workers AI)", contextWindow: 65536, kind: "decision"},
+    "@cf/cloudflare/clef-flash": {
+      name: "Clef Flash (Workers AI)", contextWindow: 65536, kind: "decision",
     },
   },
   "anthropic": {
@@ -1986,6 +2061,11 @@ export const SUGGESTED_MODELS: Record<AiModelProvider, Record<string, SuggestedM
 /** A model ID listed in SUGGESTED_MODELS, optionally narrowed to one provider's catalog. */
 export type SuggestedModelId<P extends AiModelProvider = AiModelProvider> =
   { [K in P]: keyof (typeof SUGGESTED_MODEL_CATALOG)[K] & string }[P];
+
+/** The kind of a model, named by its provider and its ID on the provider's API. */
+export function modelKind(provider: string, model: string): ModelKind {
+  return SUGGESTED_MODELS[provider as AiModelProvider]?.[model]?.kind ?? "language";
+}
 
 /**
  * Providers whose pi API adapter refuses a custom fetch, so their inference cannot ride the
@@ -2322,8 +2402,9 @@ export const MAX_READ_FILES_PER_CALL = 64;
 /**
  * Text bytes after which Overseer.readFilesAtCommit() stops decoding and omits the remaining
  * requested paths from its response (the client re-requests them). Keeps one response well
- * under the RPC message ceiling even with the UTF-16 inflation of serialized text; a single
- * file, being at most the git store's per-object cap, is always returned whole.
+ * under the RPC message ceiling even with the UTF-16 inflation of serialized text. The first
+ * file is always returned whole, however large, so every call makes progress; its size is
+ * bounded only by what the git store could hold.
  */
 export const READ_FILES_RESPONSE_BUDGET = 8 * 1024 * 1024;
 
@@ -2368,6 +2449,13 @@ export type ActionLogEntry = {
    * clicking Approve. Only ever set alongside state "approved" (there is no automatic rejection).
    */
   autoApproved?: boolean;
+
+  /**
+   * True for the creation queued by createExternalResource. Approving it requires one of the
+   * approver's accounts for the gatekeeper's vendor (see GatekeeperClient.getCreationSpec()), in
+   * which the resource is created.
+   */
+  creation?: true;
 } | {
   type: "observation";
   description: ObservationDescription;
@@ -2684,7 +2772,8 @@ export interface Overseer extends RpcTarget {
 
   /**
    * Create a new gatekeeper for an AI model binding. The model can be any returned by
-   * listModels().
+   * `AuthenticatedApi.listModels()`. A language model's gatekeeper provides a
+   * `LanguageModelBinding`, a decision model's a `DecisionModelBinding`.
    */
   newAiModelGatekeeper(modelId: string): Promise<GatekeeperClient<any>>;
 
@@ -2709,9 +2798,10 @@ export interface Overseer extends RpcTarget {
 
   /**
    * Approve an action that is currently in the "pending" state. The action will be performed on
-   * approval.
+   * approval. Approving a creation (see ActionLogEntry.creation) requires `accountId`: the
+   * approver's connected account, for the gatekeeper's vendor, in which the resource is created.
    */
-  approveAction(id: number): Promise<void>;
+  approveAction(id: number, accountId?: number): Promise<void>;
 
   /**
    * Reject an action that is in the "pending" state. This notifies the gatekeeper that it will not
@@ -2821,8 +2911,8 @@ export interface Overseer extends RpcTarget {
   listChats(): Promise<AiChatMetadata[]>;
 
   /**
-   * List available models. The first listed model should be the default, unless the user has
-   * chosen something else.
+   * List available language models; decision models are left out. The first listed model should
+   * be the default, unless the user has chosen something else.
    */
   listModels(): Promise<AiChatAuthorInfo[]>;
 
@@ -4352,6 +4442,28 @@ export type AiToolCall = {
     message?: string;
   };
   output?: string;
+} | {
+  /**
+   * Create a new external resource of a creatable type (see `SupportedResource.creatable`). Its
+   * binding is usable at once: the gatekeeper simulates the resource until a user approves the
+   * creation action, choosing the account to create it in.
+   */
+  toolName: "createExternalResource";
+  input: {
+    vendorId: string;
+
+    /** `urlPattern` of the creatable resource type. */
+    resourceUrlPattern: string;
+
+    /** Title of the new resource, e.g. a document's title. */
+    title: string;
+
+    /** Name under which the resource appears in the chat's env (see validateBindingName()). */
+    bindingName: string;
+  };
+
+  /** The new gatekeeper workpiece; replay re-binds it rather than creating again. */
+  output?: {gatekeeperId: WorkpieceId};
 });
 
 // TODO: Extend AiToolCall for code-mode tool calls.
@@ -4488,12 +4600,21 @@ export type SlashCommandChoice = {
  *
  * At most one provisional stream is active per chat at a time. The client should not persist
  * these events. Instead, it should display them temporarily and discard them as soon as the
- * corresponding durable `message()` and/or `changes` message arrives, or when the agent stops
- * running (`activeAgent` becomes unset in the chat metadata).
+ * corresponding durable `message()` and/or `changes` message arrives, when the agent stops
+ * running (`activeAgent` becomes unset in the chat metadata), or when a `streamReset` event
+ * arrives.
  */
 export type AiChatStreamEvent = {
   /** The turn is summarizing older context before it can continue, or before `/compact` ends. */
   type: "compacting";
+} | {
+  /**
+   * The in-progress model request failed transiently and will be retried. Nothing it streamed
+   * will become durable, so the client should discard the step's provisional state -- streamed
+   * text and reasoning, tool-call cards, the active-file marker and all edit previews -- as it
+   * would for an error message. The retry then streams afresh.
+   */
+  type: "streamReset";
 } | {
   /**
    * The compaction attempt ended, whether it compacted, failed, was cancelled, or found nothing to
@@ -5021,7 +5142,7 @@ export type PreApprovableAction = {
 export type GatekeeperCreationSpec = {
   type: "gatekeeper";
   vendorId: string;        // identifies the gatekeeper adapter (e.g. "google")
-  resourceUrl: string;
+  resourceUrl?: string;    // absent until a resource created by createExternalResource exists
   typeUrlPattern: string;  // URL pattern from the vendor's SupportedResource (not the specific URL)
 } | {
   type: "aiModel";
@@ -5133,6 +5254,9 @@ export type BlueprintBinding = {
    * it up to the recipient.
    */
   suggestedModel?: {provider: string, modelName: string};
+
+  /** The source binding's model kind, so installers pick one of that kind; absent: `"language"`. */
+  modelKind?: ModelKind;
 } | {
   /** An agent spawner binding. */
   type: "agentSpawner";

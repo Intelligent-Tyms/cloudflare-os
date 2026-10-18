@@ -20,15 +20,15 @@
 // user. Tests exercise both narratives by choosing reason text.
 
 import {
-  DurableObject, RpcTarget, WorkerEntrypoint, type RpcStub,
+  DurableObject, RpcTarget, WorkerEntrypoint, restore, type RpcStub,
 } from "cloudflare:workers";
 import { skipRpcValidation, validateRpc } from "capnweb-validate";
 import { connectHandoffPageHtml, htmlResponse } from "@gadgets/gatekeeper-kit/connect-pages";
 import type {
-  AccountDescription, ActionKind, AgentCatalog, ApprovalQueue, ConnectHandoff, Gatekeeper,
-  GatekeeperConnectCallback, GatekeeperUser, GatekeeperUserVerifier, HookController, HookInitiator,
-  HookTargetMetadata, ResourceDescription, ResourceConfiguratorFrame, SupportedResource,
-  VendorDescription,
+  AccountDescription, ActionDescription, ActionKind, AgentCatalog, ApprovalQueue, ConnectHandoff,
+  Gatekeeper, GatekeeperConnectCallback, GatekeeperUser, GatekeeperUserVerifier, HookController,
+  HookInitiator, HookTargetMetadata, ResourceDescription, ResourceConfiguratorFrame,
+  SupportedResource, VendorDescription,
 } from "@gadgets/workshop-shared/gatekeeper";
 import type {
   ExternalMessageDelivery, GadgetResponse, SubmitExternalMessageInput, SubmitExternalMessageResult,
@@ -42,6 +42,7 @@ const SUPPORTED_RESOURCES: SupportedResource[] = [{
   urlPattern: `https://${VENDOR_HOST}/things/*`,
   title: "Test Thing",
   description: "A resource that exists only so tests can bind something.",
+  creatable: true,
 }];
 
 const TYPES_CODE = `
@@ -177,6 +178,16 @@ export class TestControl extends DurableObject<Cloudflare.Env> {
     this.ctx.storage.kv.put(`actions:${label}`, state);
   }
 
+  /** Moves a simulated thing's staged actions to the account it was created in. */
+  adoptActions(from: string, to: string): void {
+    const source = this.getActionState(from);
+    const state = this.getActionState(to);
+    state.pending.push(...source.pending);
+    state.nextId = Math.max(state.nextId, source.nextId);
+    this.ctx.storage.kv.put(`actions:${to}`, state);
+    this.ctx.storage.kv.delete(`actions:${from}`);
+  }
+
   failNextApply(label: string, reason: string): void {
     this.ctx.storage.kv.put(`fail-next-apply:${label}`, reason);
   }
@@ -253,6 +264,19 @@ export class TestControl extends DurableObject<Cloudflare.Env> {
         approvalQueue[Symbol.dispose]();
       }
       return { fired: true };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  keepSelfStub(key: string, stub: RpcStub<ConnectionProbe>): void {
+    this.ctx.storage.kv.put(`self-stub:${key}`, stub);
+  }
+
+  async callSelfStub(key: string): Promise<{ label: string } | { error: string }> {
+    try {
+      const stub = this.ctx.storage.kv.get<RpcStub<ConnectionProbe>>(`self-stub:${key}`)!;
+      return { label: await stub.label() };
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) };
     }
@@ -352,7 +376,9 @@ function control(exports: Cloudflare.Exports): DurableObjectStub<TestControl> {
 // Vendor
 
 type AccountProps = { label: string };
-type BindingProps = AccountProps & { resourceUrl: string; ambient?: true };
+// `simulated`: minted by GatekeeperVendor.createResource() and not yet created, so nothing may
+// apply through it. It belongs to no account, so its `label` keys only its staged actions.
+type BindingProps = AccountProps & { resourceUrl: string; ambient?: true; simulated?: true };
 
 @validateRpc()
 export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env> {
@@ -393,6 +419,26 @@ export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env> {
     const label = newAccountLabel();
     await control(this.ctx.exports).openConnect(label, callback);
     return { url: `https://${VENDOR_HOST}/connect/${label}` };
+  }
+
+  async createResource(_resourceUrlPattern: string, title: string): Promise<{
+    class: DurableObjectClass<Gatekeeper<TestSession>>;
+    resource: SupportedResource;
+    action: ActionDescription;
+  }> {
+    const resourceUrl = `https://${VENDOR_HOST}/things/${encodeURIComponent(title)}`;
+    return {
+      class: this.ctx.exports.TestGatekeeper({
+        props: { label: `creation-${crypto.randomUUID()}`, resourceUrl, simulated: true },
+      }),
+      resource: SUPPORTED_RESOURCES[0],
+      action: {
+        title: `Create the test thing "${title}"`,
+        description: `Create a test thing titled **${title}**.`,
+        descriptionIsComplete: true,
+        implementsRevert: false,
+      },
+    };
   }
 }
 
@@ -513,6 +559,8 @@ export interface TestSession {
   writeValue(value: number, opts?: { autoApprovable?: boolean; incomplete?: boolean }): Promise<number>;
   writeValues(values: number[]): Promise<number[]>;
   watch(key: string, callback: RpcStub<ValueHook>): Promise<void>;
+  /** Stores a persistent stub to this connection under `key`, for `/control/call-self-stub`. */
+  keepSelfStub(key: string): Promise<void>;
 }
 
 /** The hook a gadget binds through `TestSession.watch()`. */
@@ -528,7 +576,7 @@ class TestSessionTarget extends RpcTarget implements TestSession {
       approvalQueue: RpcStub<ApprovalQueue>,
       private readonly state: DurableObjectStub<TestControl>,
       private readonly label: string,
-      private readonly exports: Cloudflare.Exports) {
+      private readonly ctx: DurableObjectState) {
     super();
     this.approvalQueue = approvalQueue.dup();
   }
@@ -574,9 +622,13 @@ class TestSessionTarget extends RpcTarget implements TestSession {
   async watch(key: string, callback: RpcStub<ValueHook>): Promise<void> {
     await this.approvalQueue.bindHook(
         // @ts-expect-error Workers currently widens the controller's hook type across bindHook RPC.
-        this.exports.TestHookController({ props: { key } }),
+        this.ctx.exports.TestHookController({ props: { key } }),
         callback,
         { title: `Test hook ${key}`, description: "Delivers values the integration test fires." });
+  }
+
+  async keepSelfStub(key: string): Promise<void> {
+    await this.state.keepSelfStub(key, await this.ctx.restore<RpcStub<ConnectionProbe>>({}));
   }
 
   [Symbol.dispose](): void {
@@ -591,6 +643,22 @@ async function waitForApplyRelease(state: DurableObjectStub<TestControl>, label:
   for (const deadline = Date.now() + 30_000; !await state.isApplyReleased(label);) {
     if (Date.now() > deadline) throw new Error("The held test apply was never released.");
     await scheduler.wait(25);
+  }
+}
+
+/** What a connection's persistent stub to itself reaches: a narrow target, never the facet. */
+interface ConnectionProbe extends RpcTarget {
+  label(): Promise<string>;
+}
+
+@validateRpc()
+class ConnectionProbeTarget extends RpcTarget implements ConnectionProbe {
+  constructor(private readonly labelValue: string) {
+    super();
+  }
+
+  async label(): Promise<string> {
+    return this.labelValue;
   }
 }
 
@@ -628,7 +696,11 @@ export class TestGatekeeper
 
   async startSession(approvalQueue: RpcStub<ApprovalQueue>): Promise<TestSession> {
     return new TestSessionTarget(
-        approvalQueue, control(this.ctx.exports), this.ctx.props.label, this.ctx.exports);
+        approvalQueue, control(this.ctx.exports), this.ctx.props.label, this.ctx);
+  }
+
+  [restore](): ConnectionProbe {
+    return new ConnectionProbeTarget(this.ctx.props.label);
   }
 
   /** No discovery index: the ambient fixture is reached through its session alone. */
@@ -663,6 +735,7 @@ export class TestGatekeeper
   }
 
   async applyAction(action: number): Promise<void> {
+    if (this.ctx.props.simulated) throw new Error("This test thing has not been created yet.");
     const state = control(this.ctx.exports);
     const { label } = this.ctx.props;
     const held = await state.takeNextApplyHold(label);
@@ -675,6 +748,16 @@ export class TestGatekeeper
 
   async rejectAction(action: number): Promise<void> {
     await control(this.ctx.exports).discardAction(this.ctx.props.label, action);
+  }
+
+  async applyCreation(creator: Fetcher<TestVerifierApi>): Promise<{
+    class: DurableObjectClass<Gatekeeper<TestSession>>;
+    resourceUrl: string;
+  }> {
+    const label = await creator.identify();
+    const { resourceUrl } = this.ctx.props;
+    await control(this.ctx.exports).adoptActions(this.ctx.props.label, label);
+    return { class: this.ctx.exports.TestGatekeeper({ props: { label, resourceUrl } }), resourceUrl };
   }
 
   async revertAction(_action: number): Promise<void> {
@@ -901,6 +984,14 @@ export default {
       if (!isNonEmptyString(key)) return badRequest("`key` must be a non-empty string");
       if (typeof value !== "number") return badRequest("`value` must be a number");
       return Response.json(await control(ctx.exports).fireHook(key, value));
+    }
+
+    // Call the stub a session's keepSelfStub() stored.
+    // Body: {"key": "..."} -> {"label": string} | {"error": string}
+    if (url.pathname === "/control/call-self-stub" && req.method === "POST") {
+      const { key } = body as Record<string, unknown>;
+      if (!isNonEmptyString(key)) return badRequest("`key` must be a non-empty string");
+      return Response.json(await control(ctx.exports).callSelfStub(key));
     }
 
     // Body: {"key": "..."} -> {"enabled": boolean, "target"?: HookTargetMetadata, "disableCount"}

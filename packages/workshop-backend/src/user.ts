@@ -1,16 +1,16 @@
 import { RpcStub } from "capnweb";
-import { GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiModelConfig, CollaboratorRole, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, GadgetMetadata, BlueprintMetadata, BlueprintLibrarySummary, BlueprintSource, BlueprintUserSummary, BLUEPRINT_SCREENSHOT_R2_PREFIX, GatekeeperVendorInfo, OutputSummary, ListOutputsResult, AUTH_ERROR_CODES, createAuthError, ConnectFlowStart, validateCommitEmail, AssistantProfile, isFreePlanModel } from '@gadgets/workshop-shared/api';
+import { GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiModelConfig, ModelKind, CollaboratorRole, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, GadgetMetadata, BlueprintMetadata, BlueprintLibrarySummary, BlueprintSource, BlueprintUserSummary, BLUEPRINT_SCREENSHOT_R2_PREFIX, GatekeeperVendorInfo, OutputSummary, ListOutputsResult, AUTH_ERROR_CODES, createAuthError, ConnectFlowStart, validateCommitEmail, NotificationSubscriber, UserNotification, type DeviceSessionHandoffStart, AssistantProfile, isFreePlanModel } from '@gadgets/workshop-shared/api';
 import { usageCollector } from "./usage-collector";
 import { TeamChat } from "./team-chat.js";
 import type { ChannelRoutableWorkspace } from "@gadgets/workshop-shared/external-message-gateway";
-import { Gatekeeper, GatekeeperUser, GatekeeperUserVerifier, GatekeeperVendor, AccountDescription, VendorDescription, GatekeeperConnectCallback, ConnectHandoff, SupportedResource, ResourceConfiguratorFrame, AppUiContext, GatekeeperUiFrame } from "@gadgets/workshop-shared/gatekeeper";
+import { ActionDescription, Gatekeeper, GatekeeperUser, GatekeeperUserVerifier, GatekeeperVendor, AccountDescription, VendorDescription, GatekeeperConnectCallback, ConnectHandoff, SupportedResource, ResourceConfiguratorFrame, AppUiContext, GatekeeperUiFrame } from "@gadgets/workshop-shared/gatekeeper";
 import { shouldAutoProvisionAccount, ambientGatekeeperMode } from "./provisioning-policy.js";
 import { CloudflareGatekeeperUser } from "@gadgets/workshop-shared/cloudflare-gatekeeper";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import {
   makeUserStorage, type BlueprintUserRecord, type CloudflareBilling, type ConnectedAccountRecord,
-  type GadgetRecord, type PendingConnectFlow, type PendingHandoffRecord, type UserAiModelRecord,
-  type UserStorage, type WorkspaceOutputEntry,
+  type GadgetRecord, type PendingConnectFlow, type PendingDeviceHandoffRecord,
+  type PendingHandoffRecord, type UserAiModelRecord, type UserStorage, type WorkspaceOutputEntry,
 } from "./storage-schema/user-storage.js";
 import { recordAnalytics } from "./analytics";
 import { createWorkshopLogger } from "./observability";
@@ -23,7 +23,12 @@ import { filterEnabledResources, isResourceDisabled, readAdminConfig } from "./a
 import { connectableResources, memberConnectPatterns, type ConnectorCaller } from "./connector-access.js";
 import { buildGatekeeperVendorMap } from "./auth/auth-vendors.js";
 import { validateAssistantProfile } from "./assistant-profile.js";
-import { CONNECT_FLOW_LIFETIME_MS, handoffTargetOrigin, hashPresentedSecret, newSecretToken, PENDING_HANDOFF_LIFETIME_MS } from "./connect-handoff.js";
+import { CONNECT_FLOW_LIFETIME_MS, handoffTargetOrigin, hashPresentedSecret, hashSecret, newSecretToken, PENDING_HANDOFF_LIFETIME_MS } from "./connect-handoff.js";
+import { deliver, registerDevice } from "./notification-service.js";
+import {
+  DEVICE_HANDOFF_LIFETIME_MS, isDeviceHandoffState, sealDeviceSessionHandoff,
+  type DeviceSessionCredential, type DeviceSessionHandoff,
+} from "./auth/device-session-handoff.js";
 
 const logger = createWorkshopLogger("workshop.user");
 
@@ -33,6 +38,9 @@ const OUTPUTS_BACKFILL_PAGE = 16;
 
 // Display title of the per-user home assistant workspace (see ensureHomeWorkspace).
 export const HOME_WORKSPACE_TITLE = "Assistant";
+
+/** Server-enforced lifetime of a Workshop session issued to a native device. */
+export const DEVICE_SESSION_LIFETIME_MS = 30 * 24 * 60 * 60_000;
 
 /**
  * Metadata about an auto-provisioned account that provides an agent singleton and/or a management UI.
@@ -54,6 +62,7 @@ export type ProvidedAccountInfo = {
 // shape keeps the methods' declared return types (e.g. createAccount's Fetcher<GatekeeperUser>)
 // usable directly, the way the runtime stub actually behaves.
 type AccountCreatorStub = Required<Pick<GatekeeperVendor, "createAccount">>;
+type ResourceCreatorStub = Required<Pick<GatekeeperVendor, "createResource">>;
 type SingletonAccountStub = Required<Pick<GatekeeperUser, "getSingletonGatekeeperClass" | "startAppUi">>;
 
 function areCredentialsValid(record: ConnectedAccountRecord): boolean {
@@ -159,6 +168,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   private storage: UserStorage;
   private vendors: Map<string, Service<GatekeeperVendor>>;
   private adminSettings: DurableObjectNamespace<AdminSettings>;
+  #notificationSubscribers = new Map<object, RpcStub<NotificationSubscriber>>();
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
@@ -207,9 +217,17 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     if (!session) {
       throw createAuthError(AUTH_ERROR_CODES.invalidSessionToken);
     }
-    if (session.created.valueOf() + SESSION_TTL_MS < Date.now()) {
+    const now = Date.now();
+    // Device sessions carry their own expiry; browser sessions expire SESSION_TTL_MS after
+    // they were created (Tyms fork).
+    if ((session.expiresAt && session.expiresAt.getTime() <= now) ||
+        (session.pendingUntil && session.pendingUntil.getTime() <= now) ||
+        (!session.expiresAt && session.created.valueOf() + SESSION_TTL_MS < now)) {
       this.storage.sessions.delete(tokenId);
-      throw new Error("invalid session token");
+      throw createAuthError(AUTH_ERROR_CODES.invalidSessionToken);
+    }
+    if (session.pendingUntil) {
+      throw createAuthError(AUTH_ERROR_CODES.invalidSessionToken);
     }
     this.#syncDirectory();
   }
@@ -247,19 +265,121 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     return isNew;
   }
 
-  async #newSessionToken(): Promise<string> {
-    // Sweep expired sessions while we're here; sign-in is the only moment the collection
-    // reliably grows, so this bounds it without a separate alarm.
+  async #newSessionToken(options: { expiresAt?: Date; pendingUntil?: Date } = {}): Promise<string> {
+    // Sweep expired browser sessions while we're here; sign-in is the only moment the collection
+    // reliably grows, so this bounds it without a separate alarm. Device sessions carry their own
+    // expiry, which the alarm sweeps.
     let cutoff = Date.now() - SESSION_TTL_MS;
     for (let session of [...this.storage.sessions.list()]) {
-      if (session.created.valueOf() < cutoff) {
+      if (!session.expiresAt && session.created.valueOf() < cutoff) {
         this.storage.sessions.delete(session.tokenId);
       }
     }
 
     let { secret, hash: tokenId } = await newSecretToken();
-    this.storage.sessions.put({ tokenId, created: new Date() });
+    this.storage.sessions.put({ tokenId, created: new Date(), ...options });
     return secret.toBase64();
+  }
+
+  /**
+   * Stage an idempotent, single-use transfer without returning encrypted credentials to page
+   * JavaScript. A Workshop session remains inactive until the HTTPS callback consumes the record;
+   * an Access token is already bounded by its JWT expiry and is stored only inside `handoff`.
+   */
+  async stageDeviceSessionHandoff(publicKey: string, state: string, accessJwt?: string)
+      : Promise<DeviceSessionHandoffStart> {
+    if (!this.storage.created.get()) {
+      throw createAuthError(AUTH_ERROR_CODES.invalidSessionToken);
+    }
+    if (!isDeviceHandoffState(state)) throw new Error("Invalid device sign-in state.");
+    const stateHash = await hashSecret(new TextEncoder().encode(state));
+    const existing = this.storage.pendingDeviceHandoffs.get(stateHash);
+    if (existing && existing.expiresAt.getTime() > Date.now()) {
+      if (existing.publicKey !== publicKey) {
+        throw new Error("This device sign-in state is already bound to another key.");
+      }
+      // Reissue only the one-use ticket; a retry must not mint another credential or session.
+      const { secret, hash: ticketHash } = await newSecretToken();
+      this.storage.pendingDeviceHandoffs.put({ ...existing, ticketHash });
+      return { userDoId: this.ctx.id.toString(), ticket: secret.toHex() };
+    }
+    if (existing) this.#dropPendingDeviceHandoff(existing);
+
+    const { secret: ticket, hash: ticketHash } = await newSecretToken();
+    const now = Date.now();
+    const handoffExpiresAt = now + DEVICE_HANDOFF_LIFETIME_MS;
+    let credential: DeviceSessionCredential;
+    let sessionTokenId: string | undefined;
+    let deviceSessionExpiresAt: number | undefined;
+    if (accessJwt) {
+      credential = { kind: "cloudflare-access", token: accessJwt };
+    } else {
+      const { secret, hash } = await newSecretToken();
+      sessionTokenId = hash;
+      deviceSessionExpiresAt = now + DEVICE_SESSION_LIFETIME_MS;
+      credential = {
+        kind: "workshop",
+        token: `${this.storage.profile.get().id}:${secret.toBase64()}`,
+        expiresAt: deviceSessionExpiresAt,
+      };
+    }
+    const handoff = await sealDeviceSessionHandoff(
+        publicKey, state, credential, handoffExpiresAt);
+    if (sessionTokenId && deviceSessionExpiresAt) {
+      this.storage.sessions.put({
+        tokenId: sessionTokenId,
+        created: new Date(now),
+        expiresAt: new Date(deviceSessionExpiresAt),
+        pendingUntil: new Date(handoffExpiresAt),
+      });
+    }
+    this.storage.pendingDeviceHandoffs.put({
+      stateHash,
+      ticketHash,
+      publicKey,
+      handoff,
+      expiresAt: new Date(handoffExpiresAt),
+      sessionTokenId,
+    });
+    await this.#armAlarm();
+    logger.info("device session handoff staged", {
+      event: "auth.device_handoff.staged",
+      credentialKind: credential.kind,
+    });
+    return { userDoId: this.ctx.id.toString(), ticket: ticket.toHex() };
+  }
+
+  /** Consume a staged handoff once and activate its pending Workshop device session, if any. */
+  async consumeDeviceSessionHandoff(state: string, ticket: string): Promise<DeviceSessionHandoff | null> {
+    if (!isDeviceHandoffState(state)) return null;
+    const presentedHash = hashPresentedSecret(ticket);
+    if (!presentedHash) return null;
+    const stateHash = await hashSecret(new TextEncoder().encode(state));
+    const pending = this.storage.pendingDeviceHandoffs.get(stateHash);
+    if (!pending) return null;
+    if (pending.expiresAt.getTime() <= Date.now()) {
+      this.#dropPendingDeviceHandoff(pending);
+      await this.#armAlarm();
+      return null;
+    }
+    if (pending.ticketHash !== await presentedHash) return null;
+    this.storage.pendingDeviceHandoffs.delete(stateHash);
+    if (pending.sessionTokenId) {
+      const session = this.storage.sessions.get(pending.sessionTokenId);
+      if (!session || !session.pendingUntil || session.pendingUntil.getTime() <= Date.now()) {
+        if (session) this.storage.sessions.delete(pending.sessionTokenId);
+        await this.#armAlarm();
+        return null;
+      }
+      const { pendingUntil: _pendingUntil, ...active } = session;
+      this.storage.sessions.put(active);
+    }
+    await this.#armAlarm();
+    logger.info("device session handoff consumed", {
+      event: "auth.device_handoff.consumed",
+      credentialKind: pending.sessionTokenId ? "workshop" : "cloudflare-access",
+    });
+    return pending.handoff;
   }
 
   async login(passwordHash: Uint8Array): Promise<string | null> {
@@ -368,6 +488,54 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   /** Whether this account has a password set (false for gatekeeper sign-in accounts). */
   async hasPasswordLogin(): Promise<boolean> {
     return this.storage.passwordHashHash.get() !== null;
+  }
+
+  /** Exchange the native app's one-time device registration for that device's push subscription. */
+  async registerNotificationDevice(deviceRegistrationId: string): Promise<void> {
+    let { deviceKey, subscriptionId } = await registerDevice(this.env, deviceRegistrationId);
+    this.storage.notificationSubscriptions.put(
+        { ...this.storage.notificationSubscriptions.get(), [deviceKey]: subscriptionId });
+  }
+
+  /** Subscribe a visible authenticated client to live user notifications. */
+  async subscribeToNotifications(
+      subscriber: RpcStub<NotificationSubscriber>): Promise<RpcStub<{}>> {
+    subscriber = subscriber.dup();
+    let token = {};
+    this.#notificationSubscribers.set(token, subscriber);
+    let unsubscribe = () => {
+      let existing = this.#notificationSubscribers.get(token);
+      if (!existing) return;
+      this.#notificationSubscribers.delete(token);
+      existing[Symbol.dispose]();
+    };
+    subscriber.onRpcBroken(unsubscribe);
+    return new RpcStub<{}>({ [Symbol.dispose]: unsubscribe });
+  }
+
+  /**
+   * Offer a notification to visible clients; push it to every registered device unless one
+   * acknowledges within 3s.
+   */
+  async publishNotification(notification: UserNotification): Promise<void> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let acknowledged = await Promise.race([
+      Promise.any([...this.#notificationSubscribers.values()]
+          .map(subscriber => subscriber.notify(notification))).then(() => true, () => false),
+      new Promise<boolean>(resolve => { timeout = setTimeout(() => resolve(false), 3_000); }),
+    ]).finally(() => clearTimeout(timeout));
+    if (acknowledged) return;
+    let subscriptions = Object.entries(this.storage.notificationSubscriptions.get());
+    let results = await Promise.allSettled(subscriptions.map(async ([deviceKey, subscriptionId]) => {
+      if (await deliver(this.env, subscriptionId, notification)) return;
+      // This subscription is dead; the device gets a new one when its app next opens. Keep one it
+      // registered while this delivery was in flight.
+      let { [deviceKey]: current, ...others } = this.storage.notificationSubscriptions.get();
+      if (current === subscriptionId) this.storage.notificationSubscriptions.put(others);
+    }));
+    for (let result of results) {
+      if (result.status === "rejected") throw result.reason;
+    }
   }
 
   async changePassword(oldHash: Uint8Array, newHash: Uint8Array): Promise<void> {
@@ -480,8 +648,8 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   // AI models are deployment-wide and admin-managed (see AdminSettings); these forward so every
   // existing caller (including per-workspace Overseers holding a user stub) reads the shared
   // catalog.
-  async listModels(): Promise<AiChatAuthorInfo[]> {
-    return this.#offeredModels(await getGatewayModels(this.env));
+  async listModels(kind: ModelKind = "language"): Promise<AiChatAuthorInfo[]> {
+    return this.#offeredModels(await getGatewayModels(this.env), kind);
   }
 
   // The gateway models offered to this user (models are AI-Gateway-only; there are no per-user
@@ -489,9 +657,10 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   // and model-binding gates enforce the same restriction; this keeps the picker honest). Fails
   // open when billing is unconfigured or unreachable. Filtering also steers
   // getExternalMessageChatContext's first-model fallback to an allowed model.
-  async #offeredModels(models: GatewayModels | null): Promise<AiChatAuthorInfo[]> {
+  async #offeredModels(models: GatewayModels | null, kind: ModelKind = "language")
+      : Promise<AiChatAuthorInfo[]> {
     if (!models) return [];
-    let result = models.list();
+    let result = models.list(kind);
     let billing = await Promise.resolve()
         .then(() => usageCollector(this.ctx).getBillingState())
         .catch(() => null);
@@ -1963,11 +2132,22 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     });
   }
 
+  #dropPendingDeviceHandoff(pending: PendingDeviceHandoffRecord): void {
+    this.storage.pendingDeviceHandoffs.delete(pending.stateHash);
+    if (pending.sessionTokenId) this.storage.sessions.delete(pending.sessionTokenId);
+  }
+
   // The soonest pending connect-flow or handoff expiry, if any.
   #nextHandoffExpiry(): number | undefined {
     let next: number | undefined;
     let consider = (at: number) => { if (next === undefined || at < next) next = at; };
     for (let flow of this.storage.pendingConnectFlows.list()) consider(flow.expiresAt.getTime());
+    for (let pending of this.storage.pendingDeviceHandoffs.list()) {
+      consider(pending.expiresAt.getTime());
+    }
+    for (let session of this.storage.sessions.list()) {
+      if (session.expiresAt) consider(session.expiresAt.getTime());
+    }
     try {
       for (let pending of this.storage.pendingHandoffs.list()) consider(pending.expiresAt.getTime());
     } catch (err) {
@@ -2026,6 +2206,14 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
       this.storage.pendingHandoffs.delete(pending.ticketHash);
       await this.#dropPendingConnect(pending);
     }
+    for (let pending of Array.from(this.storage.pendingDeviceHandoffs.list())) {
+      if (pending.expiresAt.getTime() <= now) this.#dropPendingDeviceHandoff(pending);
+    }
+    for (let session of Array.from(this.storage.sessions.list())) {
+      if ((session.expiresAt?.getTime() ?? Infinity) <= now) {
+        this.storage.sessions.delete(session.tokenId);
+      }
+    }
   }
 
   async getGatekeeperClassFor(accountId: number, url: string)
@@ -2034,33 +2222,55 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     let account = this.storage.connectedAccounts.get(accountId);
     if (!account) throw new Error("No such account.");
     let {class: cls, resource} = await account.account.getGatekeeperClassFor(url);
+    await this.#assertResourceEnabled(account.vendorId, resource);
+    return {class: cls, vendorId: account.vendorId, typeUrlPattern: resource.urlPattern};
+  }
 
-    // Block whole gatekeepers + disabled resources at this single core-side chokepoint where a
-    // resourceUrl becomes a capability (reached only via the user/UI-facing Overseer.newGatekeeper
-    // and blueprint instantiation — never from gadget or agent code). An ambient gatekeeper an admin
-    // set to "disabled" is blocked here too.
-    let config = await readAdminConfig(this.env);
-    let vendorId = account.vendorId.toLowerCase();
-    if (config.disabledGatekeepers.includes(vendorId) ||
-        ambientGatekeeperMode(config, vendorId, this.env) === "disabled") {
-      throw new Error(
-          `The "${account.vendorId}" integration is disabled on this deployment by an administrator.`);
+  /**
+   * Mint a gatekeeper class simulating a new resource of a creatable type (see
+   * GatekeeperVendor.createResource()). It belongs to no account; the returned `action` is the
+   * creation to queue.
+   */
+  async createResourceGatekeeper(vendorId: string, resourceUrlPattern: string, title: string)
+      : Promise<{class: DurableObjectClass<Gatekeeper<any>>, typeUrlPattern: string,
+                  action: ActionDescription}> {
+    let vendor = this.vendors.get(vendorId);
+    if (!vendor) throw new Error(`Unknown vendor "${vendorId}".`);
+    let {class: cls, resource, action} = await (vendor as unknown as ResourceCreatorStub)
+        .createResource(resourceUrlPattern, title);
+    if (!resource.creatable) {
+      throw new Error(`"${resource.title}" resources can't be created. ` +
+          "listConnectableResources marks the types that can.");
     }
+    await this.#assertResourceEnabled(vendorId, resource);
+    return {class: cls, typeUrlPattern: resource.urlPattern, action};
+  }
 
-    // Blocking here prevents minting a new capability to a disabled resource even if the request
-    // bypasses the (separately filtered) picker/agent listings.
-    if (isResourceDisabled(config, vendorId, resource.urlPattern)) {
+  // Block whole gatekeepers + disabled resources at the core-side chokepoints where a gatekeeper
+  // class is minted (reached only via the user/UI-facing Overseer.newGatekeeper, blueprint
+  // instantiation, and the agent's createExternalResource -- never from gadget code). An ambient
+  // gatekeeper an admin set to "disabled" is blocked here too. Blocking here prevents minting a
+  // capability to a disabled resource even if the request bypasses the (separately filtered)
+  // picker/agent listings.
+  async #assertResourceEnabled(vendorId: string, resource: SupportedResource) {
+    let config = await readAdminConfig(this.env);
+    let normalized = vendorId.toLowerCase();
+    if (config.disabledGatekeepers.includes(normalized) ||
+        ambientGatekeeperMode(config, normalized, this.env) === "disabled") {
+      throw new Error(
+          `The "${vendorId}" integration is disabled on this deployment by an administrator.`);
+    }
+    if (isResourceDisabled(config, normalized, resource.urlPattern)) {
       throw new Error(
           `The "${resource.title}" resource is disabled on this deployment by an administrator.`);
     }
-
-    return {class: cls, vendorId: account.vendorId, typeUrlPattern: resource.urlPattern};
   }
 
   /**
    * Mint a verifier from one of THIS user's connected accounts, identified by accountId. The
    * overseer passes the returned verifier to a gatekeeper's `addObserver()` so the gatekeeper can
-   * check whether this user is allowed to observe the data read through it. Returns null if the
+   * check whether this user is allowed to observe the data read through it, or to its
+   * `applyCreation()` to create the resource in this account. Returns null if the
    * account no longer exists (or never existed). Throws if the account belongs to a different
    * vendor (not a legitimate UI state — only reachable by bypassing client-side filtering).
    *
