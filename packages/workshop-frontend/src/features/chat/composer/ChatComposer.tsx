@@ -172,7 +172,6 @@ export const ChatComposer = ({
     removeAttachment,
   } = useComposerAttachments({
     getOverseer,
-    modelId: selectedModel?.id ?? null,
     onError: (message) => toasts.add({ title: message, variant: "error" }),
   });
   const {
@@ -219,6 +218,9 @@ export const ChatComposer = ({
   const sendInFlightRef = useRef(false);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
+  // Configure… toasts never time out, and their action needs this composer, so it closes them,
+  // each with the close of the manager that added it (useKumoToastManager is new every render).
+  const configureToastsRef = useRef(new Map<string, () => void>());
   const [overlayIndex, setOverlayIndex] = useState(0);
   const overlayItemsRef = useRef<SelectableItem[]>([]);
   const overlayActivateRef = useRef<((index: number) => void) | null>(null);
@@ -248,6 +250,7 @@ export const ChatComposer = ({
     activeUrl,
     attachCreated,
     attachModalOpen,
+    attachModalPrefill,
     closeAttachModal,
     createCapsule,
     dismissUrl,
@@ -273,7 +276,24 @@ export const ChatComposer = ({
         syncPickerCaret(selection.end);
       });
     },
-    onError: (message) => toasts.add({ title: message, variant: "error" }),
+    onError: (title, description, configure) => {
+      const toastId: string = toasts.add({
+        title,
+        description,
+        variant: "error",
+        // A toast offering an action stays until the user acts on it or dismisses it.
+        timeout: configure ? 0 : undefined,
+        actions: configure && [{
+          children: "Configure…",
+          onClick: () => {
+            configureToastsRef.current.delete(toastId);
+            toasts.close(toastId);
+            configure();
+          },
+        }],
+      });
+      if (configure) configureToastsRef.current.set(toastId, () => toasts.close(toastId));
+    },
   });
   const {
     resizeTextarea,
@@ -356,6 +376,14 @@ export const ChatComposer = ({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const configureToasts = configureToastsRef.current;
+    return () => {
+      for (const close of configureToasts.values()) close();
+      configureToasts.clear();
     };
   }, []);
 
@@ -727,8 +755,8 @@ export const ChatComposer = ({
             {activeUrl && (
               <CapsuleOverlay
                 url={activeUrl.text}
-                onSelectAccount={(accountId, vendorId) => {
-                  void createCapsule(accountId, vendorId);
+                onSelectAccount={(accountId, vendorId, resource) => {
+                  void createCapsule({ accountId, vendorId, resourceUrlPattern: resource.urlPattern });
                 }}
                 onRefine={refineUrl}
                 onDismiss={dismissUrl}
@@ -1008,6 +1036,10 @@ export const ChatComposer = ({
         onClose={closeAttachModal}
         getOverseer={getOverseer}
         onCreated={attachCreated}
+        initialVendorId={attachModalPrefill?.resolution.vendorId}
+        initialResourceUrl={attachModalPrefill?.url}
+        initialResourceUrlPattern={attachModalPrefill?.resolution.resourceUrlPattern}
+        initialAccountId={attachModalPrefill?.resolution.accountId}
       />
     </div>
   );

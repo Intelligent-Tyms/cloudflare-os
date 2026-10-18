@@ -6,7 +6,7 @@ import {
 } from "react";
 import type { Overseer, SlashCommandChoice } from "@gadgets/workshop-shared/api";
 import { Minimize2 as ArrowsInIcon, ChevronRight as CaretRightIcon, ScrollText as ScrollIcon } from "lucide-react";
-import { PICKER_EMPTY, TabHint } from "../../../../components/pickerRows";
+import { KeyHint, PICKER_EMPTY } from "../../../../components/pickerRows";
 import {
   exactSlashCommandMatches, filterSlashCommandCatalog, parseSlashCommandInput,
   slashCommandTokenKey, type ParsedSlashCommandInput,
@@ -266,7 +266,7 @@ export function useSlashCommandPicker({
               </span>
               {optionIndex === index && selectable && (
                 <span className="ml-1">
-                  <TabHint />
+                  <KeyHint keyName="Tab" />
                 </span>
               )}
             </button>
