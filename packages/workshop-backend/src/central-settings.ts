@@ -16,7 +16,7 @@
 // the DO also reports that catalog for the portal to list (reportCatalog).
 
 import { BannerColor, DEFAULT_BANNER_COLOR, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ORGANIZATION_PROFILE_LENGTH, MAX_SITE_NAME_LENGTH, isBannerColor, isHexColor } from "@gadgets/workshop-shared/api";
-import type { AdminConfig } from "./admin-config.js";
+import type { AdminConfig } from "./storage-schema/admin-settings-storage.js";
 
 /** The AdminConfig fields the admin portal owns (the logo travels separately, by hash). */
 export type CentralSettings = Pick<AdminConfig,

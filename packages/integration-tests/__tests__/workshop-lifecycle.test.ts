@@ -142,7 +142,7 @@ it.concurrent("creates, renames, reopens, and removes a Gadget capability", asyn
     .rejects.toThrow('already an app named "STATUS"');
 
   await gadget.remove();
-  await expect(workspace.getGadget(gadgetId)).rejects.toThrow();
+  await expect(workspace.getGadget(gadgetId)).rejects.toThrow(`No such app: ${gadgetId}`);
   await workspace.deleteSelf();
 });
 

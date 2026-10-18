@@ -10,6 +10,7 @@
 import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 import { validateRpc, skipRpcValidation } from "capnweb-validate";
 import { createLogger } from "@gadgets/observability/logger";
+import { readTextCapped } from "@gadgets/gatekeeper-kit/response-body";
 import {
   stripTrailingSlashes,
   type AccountDescription,
@@ -132,6 +133,9 @@ function getBaseUrl(env: Env): string {
 // ---------------------------------------------------------------------------
 // HTTP handler — serves the connect form and the OAuth callback.
 
+// The route checks only path shape before reading the form; the account checks the nonce after.
+const MAX_CONNECT_FORM_BYTES = 16 * 1024;
+
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     return handleMcpHttpRequest(req, {
@@ -158,7 +162,12 @@ export default {
           if (requested) return continueConnect(account, initiationNonce, requested, env, path);
           return htmlResponse(await connectForm(account, env, path));
         }
-        const form = await request.formData();
+        let form: URLSearchParams;
+        try {
+          form = new URLSearchParams(await readTextCapped(request, MAX_CONNECT_FORM_BYTES));
+        } catch {
+          return new Response("Invalid form submission.", { status: 400 });
+        }
         const url = String(form.get("url") ?? "");
         // A connect limited to listed servers takes one of them and nothing else: no typed
         // address, and no key, since a listed personal server is reached by signing in.

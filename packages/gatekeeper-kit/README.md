@@ -71,13 +71,14 @@ import {
 | Subpath | Purpose | Use it when |
 | --- | --- | --- |
 | `./connect-nonce` | Nonce generation, expiry, and constant-time comparison. | A connect flow mints or checks its own nonce. The handshake and credential modules already use it. |
-| `./connect-handshake` | Two-stage `initiation` to `oauth` nonce storage. | A connect link or form redirects through an OAuth provider. |
+| `./connect-handshake` | Two-stage `initiation` to `oauth` nonce storage, and the once-only `complete()` marker. | A connect link or form redirects through an OAuth provider, or has no single-use nonce to keep `complete()` from running twice. |
 | `./credential-stage` | Durable reconnect escrow, exact commit, and exact-stage cleanup. | A reconnect must remain inert until Workshop commits the completed stage. |
 | `./connect-pages` | Hardened connect HTML, escaping, and browser mutation guards. | A gatekeeper serves HTML from its own origin. |
 | `./credentials` | Account-side `CredentialCoordinator` and consumer-side `CredentialSource`. | An OAuth-shaped provider stores, refreshes, or rejects credentials. |
 | `./credential-expiry` | Durable, deduplicated `credentialsExpired()` notification. | An account has a Workshop connect callback to notify. |
 | `./auth-retry` | One refresh and replay without account adjudication. | A token flow has no `CredentialSource`; otherwise use `CredentialSource.run()`. |
 | `./cache` | Authority-partitioned Durable Object TTL caching. | Provider reads repeat and reconnects must fence stale fills. |
+| `./single-flight` | Keyed coalescing of concurrent work, without caching results. | Concurrent callers must share one in-flight request or write, such as two approvals that would each create the same resource. |
 | `./cursors` | Array, page-number, offset, and continuation-token cursors. | A session returns more rows than one RPC reply should carry. |
 | `./actions` | Action declaration, approval, application, retention, and journaling. | An operation has an externally visible side effect. |
 | `./action-files` | Bounded, integrity-checked action-file storage. | A queued action carries file bytes. Store only its `ActionFileReference` in the action. |
@@ -88,13 +89,12 @@ import {
 | `./preview-oauth` | Signed OAuth state and stable-to-preview callback relay. | Preview Workers share one callback registered with the OAuth provider. |
 | `./endpoint` | User-supplied provider endpoint normalization. | A user enters a self-hosted provider URL. |
 | `./http-errors` | HTTP access-error classification and ACL probes. | A verifier distinguishes no access from provider failure. |
-| `./response-body` | Strict byte-capped response decoding. | A gatekeeper reads any provider response body. |
+| `./response-body` | Strict byte-capped body decoding. | A gatekeeper reads any provider response body, or a connect form posted to a route that reads the body before checking the nonce. |
 
 ## Internal modules
 
-The package does not export `kv`, `positive-int`, `per-storage`, `serial-queue`, `single-flight`,
-`action-journal`, or `observer-tracker`. The last two are re-exported through `./actions` and
-`./observers`.
+The package does not export `kv`, `positive-int`, `per-storage`, `serial-queue`, `action-journal`,
+or `observer-tracker`. The last two are re-exported through `./actions` and `./observers`.
 
 ## More documentation
 
