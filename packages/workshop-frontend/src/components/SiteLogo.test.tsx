@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ServerConfig } from '@gadgets/workshop-shared/api'
 import { ServerConfigContext } from '../ServerConfigContext'
 import SiteLogo from './SiteLogo'
-import tymsMark from '../assets/tyms-mark.png'
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -52,9 +51,10 @@ describe('SiteLogo', () => {
     expect(container!.querySelector('[data-fallback]')).toBeNull()
   })
 
-  it('shows the built-in Tyms mark when no logo is configured, and the fallback on load failure', () => {
+  it('shows the built-in Jamaa mark when no logo is configured, and the fallback on load failure', () => {
     render()
-    expect(container!.querySelector('img')!.getAttribute('src')).toBe(tymsMark)
+    expect(container!.querySelector('img')).toBeNull()
+    expect(container!.querySelector('[data-jamaa-mark]')).not.toBeNull()
     expect(container!.querySelector('[data-fallback]')).toBeNull()
 
     act(() => root!.unmount())
@@ -70,7 +70,7 @@ describe('SiteLogo', () => {
     expect(container!.querySelector('img')).not.toBeNull()
   })
 
-  it('shows the built-in Tyms mark for an explicit null override (Admin reset preview)', () => {
+  it('shows the built-in Jamaa mark for an explicit null override (Admin reset preview)', () => {
     render('/api/site-logo?v=configured')
     const config = { siteLogo: { url: '/api/site-logo?v=configured' } } as ServerConfig
     act(() => root!.render(
@@ -81,7 +81,8 @@ describe('SiteLogo', () => {
       </ServerConfigContext.Provider>,
     ))
 
-    expect(container!.querySelector('img')!.getAttribute('src')).toBe(tymsMark)
+    expect(container!.querySelector('img')).toBeNull()
+    expect(container!.querySelector('[data-jamaa-mark]')).not.toBeNull()
     expect(container!.querySelector('[data-fallback]')).toBeNull()
   })
 

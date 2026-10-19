@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useServerConfig } from '../ServerConfigContext'
-import tymsMark from '../assets/tyms-mark.png'
+import JamaaMark from './JamaaMark'
 
 export default function SiteLogo({
   size,
@@ -15,13 +15,14 @@ export default function SiteLogo({
 }) {
   const serverConfig = useServerConfig()
   const configuredUrl = serverConfig?.siteLogo?.url
-  // Tyms mark is the built-in default; an admin-uploaded logo still wins.
-  const src = srcOverride === undefined ? configuredUrl ?? tymsMark : srcOverride ?? tymsMark
+  // The Jamaa mark is the built-in default; an admin-uploaded logo still wins.
+  const src = srcOverride === undefined ? configuredUrl : srcOverride
   const [failed, setFailed] = useState(false)
 
   useEffect(() => setFailed(false), [src, serverConfig])
 
-  if (!src || failed) return children
+  if (!src) return <JamaaMark size={size} className={`text-kumo-default ${className ?? ''}`} />
+  if (failed) return children
   return (
     <img
       src={src}
