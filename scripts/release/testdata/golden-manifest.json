@@ -205,49 +205,6 @@
         "BASE_URL": "$PUBLIC_BASE_URL/gatekeeper/context"
       }
     },
-    "gatekeeper-data-intelligence": {
-      "bindings": [],
-      "compatibilityDate": "2026-09-04",
-      "compatibilityFlags": [
-        "allow_irrevocable_stub_storage",
-        "global_fetch_strictly_public"
-      ],
-      "inputs": [],
-      "installable": true,
-      "kind": "gatekeeper",
-      "mainModule": "data-intelligence.js",
-      "migrations": [
-        {
-          "new_sqlite_classes": [
-            "VendorSetupStore",
-            "DataIntelligenceGatekeeper"
-          ],
-          "tag": "v1"
-        }
-      ],
-      "modules": [
-        {
-          "name": "data-intelligence.js",
-          "r2Key": "blobs/modules/0c99d100d21c5344d2a981faecf09e104f742394a53cbebe6b8d9099d77ebd77",
-          "sha256": "0c99d100d21c5344d2a981faecf09e104f742394a53cbebe6b8d9099d77ebd77",
-          "size": 70,
-          "type": "esm"
-        }
-      ],
-      "observability": {
-        "enabled": true,
-        "head_sampling_rate": 1,
-        "logs": {
-          "invocation_logs": false
-        }
-      },
-      "shortName": "dataintelligence",
-      "singleton": true,
-      "vars": {
-        "BASE_URL": "$PUBLIC_BASE_URL/gatekeeper/dataintelligence",
-        "MCP_ALLOW_INSECURE": "false"
-      }
-    },
     "gatekeeper-email": {
       "bindings": [],
       "compatibilityDate": "2026-09-04",
@@ -619,49 +576,6 @@
       "singleton": true,
       "vars": {
         "BASE_URL": "$PUBLIC_BASE_URL/gatekeeper/homeassistant"
-      }
-    },
-    "gatekeeper-intelligence": {
-      "bindings": [],
-      "compatibilityDate": "2026-09-04",
-      "compatibilityFlags": [
-        "allow_irrevocable_stub_storage",
-        "global_fetch_strictly_public"
-      ],
-      "inputs": [],
-      "installable": true,
-      "kind": "gatekeeper",
-      "mainModule": "intelligence.js",
-      "migrations": [
-        {
-          "new_sqlite_classes": [
-            "VendorSetupStore",
-            "IntelligenceGatekeeper"
-          ],
-          "tag": "v1"
-        }
-      ],
-      "modules": [
-        {
-          "name": "intelligence.js",
-          "r2Key": "blobs/modules/ea085cd873e9f4e8072c43a7656f28a5559f0b71a1fb4b97c23107801e8c2b8e",
-          "sha256": "ea085cd873e9f4e8072c43a7656f28a5559f0b71a1fb4b97c23107801e8c2b8e",
-          "size": 65,
-          "type": "esm"
-        }
-      ],
-      "observability": {
-        "enabled": true,
-        "head_sampling_rate": 1,
-        "logs": {
-          "invocation_logs": false
-        }
-      },
-      "shortName": "intelligence",
-      "singleton": true,
-      "vars": {
-        "BASE_URL": "$PUBLIC_BASE_URL/gatekeeper/intelligence",
-        "MCP_ALLOW_INSECURE": "false"
       }
     },
     "gatekeeper-linear": {

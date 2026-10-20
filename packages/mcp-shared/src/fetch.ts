@@ -6,8 +6,11 @@
 // with `Authorization` dropped when a hop leaves the original origin. Unconditional rather than
 // opt-in, since a caller forgetting to opt in is the failure mode.
 
+import { createLogger } from "@gadgets/observability/logger";
 import { isBlockedHost } from "./endpoint.js";
 import type { FetchLike } from "@modelcontextprotocol/client";
+
+const logger = createLogger<{ routeSuffix: string; routeBinding: string }>({ component: "mcp.fetch" });
 
 // Enough for the http->https and apex->www hops real deployments use. Discovery already tries
 // several candidate URLs, so a longer chain is more likely a loop than a working server.
@@ -38,10 +41,20 @@ export type FetchOptions = {
   fetchImpl?: typeof fetch;
 };
 
-/** The one environment variable this package reads. Each Worker's own `Env` satisfies it structurally. */
+/**
+ * The environment variables this package reads for outbound requests. Each Worker's own `Env`
+ * satisfies it structurally. The service bindings `MCP_HOST_ROUTES` names are read by name from
+ * the same object, so they need no field here.
+ */
 export type InsecureEnv = {
   /** When `"true"`, permits plain HTTP and private hosts. Local development only. */
   MCP_ALLOW_INSECURE?: string;
+  /**
+   * JSON object mapping a host suffix to the name of a service binding on this Worker, e.g.
+   * `{"organization.tyms.ai":"MCP_HOST_ROUTE_1"}`. A request to that host, or to any subdomain of
+   * it, goes through the binding with its URL unchanged; see `hostRoutedFetch`.
+   */
+  MCP_HOST_ROUTES?: string;
 };
 
 /** Outbound failure known to have happened before the platform `fetch()` call began. */
@@ -53,11 +66,102 @@ export class FetchNotStartedError extends Error {
 }
 
 /**
- * Reads the local-development escape hatch. One definition, since this switch turns off the SSRF
- * checks and copies of it would be copies of that.
+ * The outbound policy a Worker's environment asks for: the local-development escape hatch, and the
+ * same-zone host routes when any are configured. One definition, since the first switch turns off
+ * the SSRF checks and copies of it would be copies of that.
+ *
+ * The routes only choose *how* an allowed request leaves the Worker. `guardedFetch` still checks
+ * every URL, first hop and redirect alike, before it reaches `fetchImpl`, so a routed host passes
+ * the same blocklist and scheme checks as any other. A caller's own `fetchImpl` spread over these
+ * options replaces the routing.
  */
 export function fetchOptions(env: InsecureEnv): FetchOptions {
-  return { allowInsecure: (env.MCP_ALLOW_INSECURE ?? "").toLowerCase() === "true" };
+  const options: FetchOptions = { allowInsecure: (env.MCP_ALLOW_INSECURE ?? "").toLowerCase() === "true" };
+  const routed = hostRoutedFetch(env);
+  if (routed) options.fetchImpl = routed;
+  return options;
+}
+
+type HostRoute = { suffix: string; binding: Fetcher };
+
+// Configuration problems are logged once per isolate rather than on every request: fetchOptions
+// runs for each MCP operation, and the configuration cannot change while the isolate lives.
+const reported = new Set<string>();
+
+function reportOnce(key: string, message: string, fields: { routeSuffix?: string; routeBinding?: string }): void {
+  if (reported.has(key)) return;
+  reported.add(key);
+  logger.warn(message, { event: "mcp.fetch.host_route.invalid", ...fields });
+}
+
+function isFetcher(value: unknown): value is Fetcher {
+  return typeof value === "object" && value !== null
+    && typeof (value as { fetch?: unknown }).fetch === "function";
+}
+
+/** Normalizes a host or suffix for comparison: case-insensitive, without a trailing root dot. */
+function normalizeHost(host: string): string {
+  return host.trim().toLowerCase().replace(/^\.+|\.+$/g, "");
+}
+
+function parseHostRoutes(env: InsecureEnv): HostRoute[] {
+  const raw = env.MCP_HOST_ROUTES?.trim();
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    reportOnce(`json:${raw}`, "MCP_HOST_ROUTES is not valid JSON; ignoring it", {});
+    return [];
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    reportOnce(`shape:${raw}`, "MCP_HOST_ROUTES is not a JSON object; ignoring it", {});
+    return [];
+  }
+  const routes: HostRoute[] = [];
+  for (const [rawSuffix, name] of Object.entries(parsed)) {
+    const suffix = normalizeHost(rawSuffix);
+    const binding = typeof name === "string"
+      ? (env as unknown as Record<string, unknown>)[name]
+      : undefined;
+    if (!suffix || typeof name !== "string" || !isFetcher(binding)) {
+      reportOnce(`route:${rawSuffix}=${String(name)}`,
+        "MCP host route has no usable service binding; ignoring it",
+        { routeSuffix: rawSuffix, routeBinding: String(name) });
+      continue;
+    }
+    routes.push({ suffix, binding });
+  }
+  // Longest suffix first, so a more specific route wins over a broader one it sits under.
+  return routes.sort((a, b) => b.suffix.length - a.suffix.length);
+}
+
+/**
+ * A `fetch` that sends requests for configured hosts through service bindings, or undefined when
+ * no usable route is configured.
+ *
+ * Cloudflare sends a Worker's subrequest to a host on its own zone to that host's DNS origin, never
+ * to the Worker serving its route, so an MCP server on the same zone as this gatekeeper (a Tyms
+ * product such as `<slug>.organization.tyms.ai`, connected as a company server) answers 522 to a
+ * plain `fetch`. The deployment binds the Worker behind each such zone and names it in
+ * `MCP_HOST_ROUTES`. The URL is passed unchanged, since the Worker behind the binding resolves the
+ * tenant from the host. The match is made per request, not per operation, so each redirect hop
+ * goes wherever its own host routes; every other host uses the platform `fetch`.
+ */
+export function hostRoutedFetch(env: InsecureEnv): typeof fetch | undefined {
+  const routes = parseHostRoutes(env);
+  if (routes.length === 0) return undefined;
+  return (input, init) => {
+    const url = input instanceof Request ? input.url : String(input);
+    let host: string;
+    try {
+      host = normalizeHost(new URL(url).hostname);
+    } catch {
+      return globalThis.fetch(input, init);
+    }
+    const route = routes.find(({ suffix }) => host === suffix || host.endsWith(`.${suffix}`));
+    return route ? route.binding.fetch(input, init) : globalThis.fetch(input, init);
+  };
 }
 
 /**

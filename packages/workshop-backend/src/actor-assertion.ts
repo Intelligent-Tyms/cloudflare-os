@@ -1,7 +1,7 @@
 // Per-person identity for an agent's calls to the organization wiki.
 //
-// The Intelligence gatekeeper calls the wiki with a tenant-wide assistant key, which says which
-// workspace is calling but not who. When a person's turn opens a wiki session, the Workshop hands
+// The assistant calls the wiki with a tenant-wide assistant key, which says which workspace is
+// calling but not who. When a person's turn opens a wiki session, the Workshop hands
 // the gatekeeper a provider that mints a short-lived assertion of that person from the control
 // plane (signed with the fleet key; the cell verifies it and records the person as the actor,
 // never granting more than the lower of the key's scope and the person's own wiki role). Minting

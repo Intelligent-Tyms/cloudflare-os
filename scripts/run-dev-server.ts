@@ -498,8 +498,6 @@ const PASSTHROUGH_GATEKEEPER_VARS: Record<string, string[]> = {
     "MCP_PORTAL_TRUST_ANNOTATIONS", "MCP_PORTAL_HIDDEN_SERVER_IDS", "MCP_ALLOW_INSECURE",
   ],
   "gatekeeper-mcp": ["MCP_ALLOW_INSECURE", "MCP_CATALOG_URL"],
-  "gatekeeper-intelligence": ["MCP_ALLOW_INSECURE"],
-  "gatekeeper-data-intelligence": ["MCP_ALLOW_INSECURE"],
   // A tunnel's public origin, for GitHub to deliver hook events to; unset, hooks are refused.
   "gatekeeper-github": ["WEBHOOK_ORIGIN"],
   // The instance a self-hosted GitLab gatekeeper talks to, and the Access service token for one

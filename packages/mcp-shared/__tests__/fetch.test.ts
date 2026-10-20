@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { guardedFetch, isAllowedUrl, sdkFetch } from "../src/fetch.js";
+import { fetchOptions, guardedFetch, isAllowedUrl, sdkFetch } from "../src/fetch.js";
 
 type Hop = {
   url: string;
@@ -232,5 +232,113 @@ describe("sdkFetch", () => {
     expect(response.statusText).toBe("Created");
     expect(response.headers.get("X-Test")).toBe("kept");
     expect(await response.json()).toEqual({ issuer: "https://auth.example.com" });
+  });
+});
+
+describe("fetchOptions host routes", () => {
+  // A service binding that records each URL it is handed and answers from `answer`.
+  function binding(seen: string[], answer: (url: string) => Response = () => new Response("routed")): Fetcher {
+    return {
+      fetch: async (input: RequestInfo | URL) => {
+        seen.push(String(input instanceof Request ? input.url : input));
+        return answer(String(input instanceof Request ? input.url : input));
+      },
+      connect: () => { throw new Error("unused"); },
+    } as unknown as Fetcher;
+  }
+
+  function platform(seen: string[]): void {
+    vi.stubGlobal("fetch", async (input: string) => {
+      seen.push(String(input));
+      return new Response("platform");
+    });
+  }
+
+  const ROUTES = JSON.stringify({ "organization.tyms.ai": "MCP_HOST_ROUTE_1", "Data.Tyms.AI": "MCP_HOST_ROUTE_2" });
+
+  it("returns no fetchImpl when no routes are configured", () => {
+    expect(fetchOptions({}).fetchImpl).toBeUndefined();
+    expect(fetchOptions({ MCP_HOST_ROUTES: "  " }).fetchImpl).toBeUndefined();
+    expect(fetchOptions({ MCP_HOST_ROUTES: "{}" }).fetchImpl).toBeUndefined();
+  });
+
+  it("keeps the local-development switch alongside the routes", () => {
+    const env = { MCP_ALLOW_INSECURE: "TRUE", MCP_HOST_ROUTES: ROUTES, MCP_HOST_ROUTE_1: binding([]) };
+    const options = fetchOptions(env);
+    expect(options.allowInsecure).toBe(true);
+    expect(options.fetchImpl).toBeTypeOf("function");
+    expect(fetchOptions({ MCP_HOST_ROUTES: ROUTES, MCP_HOST_ROUTE_1: binding([]) }).allowInsecure).toBe(false);
+  });
+
+  it("sends a host equal to or under a suffix through its binding, URL unchanged, case-insensitively", async () => {
+    const org: string[] = [], data: string[] = [], global: string[] = [];
+    platform(global);
+    const { fetchImpl } = fetchOptions({
+      MCP_HOST_ROUTES: ROUTES, MCP_HOST_ROUTE_1: binding(org), MCP_HOST_ROUTE_2: binding(data),
+    });
+    await fetchImpl!("https://ACME.organization.tyms.ai/w/company/mcp");
+    await fetchImpl!("https://organization.tyms.ai/mcp");
+    await fetchImpl!(new URL("https://acme.data.tyms.ai/mcp"));
+    await fetchImpl!(new Request("https://acme.data.tyms.ai/other"));
+    // Neither a look-alike that merely ends with the suffix's text nor an unrelated host is routed.
+    await fetchImpl!("https://evilorganization.tyms.ai/mcp");
+    await fetchImpl!("https://mcp.example.com/mcp");
+    expect(org).toEqual(["https://ACME.organization.tyms.ai/w/company/mcp", "https://organization.tyms.ai/mcp"]);
+    expect(data).toEqual(["https://acme.data.tyms.ai/mcp", "https://acme.data.tyms.ai/other"]);
+    expect(global).toEqual(["https://evilorganization.tyms.ai/mcp", "https://mcp.example.com/mcp"]);
+  });
+
+  it("routes each redirect hop by its own host", async () => {
+    const org: string[] = [], global: string[] = [];
+    vi.stubGlobal("fetch", async (input: string) => {
+      global.push(String(input));
+      return new Response("", { status: 302, headers: { Location: "https://acme.organization.tyms.ai/mcp" } });
+    });
+    const options = fetchOptions({ MCP_HOST_ROUTES: ROUTES, MCP_HOST_ROUTE_1: binding(org) });
+    const response = await guardedFetch("https://login.example.com/start", {}, options);
+    expect(await response.text()).toBe("routed");
+    expect(global).toEqual(["https://login.example.com/start"]);
+    expect(org).toEqual(["https://acme.organization.tyms.ai/mcp"]);
+  });
+
+  it("leaves the SSRF checks in front of a routed host", async () => {
+    const org: string[] = [];
+    platform([]);
+    const routes = JSON.stringify({ "internal": "MCP_HOST_ROUTE_1" });
+    const options = fetchOptions({ MCP_HOST_ROUTES: routes, MCP_HOST_ROUTE_1: binding(org) });
+    await expect(guardedFetch("https://wiki.internal/mcp", {}, options)).rejects.toThrow(/Refusing/);
+    await expect(guardedFetch("http://acme.internal/mcp", {}, options)).rejects.toThrow(/Refusing/);
+    expect(org).toEqual([]);
+  });
+
+  it("ignores malformed configuration and unusable bindings rather than failing a request", async () => {
+    const global: string[] = [], org: string[] = [];
+    platform(global);
+    expect(fetchOptions({ MCP_HOST_ROUTES: "{not json" }).fetchImpl).toBeUndefined();
+    expect(fetchOptions({ MCP_HOST_ROUTES: "[\"organization.tyms.ai\"]" }).fetchImpl).toBeUndefined();
+    expect(fetchOptions({ MCP_HOST_ROUTES: ROUTES }).fetchImpl).toBeUndefined();
+    expect(fetchOptions({ MCP_HOST_ROUTES: ROUTES, MCP_HOST_ROUTE_1: "not a binding" }).fetchImpl).toBeUndefined();
+
+    // One usable route survives its broken sibling.
+    const { fetchImpl } = fetchOptions({
+      MCP_HOST_ROUTES: JSON.stringify({ "organization.tyms.ai": "MCP_HOST_ROUTE_1", "data.tyms.ai": 7, "": "X" }),
+      MCP_HOST_ROUTE_1: binding(org),
+    });
+    await fetchImpl!("https://acme.data.tyms.ai/mcp");
+    await fetchImpl!("https://acme.organization.tyms.ai/mcp");
+    expect(global).toEqual(["https://acme.data.tyms.ai/mcp"]);
+    expect(org).toEqual(["https://acme.organization.tyms.ai/mcp"]);
+  });
+
+  it("prefers the most specific suffix", async () => {
+    const broad: string[] = [], narrow: string[] = [];
+    const { fetchImpl } = fetchOptions({
+      MCP_HOST_ROUTES: JSON.stringify({ "tyms.ai": "BROAD", "eu.organization.tyms.ai": "NARROW" }),
+      BROAD: binding(broad), NARROW: binding(narrow),
+    });
+    await fetchImpl!("https://acme.eu.organization.tyms.ai/mcp");
+    await fetchImpl!("https://acme.organization.tyms.ai/mcp");
+    expect(narrow).toEqual(["https://acme.eu.organization.tyms.ai/mcp"]);
+    expect(broad).toEqual(["https://acme.organization.tyms.ai/mcp"]);
   });
 });

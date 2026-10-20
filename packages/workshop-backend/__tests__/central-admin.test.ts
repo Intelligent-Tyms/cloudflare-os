@@ -4,12 +4,12 @@ import { CENTRAL_ADMIN_METHODS, handleCentralAdmin, parseCentralAdminClaims } fr
 import { CentralAdminApi } from "../src/admin-settings";
 
 describe("central admin claims", () => {
-  const call = { purpose: "admin", sub: "Owner@Acme.com", method: "provisionIntelligence", args: ["data"] };
+  const call = { purpose: "admin", sub: "Owner@Acme.com", method: "unlinkTelegram", args: ["ann@acme.com"] };
 
   it("accept an admin call naming an allowed method", () => {
     expect(parseCentralAdminClaims(call))
-        .toEqual({ actor: "owner@acme.com", method: "provisionIntelligence", args: ["data"] });
-    expect(parseCentralAdminClaims({ ...call, method: "getIntelligenceOverview", args: undefined }))
+        .toEqual({ actor: "owner@acme.com", method: "unlinkTelegram", args: ["ann@acme.com"] });
+    expect(parseCentralAdminClaims({ ...call, method: "getChannels", args: undefined }))
         .toMatchObject({ args: [] });
   });
 
@@ -19,8 +19,8 @@ describe("central admin claims", () => {
     expect(parseCentralAdminClaims({ ...call, sub: "owner" })).toBeNull();
     expect(parseCentralAdminClaims({ ...call, method: "getSettings" })).toBeNull();
     expect(parseCentralAdminClaims({ ...call, method: "toString" })).toBeNull();
-    expect(parseCentralAdminClaims({ ...call, args: ["data", "more"] })).toBeNull();
-    expect(parseCentralAdminClaims({ ...call, args: "data" })).toBeNull();
+    expect(parseCentralAdminClaims({ ...call, args: ["ann@acme.com", "more"] })).toBeNull();
+    expect(parseCentralAdminClaims({ ...call, args: "ann@acme.com" })).toBeNull();
   });
 
   it("only list methods the central admin API has", () => {
@@ -55,23 +55,23 @@ describe("handleCentralAdmin", () => {
       env, ctx);
 
   it("runs an allowed call and returns its result", async () => {
-    // No tenant API configured here, so the overview is null without any other call.
-    const res = await post({ token: await token({ purpose: "admin", method: "getIntelligenceOverview" }) });
+    // No channels worker bound here, so the description is null without any other call.
+    const res = await post({ token: await token({ purpose: "admin", method: "getChannels" }) });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ result: null });
   });
 
   it("checks arguments as an RPC from the admin page would, and returns refusals as errors", async () => {
-    const res = await post({ token: await token({ purpose: "admin", method: "provisionIntelligence", args: ["nope"] }) });
+    const res = await post({ token: await token({ purpose: "admin", method: "unlinkTelegram", args: [42] }) });
     expect(res.status).toBe(400);
-    expect((await res.json() as { error: string }).error).toMatch(/provisionIntelligence\[0\]/);
+    expect((await res.json() as { error: string }).error).toMatch(/unlinkTelegram\[0\]/);
   });
 
   it("refuses tokens for another workspace, other keys, other purposes and unlisted methods", async () => {
     const other = (await generateKeyPair("EdDSA")).privateKey;
     for (const t of [
-      await token({ purpose: "admin", method: "getIntelligenceOverview" }, "globex"),
-      await token({ purpose: "admin", method: "getIntelligenceOverview" }, "acme", other),
+      await token({ purpose: "admin", method: "getChannels" }, "globex"),
+      await token({ purpose: "admin", method: "getChannels" }, "acme", other),
       await token({ purpose: "signout" }),
       await token({ purpose: "admin", method: "getSettings", args: ["x"] }),
     ]) {

@@ -121,8 +121,8 @@ it("forwards the session context's call options to the host on a read", async ()
   expect(calls).toEqual([{ headers: { [ACTOR]: "signed" } }, undefined]);
 });
 
-// A facet that turns the Workshop's session context into the header the wiki verifies, the way
-// the Intelligence gatekeeper does; the base class must hand it to the session it constructs.
+// A facet that turns the Workshop's session context into a header its server verifies (the
+// wiki's actor assertion); the base class must hand it to the session it constructs.
 const log = { debug() {}, info() {}, error() {}, warn() {}, with() { return this; } };
 
 class RecordingSession extends McpSessionBase {

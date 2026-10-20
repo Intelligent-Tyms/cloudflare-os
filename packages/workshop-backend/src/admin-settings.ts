@@ -1,4 +1,4 @@
-import { AdminFormat, AdminFormatPatch, AdminFormatsView, AdminCatalogModel, AdminModel, AdminResourceVendor, AdminSkill, AmbientGatekeeperMode, BlueprintPublicInfo, INTELLIGENCE_PRODUCT_KINDS, INTELLIGENCE_PRODUCT_NAMES, IntelligenceInstanceView, IntelligenceOverview, IntelligenceProductKind, IntelligenceProductOverview, ChannelsDescription, EmailInbox, SUGGESTED_MODELS, SkillMarketplaceEntry, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, AiModelConfig, AiModelProvider, GatewayModel, GatewayModelLevelTest, GatewayModelMode, GatewayModelSettings, GatewayModelTest, ReasoningLevel } from '@gadgets/workshop-shared/api';
+import { AdminFormat, AdminFormatPatch, AdminFormatsView, AdminCatalogModel, AdminModel, AdminResourceVendor, AdminSkill, AmbientGatekeeperMode, BlueprintPublicInfo, ChannelsDescription, EmailInbox, SUGGESTED_MODELS, SkillMarketplaceEntry, TelegramBinding, TelegramLinkCode, isAmbientGatekeeperMode, AiModelConfig, AiModelProvider, GatewayModel, GatewayModelLevelTest, GatewayModelMode, GatewayModelSettings, GatewayModelTest, ReasoningLevel } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor, SKILL_PACKAGE_MAX_FILES, SKILL_PACKAGE_MAX_FILE_BYTES, SKILL_PACKAGE_MAX_TOTAL_BYTES, SkillPackage, SkillPackageFile, VendorSetup } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
@@ -18,9 +18,7 @@ import { buildGatekeeperVendorMap } from './auth/auth-vendors.js';
 import { UserDurableObject } from './user.js';
 import { bundledBlueprintsManifestVersion, deleteInstalledBlueprint, installBundledBlueprints, RETIRED_BLUEPRINT_IDS } from './bundled-blueprints.js';
 import { BUNDLED_BLUEPRINTS } from './generated/bundled-blueprints.js';
-import * as intelligenceDirectory from './intelligence-directory.js';
 import { CENTRAL_CATALOG_CHECK_MS, CENTRAL_CATALOG_REFRESH_MS, CENTRAL_SETTINGS_POLL_MS, CentralCatalog, CentralSettings, CentralSettingsPull, adoptCentralSettings, catalogFingerprint, centralSettingsOf, fetchCentralLogo, hasCentralSettings, pullCentralSettings, reportCatalog, seedCentralSettings } from './central-settings.js';
-import { INTELLIGENCE_CONNECTORS, type IntelligenceConnectorSetup } from './intelligence-setup.js';
 
 const logger = createWorkshopLogger("workshop.admin.settings");
 
@@ -1269,16 +1267,14 @@ async function isAmbientOnly(vendor: Service<GatekeeperVendor>): Promise<boolean
 // What the admin portal runs here: admin calls from the control plane (central-admin.ts, which
 // checked the call's signature and that the method is one of CENTRAL_ADMIN_METHODS). The
 // control plane checked the actor's role, so these methods don't re-check. A thin
-// validation+forwarding facade over the AdminSettings DO, the connectors, the channels worker and
-// the intelligence directory; never handed to a browser. Settings the portal stores itself
-// arrive through the central settings pull instead (central-settings.ts).
+// validation+forwarding facade over the AdminSettings DO, the connectors and the channels
+// worker; never handed to a browser. Settings the portal stores itself arrive through the central settings pull instead (central-settings.ts).
 @validateRpc()
 export class CentralAdminApi extends RpcTarget {
   /**
    * `adminUserId` is the requesting admin's identity, forwarded to gatekeepers when listing the
-   * resource catalog (some are RBAC-gated per user) and to the control plane as the acting
-   * admin. It's plain data — not a user-DO dependency. `env` reaches the control plane,
-   * channels and gatekeeper bindings.
+   * resource catalog (some are RBAC-gated per user). It's plain data — not a user-DO
+   * dependency. `env` reaches the channels and gatekeeper bindings.
    */
   constructor(private admin: DurableObjectStub<AdminSettings>, private adminUserId: string,
       private env: Cloudflare.Env) {
@@ -1439,146 +1435,6 @@ export class CentralAdminApi extends RpcTarget {
       }
     }
     await (await this.#setupVendor(vendorId)).clearSetup(names);
-  }
-
-  // --- Intelligence (control plane + each product's gatekeeper setup store) ---
-  //
-  // Provisioning is the control plane's job (never by hand against a cell). The assistant
-  // key it hands back is stored only in the product's gatekeeper per-tenant setup store,
-  // through the same service-binding path the admin setup modal uses, so nothing here or in
-  // the control plane ever holds it.
-
-  #requireIntelligenceDirectory(): void {
-    if (!intelligenceDirectory.hasIntelligenceDirectory(this.env)) {
-      throw new Error("This deployment has no central directory configured.");
-    }
-  }
-
-  #productKind(kind: unknown): IntelligenceProductKind {
-    if (kind === undefined) return "organization";
-    if (!INTELLIGENCE_PRODUCT_KINDS.includes(kind as IntelligenceProductKind)) {
-      throw new Error("Unknown Intelligence product.");
-    }
-    return kind as IntelligenceProductKind;
-  }
-
-  // The product's gatekeeper setup stub, or null when its connector is not bound here (a
-  // deployment without that gatekeeper, or a product whose connector has not shipped). The
-  // overview then reports "off", or "missing-key" while the instance is active.
-  async #productVendor(setup: IntelligenceConnectorSetup | null): Promise<VendorSetupStub | null> {
-    if (!setup) return null;
-    try {
-      return await this.#setupVendor(setup.vendorId);
-    } catch {
-      return null;
-    }
-  }
-
-  async #productOverview(
-    view: intelligenceDirectory.CentralIntelligence, kind: IntelligenceProductKind,
-  ): Promise<IntelligenceProductOverview> {
-    let instance = intelligenceDirectory.instanceOf(view, kind);
-    let setup = INTELLIGENCE_CONNECTORS[kind];
-    let connector: IntelligenceProductOverview["connector"] = "off";
-    let vendor = await this.#productVendor(setup);
-    if (vendor && setup) {
-      try {
-        let described = await vendor.describeSetup();
-        let stored = new Set(described.configured.map(entry => entry.name));
-        let complete = setup.required.every(name => stored.has(name));
-        if (described.status === "configured" && complete) connector = "connected";
-        else if (instance?.status === "active") connector = "missing-key";
-      } catch (err) {
-        logger.warn(`failed to read the ${kind} intelligence connector setup`, {
-          event: "intelligence.setup.read.failed", error: err,
-        });
-        if (instance?.status === "active") connector = "missing-key";
-      }
-    } else if (instance?.status === "active") {
-      connector = "missing-key";
-    }
-    return {
-      instance,
-      connector,
-      url: instance?.status === "active" ? instance.wikiUrl : null,
-    };
-  }
-
-  async #intelligenceOverview(view: intelligenceDirectory.CentralIntelligence): Promise<IntelligenceOverview> {
-    let [organization, data] = await Promise.all([
-      this.#productOverview(view, "organization"),
-      this.#productOverview(view, "data"),
-    ]);
-    return { credits: view.credits, organization, data };
-  }
-
-  async #storeAssistantKey(
-    kind: IntelligenceProductKind, instance: IntelligenceInstanceView, assistantKey: string,
-  ): Promise<boolean> {
-    let setup = INTELLIGENCE_CONNECTORS[kind];
-    let vendor = await this.#productVendor(setup);
-    if (!vendor || !setup || !instance.mcpUrl) return false;
-    try {
-      await vendor.applySetup({
-        [setup.mcpUrl]: instance.mcpUrl,
-        ...(instance.wikiUrl ? { [setup.url]: instance.wikiUrl } : {}),
-        [setup.assistantKey]: assistantKey,
-      });
-      return true;
-    } catch (err) {
-      // The key is gone once this returns: the overview reports "missing-key" and the panel
-      // offers Reconnect, which rotates it on the cell.
-      logger.error(`failed to store the ${kind} intelligence assistant key`, {
-        event: "intelligence.setup.write.failed", error: err,
-      });
-      return false;
-    }
-  }
-
-  async getIntelligenceOverview(): Promise<IntelligenceOverview | null> {
-    if (!intelligenceDirectory.hasIntelligenceDirectory(this.env)) return null;
-    return this.#intelligenceOverview(await intelligenceDirectory.fetchIntelligence(this.env));
-  }
-
-  async provisionIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview> {
-    let product = this.#productKind(kind);
-    this.#requireIntelligenceDirectory();
-    let { instance, assistantKey } = await intelligenceDirectory.provisionInstance(this.env, product);
-    if (assistantKey !== null) await this.#storeAssistantKey(product, instance, assistantKey);
-    return this.#intelligenceOverview(await intelligenceDirectory.fetchIntelligence(this.env));
-  }
-
-  async deprovisionIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview> {
-    let product = this.#productKind(kind);
-    this.#requireIntelligenceDirectory();
-    await intelligenceDirectory.deprovisionInstance(this.env, product);
-    let vendor = await this.#productVendor(INTELLIGENCE_CONNECTORS[product]);
-    if (vendor) {
-      await vendor.clearSetup().catch((err: unknown) => {
-        logger.warn(`failed to clear the ${product} intelligence connector setup`, {
-          event: "intelligence.setup.clear.failed", error: err,
-        });
-      });
-    }
-    return this.#intelligenceOverview(await intelligenceDirectory.fetchIntelligence(this.env));
-  }
-
-  async reconnectIntelligence(kind?: IntelligenceProductKind): Promise<IntelligenceOverview> {
-    let product = this.#productKind(kind);
-    this.#requireIntelligenceDirectory();
-    let view = await intelligenceDirectory.fetchIntelligence(this.env);
-    let instance = intelligenceDirectory.instanceOf(view, product);
-    if (instance?.status !== "active") {
-      throw new Error(`${INTELLIGENCE_PRODUCT_NAMES[product]} is not provisioned for this workspace.`);
-    }
-    if (!INTELLIGENCE_CONNECTORS[product]) {
-      throw new Error(`The ${INTELLIGENCE_PRODUCT_NAMES[product]} connector is not available in this deployment yet.`);
-    }
-    let { assistantKey } = await intelligenceDirectory.rotateAssistantKey(this.env, product);
-    if (!(await this.#storeAssistantKey(product, instance, assistantKey))) {
-      throw new Error("The new assistant key could not be stored. Check that the connector is installed, then reconnect again.");
-    }
-    return this.#intelligenceOverview(view);
   }
 
 }

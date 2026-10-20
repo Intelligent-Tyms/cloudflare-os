@@ -276,8 +276,6 @@ const NO_DEFAULT_CRED_INPUTS = new Set([
   "gatekeeper-websearch",     // auto-provisioned; searches through the account's own AI Gateway
   "gatekeeper-mcp",           // MCP OAuth uses dynamic client registration, not a static app
   "gatekeeper-mcp-portal",    // same MCP OAuth chain as gatekeeper-mcp
-  "gatekeeper-intelligence",  // per-tenant wiki endpoint + preissued key via admin setup; no OAuth app
-  "gatekeeper-data-intelligence", // same: per-tenant endpoint + preissued key via admin setup
 ]);
 
 // Not installable on customer instances: Email Routing needs a zone, which workers.dev-hosted
@@ -314,9 +312,6 @@ const SINGLETON = new Set([
   "gatekeeper-homeassistant", // (2) no inputs; users connect their own URL + token in-app
   "gatekeeper-mcp",           // (2) no inputs; users paste their own endpoints in-app
   "gatekeeper-mcp-portal",    // (2) no inputs; the one portal comes from the deployment's vars
-  // Tyms fork: (2) no inputs; Admin → Intelligence writes each tenant's endpoint and key at runtime.
-  "gatekeeper-intelligence",
-  "gatekeeper-data-intelligence",
 ]);
 
 /** Default wizard inputs for an installable gatekeeper that fronts a third-party OAuth app. */
