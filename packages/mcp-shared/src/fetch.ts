@@ -133,7 +133,7 @@ function parseHostRoutes(env: InsecureEnv): HostRoute[] {
     routes.push({ suffix, binding });
   }
   // Longest suffix first, so a more specific route wins over a broader one it sits under.
-  return routes.sort((a, b) => b.suffix.length - a.suffix.length);
+  return routes.toSorted((a, b) => b.suffix.length - a.suffix.length);
 }
 
 /**
