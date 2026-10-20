@@ -285,12 +285,12 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> impleme
       color: "#1a1d21",
       tagline: "Add any MCP server for your team by its URL",
       description:
-        "Add a Model Context Protocol server that isn't in the catalog: an administrator pastes " +
-        "its URL, with the company's API key if it needs one, and it becomes a connector the " +
-        "whole team can use. Its tools are discovered automatically: reads happen straight away " +
-        "and anything that writes waits for approval. Catalog servers appear as connectors of " +
-        "their own.",
-      credentialScope: "personal",
+        "Add a Model Context Protocol server: an administrator pastes its URL, with the " +
+        "company's API key if it needs one, and it becomes a connector of its own that the " +
+        "whole team uses without signing in. Its tools are discovered automatically, and " +
+        "anything that writes waits for approval.",
+      // Every server is added by an administrator on the company's credential; nobody signs in.
+      credentialScope: "organization",
       // Company servers are reached through an account the Workshop provisions for every
       // member; there is nothing to provision until the tenant can use at least one.
       autoProvisionsAccount: usable.length > 0,
