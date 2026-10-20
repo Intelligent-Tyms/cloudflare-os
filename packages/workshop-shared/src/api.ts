@@ -1362,54 +1362,6 @@ export type AdminFormat = {
   bundled: boolean;
 };
 
-/** The products that can be provisioned today (each has a cell); Market and Process follow. */
-export type IntelligenceProductKind = "organization" | "data";
-/** Every provisionable product, in display order. */
-export const INTELLIGENCE_PRODUCT_KINDS: readonly IntelligenceProductKind[] = ["organization", "data"];
-/** The product names as administrators see them. */
-export const INTELLIGENCE_PRODUCT_NAMES: Record<IntelligenceProductKind, string> = {
-  organization: "Organization Intelligence",
-  data: "Data Intelligence",
-};
-
-/**
- * One Intelligence instance as the control plane reports it (mirrors InstanceView in
- * apps/control-plane/src/intelligence.ts). Timestamps are ms since epoch. `wikiUrl` is where a
- * person opens the product: the company wiki (organization) or the console (data).
- */
-export type IntelligenceInstanceView = {
-  kind: "organization" | "market" | "data" | "process";
-  status: "provisioning" | "active" | "suspended" | "failed" | "decommissioned";
-  hostname: string;
-  wikiUrl: string | null;
-  mcpUrl: string | null;
-  provisionedAt: number | null;
-  suspendedAt: number | null;
-  lastError: string | null;
-};
-
-/**
- * One product on the admin portal's Products page: its instance (null until first provisioned),
- * whether the assistant is connected, and where a person opens it while active. `connector` is
- * "connected" when the product's gatekeeper holds the endpoint and key, "missing-key" when the
- * instance is active but the key is not stored here (reconnect to fix), "off" otherwise.
- */
-export type IntelligenceProductOverview = {
-  instance: IntelligenceInstanceView | null;
-  connector: "connected" | "missing-key" | "off";
-  url: string | null;
-};
-
-/**
- * The admin portal's Intelligence snapshot: the Intelligence credit pool the products share and each
- * product's state. Every plan may use the products; the pool is the only budget.
- */
-export type IntelligenceOverview = {
-  credits: BillingCreditBucket;
-  organization: IntelligenceProductOverview;
-  data: IntelligenceProductOverview;
-};
-
 // One credit pool: the plan's monthly allowance (expires at each credit-period rollover)
 // plus purchased top-ups (roll over). All amounts are integer micro-USD (1e-6 USD).
 export type BillingCreditBucket = {

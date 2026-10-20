@@ -104,7 +104,7 @@ declare global {
 
       // Central team directory (multi-tenant installations with central login): base URL and
       // bearer token for the identity service's tenant-scoped API (team directory, billing,
-      // intelligence). The workshop keeps no member list of its own. Both unset = none.
+      // actor assertions). The workshop keeps no member list of its own. Both unset = none.
       CENTRAL_TEAM_API_URL?: string;
       CENTRAL_TEAM_API_TOKEN?: string;
 
@@ -116,8 +116,8 @@ declare global {
       BILLING_PORTAL_URL?: string;
 
       // Base domain of the Organization Intelligence cell (e.g. "organization.tyms.ai"). The
-      // client renders links onto it as wiki citations; the connector itself is configured
-      // per tenant in the intelligence gatekeeper's setup store. Absent = no cell.
+      // client renders links onto it as wiki citations; the assistant reaches the wiki itself
+      // as a company MCP server in gatekeeper-mcp. Absent = no cell.
       INTELLIGENCE_BASE_DOMAIN?: string;
 
       // Team chat (Stream Chat, getstream.io). The platform's shared Stream app: the key is a

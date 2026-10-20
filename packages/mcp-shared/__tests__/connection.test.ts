@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   callMayHaveTakenEffect,
@@ -234,4 +234,43 @@ it("gives a retried listing a fresh discovery budget after session recovery", as
   expect(catalog.truncated).toBe(false);
   expect(initialPages).toBe(50);
   expect(retryPages).toBe(2);
+});
+
+describe("host routes", () => {
+  const account: ConnectionAccount = {
+    async getConnection() {
+      return { authorization: "token", sessionId: "session", generation: 1 };
+    },
+    async assertConnectionCurrent() {},
+    async setMcpSessionId() { return true; },
+    async noteCredentialsExpired() {},
+  };
+  // Answers 401, which ends the operation after one request without needing a real MCP server.
+  const recorder = (seen: string[]) => ({
+    fetch: async (input: RequestInfo | URL) => {
+      seen.push(String(input));
+      return new Response(null, { status: 401 });
+    },
+  }) as unknown as Fetcher;
+  const env = (seen: string[]) => ({
+    MCP_HOST_ROUTES: JSON.stringify({ "organization.tyms.ai": "MCP_HOST_ROUTE_1" }),
+    MCP_HOST_ROUTE_1: recorder(seen),
+  });
+
+  it("reach a same-zone server through its service binding", async () => {
+    vi.stubGlobal("fetch", async () => { throw new Error("platform fetch must not be used"); });
+    const seen: string[] = [];
+    await withClient(env(seen), account, "https://acme.organization.tyms.ai/w/company/mcp",
+      client => client.callTool("search", {}), { retryOnExpiry: false }).catch(() => undefined);
+    expect(seen).toEqual(["https://acme.organization.tyms.ai/w/company/mcp"]);
+  });
+
+  it("yield to a caller's own fetchImpl", async () => {
+    const seen: string[] = [], own: string[] = [];
+    await withClient(env(seen), account, "https://acme.organization.tyms.ai/w/company/mcp",
+      client => client.callTool("search", {}),
+      { retryOnExpiry: false, fetchImpl: recorder(own).fetch as typeof fetch }).catch(() => undefined);
+    expect(seen).toEqual([]);
+    expect(own).toEqual(["https://acme.organization.tyms.ai/w/company/mcp"]);
+  });
 });

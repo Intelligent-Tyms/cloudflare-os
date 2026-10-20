@@ -23,10 +23,6 @@ export const CENTRAL_ADMIN_PATH = "/api/central/admin";
 
 /** The CentralAdminApi methods the admin portal may call, each with how many arguments it takes. */
 export const CENTRAL_ADMIN_METHODS = {
-  getIntelligenceOverview: 0,
-  provisionIntelligence: 1,
-  deprovisionIntelligence: 1,
-  reconnectIntelligence: 1,
   // Messaging channels: the channels worker is per tenant, reachable only from here.
   getChannels: 0,
   setupTelegram: 1,
