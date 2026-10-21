@@ -73,7 +73,7 @@ import { recordAnalytics } from "./analytics";
 import { reportIssue } from "@gadgets/observability/error-reporting";
 import type { ProductAnalyticsConnectionType, ProductAnalyticsGadgetInput } from "./analytics";
 import { checkUsageAndBalance } from "./ai-gateway-billing/limits/usage-checker";
-import { dollarsToMicroUsd, recordUsage, usageCollector } from "./usage-collector";
+import { billingGate, dollarsToMicroUsd, recordUsage, usageCollector } from "./usage-collector";
 import { completeAgentPromptContextSnapshot, completeAgentSkillSnapshot, normalizeAgentCatalog, normalizeAgentPromptContext, normalizeAgentSkillList, removeDisabledSkillEntries, removeDisabledSkills } from "./agent-catalog";
 import { refreshCachedBalance } from "./ai-gateway-billing/cloudflare/connection-service";
 import { SharingManager, SharingCaller, roleRank } from "./sharing";
@@ -7539,20 +7539,21 @@ class OverseerImpl implements AgentHooks {
             // (inference is platform-funded there). Checked before the daily counter so a
             // blocked request never consumes quota.
             if (getAiGatewayConfig(this.env) && !isFreePlanModel(aiModel.config.model)) {
-              blockMessage = `${aiModel.profile.name} isn't included in the free plan. ` +
-                  `Upgrade for access to every model.`;
+              blockMessage = `${aiModel.profile.name} isn't included in the free plan.`;
             } else {
               let ownerStub = this.users.get(this.users.idFromString(this.ownerId));
               let quota = await ownerStub.consumeDailyLlmCall(billing.freeDailyLlmCalls);
               if (!quota.withinLimits) {
-                blockMessage = `You've reached the free plan's daily limit. Upgrade for a ` +
-                    `monthly AI credit allowance.`;
+                blockMessage = "You've reached the free plan's daily limit.";
               }
             }
           } else if (billing.freeDailyLlmCalls == null && billing.tier !== "enterprise"
               && billing.aiBalanceMicroUsd <= 0) {
-            blockMessage = "This workspace is out of AI credits. An admin can top up under " +
-                "the billing portal, and your monthly allowance renews automatically.";
+            // The fix lives on billing.tyms.ai; the chat's billing notice links there.
+            let stop = billingGate(billing).stop;
+            blockMessage = stop === "suspended" ? "This workspace's billing account is suspended."
+                : stop === "limit_reached" ? "This workspace has reached its spending limit."
+                : "This workspace is out of funds.";
           }
           if (blockMessage) {
             turn.setErrorType("usage_limit");

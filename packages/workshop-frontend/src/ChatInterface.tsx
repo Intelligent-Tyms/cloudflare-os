@@ -116,9 +116,7 @@ import { useResolveAction } from "./useResolveAction";
 import { safeExternalUrl } from "./utils/safeExternalUrl";
 import { useAuthenticatedApi } from "./AuthContext";
 import { useVendorBranding } from "./useVendorBranding";
-import OutOfCreditsModal from "./components/billing/OutOfCreditsModal";
-import UpgradeModal from "./components/billing/UpgradeModal";
-import { useCloudflareLimitsEnabled } from "./ServerConfigContext";
+import BillingNoticeModal from "./components/billing/BillingNoticeModal";
 import { formatFullTimestamp } from "./utils/formatTimestamp";
 import { copyToClipboard } from "./clipboard";
 import { isImeComposing } from "./keyboardEvent";
@@ -2784,9 +2782,6 @@ function ChatInterface({
   // Persistent cache that survives reconnects
   const toasts = useKumoToastManager();
   const { currentUser } = useAuthenticatedApi();
-  // Which paywall a usage_limit error opens: the legacy Cloudflare-limits flow when that's
-  // what's enforcing, otherwise the central-billing upgrade prompt.
-  const cloudflareLimitsEnabled = useCloudflareLimitsEnabled();
   const getOverseer = useCallback(() => overseer, [overseer]);
   const cacheRef = useRef<ChatCache>({
     chats: new Map(),
@@ -2816,7 +2811,7 @@ function ChatInterface({
   // UI state
   const [_isSubscribed, setIsSubscribed] = useState(false);
   const [chatListReady, setChatListReady] = useState(false);
-  // Out-of-credits modal (free-tier limit reached). `usageModalShownFor` tracks the error sequence
+  // Billing notice (a usage_limit block: out of funds, a limit, suspended). `usageModalShownFor` tracks the error sequence
   // we've already auto-opened for, so dismissing it doesn't immediately reopen.
   const [usageModalOpen, setUsageModalOpen] = useState(false);
   const usageModalShownForRef = useRef<number | null>(null);
@@ -6314,7 +6309,7 @@ function ChatInterface({
                                     </Tooltip>
                                   </button>
                                   {isLast && msg.code === "usage_limit" && (
-                                    <Tooltip content="Add credits to continue." asChild>
+                                    <Tooltip content="Add funds to continue." asChild>
                                       <button
                                         type="button"
                                         onClick={() => setUsageModalOpen(true)}
@@ -6792,17 +6787,10 @@ function ChatInterface({
         initialResourceUrl={connectionAccept?.resourceUrl}
         initialResourceUrlPattern={connectionAccept?.resourceUrlPattern}
       />
-      {cloudflareLimitsEnabled ? (
-        <OutOfCreditsModal
-          open={usageModalOpen}
-          onClose={() => setUsageModalOpen(false)}
-        />
-      ) : (
-        <UpgradeModal
-          open={usageModalOpen}
-          onClose={() => setUsageModalOpen(false)}
-        />
-      )}
+      <BillingNoticeModal
+        open={usageModalOpen}
+        onClose={() => setUsageModalOpen(false)}
+      />
     </div>
   );
 }

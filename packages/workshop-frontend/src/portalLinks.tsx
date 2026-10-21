@@ -4,8 +4,8 @@ import { useServerConfig } from './ServerConfigContext'
 
 /**
  * The central portals a workspace's owners and admins manage it from: the admin portal
- * (teammates, products, settings, connectors, channels, formats) and the billing portal (plan, credits, invoices, payment). The
- * server config carries this workspace's page on each; a portal reached without a session
+ * (teammates, products, settings, connectors, channels, formats) and the billing portal (the
+ * organisation's one balance, top-ups, usage, invoices). The server config carries this workspace's page on each; a portal reached without a session
  * signs the person in through central login and lands on the same page.
  */
 export type Portal = 'admin' | 'billing'
@@ -19,7 +19,7 @@ export function centralConnectorsLink(
 }
 
 /**
- * A page on one of the portals for this workspace (`path` like '/plans' or '?tab=payment'),
+ * A page on one of the portals for this workspace (`path` like '/teammates' or '/connectors'),
  * or undefined when the deployment has no such portal.
  */
 export function portalLink(
@@ -31,10 +31,24 @@ export function portalLink(
   return base ? `${base}${path}` : undefined
 }
 
+/** Where billing is managed for every Tyms product. */
+export const BILLING_HOME = 'https://billing.tyms.ai'
+
+/**
+ * This workspace's page on billing.tyms.ai, or the billing home when the deployment wasn't given
+ * its own page. Billing has no other home: Jamaa shows no plans, prices or balances, only this link.
+ */
+export function billingLink(
+  config: Pick<ServerConfig, 'adminPortalUrl' | 'billingPortalUrl'> | null | undefined,
+): string {
+  return portalLink(config, 'billing') ?? BILLING_HOME
+}
+
 // Where each page of the old in-app Admin (/admin/<section>[/<id>]) lives now.
 const ADMIN_SECTIONS: Record<string, [Portal, string]> = {
   teammates: ['admin', '/teammates'],
-  plans: ['billing', '/plans'],
+  // Billing has no plans any more: both old pages land on the workspace's billing page.
+  plans: ['billing', ''],
   billing: ['billing', ''],
   channels: ['admin', '/channels'],
   formats: ['admin', '/formats'],
@@ -57,11 +71,10 @@ export function legacyAdminTarget(path: string, search: string): [Portal, string
   if (section === 'connectors' || section === 'integrations') {
     return ['admin', id ? `/connectors/${encodeURIComponent(decodeURIComponent(id))}` : '/connectors']
   }
-  // The plan picker lived on the billing page before the Plans split; its deep links
-  // (?intent=, ?plan=) still name it. Those and ?tab= keep their query.
-  if (section === 'billing' && /[?&](intent|plan)=/.test(search)) return ['billing', `/plans${search}`]
   const [portal, page] = Object.hasOwn(ADMIN_SECTIONS, section) ? ADMIN_SECTIONS[section] : ['admin' as const, '']
-  return [portal, portal === 'billing' || section === 'teammates' ? `${page}${search}` : page]
+  // The old plan-picker and payment deep links (?intent=, ?plan=, ?tab=) mean nothing on the
+  // billing page, so billing gets the bare page; teammates keep their query.
+  return [portal, section === 'teammates' ? `${page}${search}` : page]
 }
 
 /** Sends an old in-app Admin link on to the portals, or home when there are none. */
@@ -69,7 +82,7 @@ export function LegacyAdminRedirect({ path }: { path: string }) {
   const serverConfig = useServerConfig()
   if (!serverConfig) return null
   const [portal, page] = legacyAdminTarget(path, window.location.search)
-  const url = portalLink(serverConfig, portal, page)
+  const url = portal === 'billing' ? billingLink(serverConfig) : portalLink(serverConfig, portal, page)
   if (!url) return <Navigate to="/" replace />
   window.location.replace(url)
   return null

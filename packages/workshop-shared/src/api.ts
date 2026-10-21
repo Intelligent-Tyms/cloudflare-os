@@ -1022,45 +1022,28 @@ export interface AuthenticatedApi extends RpcTarget {
 
   // --- Central billing (all users) ---
 
-  // The central-billing state behind a `usage_limit` block, or null when this deployment has no
-  // central billing. Available to every user, not just admins, so the upgrade prompt can explain
-  // what was hit and route the user accordingly.
+  // Whether this workspace's billing account lets metered work run, for the billing notice on
+  // a `usage_limit` block and the admin top-bar nudge; null when this deployment has no central
+  // billing. Balances, prices and payment live only on billing.tyms.ai, so this carries none.
   getBillingGate(): Promise<BillingGateInfo | null>;
-
-  // Ask the workspace's owner and admins (by email) to consider a plan upgrade. Available to
-  // every user; throttled per workspace. Returns whether a notification actually went out
-  // (false when a recent request already notified them).
-  requestPlanUpgrade(): Promise<{ notified: boolean }>;
 
   // TODO:
   // - Edit permissions on a connected account.
 }
 
-/** The central-billing facts behind a `usage_limit` block, for the upgrade prompt. */
+/**
+ * Why metered work (AI turns, paid channels) is stopped on this workspace, as far as central
+ * billing knows: the prepaid balance is used up, a spending limit was reached, or the billing
+ * account is suspended. The fix is always on billing.tyms.ai.
+ */
+export type BillingStop = 'out_of_funds' | 'limit_reached' | 'suspended';
+
+/** The central-billing answer behind a `usage_limit` block and the top-bar billing notice. */
 export type BillingGateInfo = {
-  planCode: string;
-  /** True when the workspace is on the free plan (daily request limits instead of credits). */
-  isFreePlan: boolean;
-  /** The daily request allowance on the free plan; null on paid plans. */
-  freeDailyLlmCalls: number | null;
-  /**
-   * AI credit position for the low-credits nudge, paid plans only (null on free, where credits
-   * don't apply). Balance is allowance plus rolled-over top-ups; the monthly grant is the plan's
-   * allowance per period.
-   */
-  aiBalanceMicroUsd: number | null;
-  aiMonthlyGrantMicroUsd: number | null;
-  /** When the monthly allowance renews (ms since epoch); null on the free plan. */
-  periodEnd: number | null;
-  /** While the subscription is trialing: when the trial ends and billing starts; else null. */
-  trialEndsAt: number | null;
-  /** The card on file expires before the next charge; admins are nudged to update it. */
-  cardExpiresBeforeNextCharge: boolean;
-  /**
-   * A card is on file. False on a trial started without one: its credits are capped lower and
-   * it ends unless a card is added, so admins are asked to add one.
-   */
-  hasCard: boolean;
+  /** Why metered work is stopped, or null while it can run. */
+  stop: BillingStop | null;
+  /** A prepaid balance that is still positive but under the account's low-balance mark. */
+  lowBalance: boolean;
 };
 
 /** Describes a gatekeeper's management app, for the Workshop nav + page. */
