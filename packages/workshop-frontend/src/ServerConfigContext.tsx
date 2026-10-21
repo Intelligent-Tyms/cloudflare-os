@@ -30,8 +30,3 @@ export function useSiteName(): string {
 export function useAuthVendors(): AuthVendorInfo[] {
   return useContext(ServerConfigContext)?.authVendors ?? []
 }
-
-/** Convenience: whether the Cloudflare limits / top-up flow is enabled. */
-export function useCloudflareLimitsEnabled(): boolean {
-  return useContext(ServerConfigContext)?.cloudflareLimitsEnabled ?? false
-}

@@ -7,7 +7,6 @@ import { CF_ACCESS_MODE } from './useAuth'
 import { User, Pencil, Check, X, Lock, Camera, Copy, Eye, EyeOff } from 'lucide-react'
 import { useAvatar, invalidateAvatarCache } from './useAvatar'
 import { compressAvatar, avatarBlobUrl } from './avatarUtils'
-import UsageSettings from './components/billing/UsageSettings'
 import { PRIMARY_BTN, ICON_BTN, INPUT, SectionLabel, FieldLabel } from './components/settingsControls'
 import { useDocumentTitle } from './useDocumentTitle'
 import { isImeComposing } from './keyboardEvent'
@@ -465,9 +464,6 @@ export default function SettingsPage() {
             </div>
           </div>
         </section>
-
-        {/* Usage & billing — only when the Cloudflare limits flow is enabled server-side */}
-        <UsageSettings />
 
         {/* Security — only for password accounts (hidden under CF Access or gatekeeper sign-in) */}
         {!CF_ACCESS_MODE && hasPassword === true && (

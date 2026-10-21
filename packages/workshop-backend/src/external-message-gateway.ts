@@ -132,8 +132,8 @@ export class ExternalMessageGateway extends WorkerEntrypoint<Cloudflare.Env, Ext
         && billing.messagingBalanceMicroUsd <= 0) {
       return {
         accepted: false,
-        message: "This workspace is out of messaging credits. " +
-            "Ask a workspace admin to top up on the billing portal.",
+        message: "This workspace is out of funds for messaging. " +
+            "Ask a workspace admin to add funds at billing.tyms.ai.",
       };
     }
 
