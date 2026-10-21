@@ -9,9 +9,10 @@
 // entitlements exist, getBillingState() returns null and callers allow the action — a
 // billing outage must never brick a tenant.
 import { DurableObject } from "cloudflare:workers";
+import type { BillingGateInfo } from "@gadgets/workshop-shared/api";
 import { createWorkshopLogger } from "./observability";
 import {
-  CentralEntitlements, UsageEventReport, fetchEntitlements, hasBillingDirectory, reportUsage,
+  CentralAccount, CentralEntitlements, UsageEventReport, fetchEntitlements, hasBillingDirectory, reportUsage,
 } from "./billing-directory.js";
 
 const FLUSH_DELAY_MS = 30_000;
@@ -53,7 +54,31 @@ export type BillingState = {
   cardExpiresBeforeNextCharge: boolean;
   // A card is on file. False on a trial started without one (admins are asked to add one).
   hasCard: boolean;
+  /** The usage-billing account (one balance per organisation); null for tenants on a plan. */
+  account: CentralAccount | null;
 };
+
+/**
+ * The billing answer the UI shows, from the enforcement state. On usage billing the account
+ * says it all (the AI pool carries its spendable balance, net of unflushed debits). Tenants
+ * still on a plan: a paid plan with no AI balance left is out of funds; the free plan's daily
+ * cap is per user, so it only shows as "limit reached" on the blocked turn itself.
+ */
+export function billingGate(state: BillingState): BillingGateInfo {
+  let account = state.account;
+  if (account) {
+    if (account.status === "suspended") return { stop: "suspended", lowBalance: false };
+    let balance = state.aiBalanceMicroUsd;
+    if (!account.canRun || balance <= 0) return { stop: "out_of_funds", lowBalance: false };
+    return {
+      stop: null,
+      lowBalance: account.mode === "prepay" && balance <= account.lowBalanceMicroUsd,
+    };
+  }
+  let outOfFunds = state.freeDailyLlmCalls == null && state.tier !== "enterprise"
+      && state.aiBalanceMicroUsd <= 0;
+  return { stop: outOfFunds ? "out_of_funds" : null, lowBalance: false };
+}
 
 export class UsageCollectorDurableObject extends DurableObject<Cloudflare.Env> {
   /** Buffer events for the next flush. Fire-and-forget friendly: never throws. */
@@ -122,6 +147,7 @@ export class UsageCollectorDurableObject extends DurableObject<Cloudflare.Env> {
       cardExpiresBeforeNextCharge: e.cardExpiresBeforeNextCharge ?? false,
       // A snapshot cached before the card field existed (undefined) never nags.
       hasCard: e.card !== null,
+      account: e.account ?? null,
     };
   }
 
@@ -132,19 +158,6 @@ export class UsageCollectorDurableObject extends DurableObject<Cloudflare.Env> {
    */
   async acceptEntitlements(data: CentralEntitlements): Promise<void> {
     await this.ctx.storage.put("entitlements", { fetchedAt: Date.now(), data });
-  }
-
-  /**
-   * Claim the workspace-wide upgrade-request notification slot: true (and the slot is
-   * stamped) when no request went out within the cooldown, false otherwise — so a stuck
-   * teammate mashing "Request upgrade" can't flood the admins' inboxes.
-   */
-  async claimUpgradeRequestSlot(cooldownMs: number): Promise<boolean> {
-    let last = await this.ctx.storage.get<number>("upgradeRequestedAt");
-    let now = Date.now();
-    if (last != null && now - last < cooldownMs) return false;
-    await this.ctx.storage.put("upgradeRequestedAt", now);
-    return true;
   }
 
   async #cachedEntitlements(): Promise<CachedEntitlements | undefined> {

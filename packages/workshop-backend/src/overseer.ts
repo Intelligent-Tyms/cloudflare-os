@@ -4470,20 +4470,20 @@ class OverseerImpl implements AgentHooks {
             // blocked request never consumes quota. In BYOK mode (no gateway) the tenant pays
             // with their own key, so no model restriction applies.
             if (getAiGatewayConfig(this.env) && !isFreePlanModel(aiModel.config.model)) {
-              blockMessage = `${aiModel.profile.name} isn't included in the free plan. ` +
-                  `Upgrade for access to every model.`;
+              blockMessage = `${aiModel.profile.name} isn't included in the free plan.`;
             } else {
               let ownerStub = this.users.get(this.users.idFromString(this.ownerId));
               let quota = await ownerStub.consumeDailyLlmCall(billing.freeDailyLlmCalls);
               if (!quota.withinLimits) {
-                blockMessage = `You've reached the free plan's daily limit. Upgrade for a ` +
-                    `monthly AI credit allowance.`;
+                blockMessage = "You've reached the free plan's daily limit.";
               }
             }
           } else if (billing.freeDailyLlmCalls == null && billing.tier !== "enterprise"
               && billing.aiBalanceMicroUsd <= 0) {
-            blockMessage = "This workspace is out of AI credits. An admin can top up under " +
-                "the billing portal, and your monthly allowance renews automatically.";
+            // The fix (adding funds) lives on billing.tyms.ai; the chat's notice links there.
+            blockMessage = billing.account?.status === "suspended"
+                ? "This workspace's billing account is suspended."
+                : "This workspace is out of funds.";
           }
           if (blockMessage) {
             this.postAgentErrorMessage(chatId, aiModel.profile, blockMessage, "usage_limit");
