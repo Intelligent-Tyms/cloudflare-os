@@ -14,8 +14,8 @@ import { deploymentOutputForBlueprint, listFormatOffers, readAdminConfig } from 
 // Re-export the optional-feature Durable Objects + entrypoints so they can be bound in wrangler.
 export { PendingLogin, LoginConnectCallbackImpl };
 export { UsageCollectorDurableObject } from "./usage-collector.js";
-import { usageCollector } from "./usage-collector.js";
-import { hasBillingDirectory, requestUpgrade } from "./billing-directory.js";
+import { billingGate, usageCollector } from "./usage-collector.js";
+import { hasBillingDirectory } from "./billing-directory.js";
 import { GatekeeperUiFrame } from "@gadgets/workshop-shared/gatekeeper";
 import { LanguageModelGatekeeper } from "./ai-models";
 import { getAiGatewayConfig } from "./ai-gateway.js";
@@ -727,35 +727,9 @@ class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
     if (!hasBillingDirectory(this.env)) return null;
     let state = await usageCollector(this.ctx).getBillingState().catch(() => null);
     if (!state) return null;
-    let isFreePlan = state.freeDailyLlmCalls != null;
-    return {
-      planCode: state.planCode,
-      isFreePlan,
-      freeDailyLlmCalls: state.freeDailyLlmCalls,
-      aiBalanceMicroUsd: isFreePlan ? null : state.aiBalanceMicroUsd,
-      aiMonthlyGrantMicroUsd: isFreePlan ? null : state.aiMonthlyGrantMicroUsd,
-      periodEnd: isFreePlan ? null : state.periodEnd,
-      trialEndsAt: state.trialEndsAt,
-      cardExpiresBeforeNextCharge: state.cardExpiresBeforeNextCharge,
-      hasCard: state.hasCard,
-    };
-  }
-
-  async requestPlanUpgrade(): Promise<{ notified: boolean }> {
-    if (!hasBillingDirectory(this.env)) {
-      throw new Error("This deployment has no central billing configured.");
-    }
-    let requestedBy = this.#userId.name ?? "A teammate";
-    let allowed =
-        await usageCollector(this.ctx).claimUpgradeRequestSlot(UPGRADE_REQUEST_COOLDOWN_MS);
-    if (!allowed) return { notified: false };
-    await requestUpgrade(this.env, { requestedBy });
-    return { notified: true };
+    return billingGate(state);
   }
 }
-
-// One admin notification per workspace per window, shared by all requesters.
-const UPGRADE_REQUEST_COOLDOWN_MS = 4 * 60 * 60 * 1000;
 
 async function serveBlueprintScreenshot(env: Env, blueprintId: string): Promise<Response> {
   let object = await env.BLUEPRINT_CONTENT.get(`${BLUEPRINT_SCREENSHOT_R2_PREFIX}${blueprintId}`);

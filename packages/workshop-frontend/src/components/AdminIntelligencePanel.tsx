@@ -9,7 +9,6 @@ import {
   IntelligenceProductOverview,
   INTELLIGENCE_PRODUCT_NAMES,
 } from '@gadgets/workshop-shared/api'
-import { credits } from './billing/billingFormat'
 
 // Admin → <product> intelligence: the page where an admin manages one Tyms Intelligence
 // product. Every plan may use the products, so there is no gate: the first visit sets the
@@ -232,9 +231,6 @@ export default function AdminIntelligencePanel({ admin, kind }: { admin: RpcStub
     )
   }
 
-  const used = Math.max(0, overview.credits.monthlyGrantMicroUsd + overview.credits.topupMicroUsd
-      - overview.credits.balanceMicroUsd)
-
   return (
     <div className="space-y-6">
       <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6 space-y-5">
@@ -304,16 +300,6 @@ export default function AdminIntelligencePanel({ admin, kind }: { admin: RpcStub
                 </>
               )}
               {product.connector === 'off' && <span className="text-kumo-subtle">Not connected</span>}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-kumo-subtle">Intelligence credits</dt>
-            <dd className="mt-1 text-kumo-default">
-              {credits(used)} used of {credits(overview.credits.monthlyGrantMicroUsd)} this period
-              {overview.credits.topupMicroUsd > 0 && (
-                <span className="text-kumo-subtle"> (+{credits(overview.credits.topupMicroUsd)} top-up)</span>
-              )}
-              <span className="text-kumo-subtle">. One pool, shared by every Intelligence product.</span>
             </dd>
           </div>
           {copy.note && (
@@ -407,7 +393,7 @@ export function AdminIntelligenceComingSoon({ kind }: { kind: 'market' | 'proces
           <p className="text-sm text-kumo-subtle mt-0.5">{COMING_SOON_COPY[kind]}</p>
           <p className="text-sm text-kumo-subtle mt-3">
             Not available yet. It will be set up from this page, the same way as Organization
-            and Data, and draw on the same Intelligence credit pool.
+            and Data.
           </p>
         </div>
       </div>

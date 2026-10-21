@@ -1,7 +1,9 @@
 import { useNavigate } from '@tanstack/react-router'
 import { DropdownMenu } from '@cloudflare/kumo'
-import { Bot, ChevronsUpDown, LogOut, MessageSquare, Plug, ShieldCheck, SunMoon, User } from 'lucide-react'
+import { Bot, ChevronsUpDown, CreditCard, LogOut, MessageSquare, Plug, ShieldCheck, SunMoon, User } from 'lucide-react'
 import { useAuthenticatedApi } from '../AuthContext'
+import { useServerConfig } from '../ServerConfigContext'
+import { billingLink } from '../portalLinks'
 import { useAvatar } from '../useAvatar'
 import { useMyChannels } from '../useMyChannels'
 import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER, MENU_POSITIONER_STYLE } from './menuStyles'
@@ -23,11 +25,13 @@ function ItemContent({ icon, children }: { icon: React.ReactNode; children: Reac
 // Profile row pinned at the bottom of the sidebar: avatar, name, and email with a disclosure
 // chevron (the Slack/Notion account-switcher pattern). The dropdown is the single home for
 // account-level destinations — Profile, Integrations, Theme, Admin — each of which is a
-// full page rather than inline controls. When the sidebar is collapsed the row shrinks to just
-// the avatar.
+// full page rather than inline controls. Admins also get Billing, which leaves for
+// billing.tyms.ai: billing is managed there, never in Jamaa. When the sidebar is collapsed
+// the row shrinks to just the avatar.
 export default function UserMenu({ collapsed = false }: { collapsed?: boolean }) {
   const { authenticatedApi, logout, currentUser, isAdmin } = useAuthenticatedApi()
   const navigate = useNavigate()
+  const serverConfig = useServerConfig()
   // Non-null only on deployments with a channels worker, so most workspaces never see the entry.
   const myChannels = useMyChannels()
 
@@ -120,6 +124,14 @@ export default function UserMenu({ collapsed = false }: { collapsed?: boolean })
             className={MENU_ITEM}
           >
             <ItemContent icon={<ShieldCheck />}>Admin</ItemContent>
+          </DropdownMenu.Item>
+        )}
+        {isAdmin && (
+          <DropdownMenu.Item
+            onClick={() => window.open(billingLink(serverConfig), '_blank', 'noopener,noreferrer')}
+            className={MENU_ITEM}
+          >
+            <ItemContent icon={<CreditCard />}>Billing</ItemContent>
           </DropdownMenu.Item>
         )}
         <DropdownMenu.Separator />

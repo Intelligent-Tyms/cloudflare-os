@@ -4,7 +4,7 @@
 //
 // Two modes, decided by the `models` prop (AdminSettingsView.models):
 // - Platform AI Gateway mode (models != null): the platform holds the provider keys and usage
-//   draws on plan credits, so the panel is pure curation -- a toggle per catalog model, no key
+//   is billed to the organization's balance, so the panel is pure curation -- a toggle per catalog model, no key
 //   entry anywhere. Mirrors the skills panel's opt-out pattern.
 // - BYOK mode (models == null, self-hosted deployments): the original provider management --
 //   add models with your own API tokens, pick a quick model, delete.
@@ -156,11 +156,6 @@ function CuratedModelRow({
           <span className="truncate text-sm font-medium tracking-[-0.25px] text-kumo-default">
             {model.missing ? model.id : model.name}
           </span>
-          {model.freePlan && (
-            <span className="shrink-0 rounded-full bg-kumo-tint px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.4px] text-kumo-subtle">
-              free plan
-            </span>
-          )}
           {model.missing && (
             <span className="inline-flex shrink-0 items-center gap-1 text-[12px] font-medium text-kumo-warning">
               <TriangleAlert size={13} />
@@ -236,8 +231,8 @@ function ModelCurationList({
       <Notice>
         <Zap size={15} className="mt-px shrink-0 text-kumo-brand" />
         <span>
-          Models run on platform keys and usage draws on your plan&rsquo;s AI credits. No API
-          tokens needed. New models we add appear here automatically, enabled.
+          Models run on platform keys and usage is billed to your organization&rsquo;s balance. No
+          API tokens needed. New models we add appear here automatically, enabled.
         </span>
       </Notice>
 

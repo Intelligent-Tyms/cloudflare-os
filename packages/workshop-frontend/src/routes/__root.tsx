@@ -12,7 +12,6 @@ import Header from '../components/Header'
 import AppShell from '../components/AppShell/AppShell'
 import LoginPage from '../LoginPage'
 import OnboardingWizard from '../OnboardingWizard'
-import AccountSelectionModal from '../components/billing/AccountSelectionModal'
 import DiscussRoot from '../components/team-chat/DiscussRoot'
 import { AssistantProfileProvider } from '../AssistantProfileContext'
 
@@ -171,7 +170,6 @@ function AuthenticatedShell({
   const fullscreen = isWorkspaceEditor
   return (
     <AssistantProfileProvider authenticatedApi={authenticatedApi}>
-      <AccountSelectionModal />
       <DiscussRoot>
         {fullscreen ? (
           <main className="h-full min-h-0">

@@ -32,6 +32,27 @@ export type CentralEntitlements = {
   // gateway's default alias (free-tier key pool). Absent on snapshots cached before the field
   // existed, so consumers must treat undefined as null.
   aiKeyAlias?: string | null;
+  /**
+   * The organisation's billing account on usage billing (one USD balance, managed on
+   * billing.tyms.ai); absent for tenants still on a plan and on older snapshots.
+   */
+  account?: CentralAccount;
+};
+
+/** Mirrors the control plane's AccountView: the slice products read to stop and to link. */
+export type CentralAccount = {
+  /** prepay | postpay */
+  mode: string;
+  /** active | suspended */
+  status: string;
+  /** The prepaid balance (0 on postpay). */
+  balanceMicroUsd: number;
+  /** Whether metered work may run: an active account with funds, or postpay. */
+  canRun: boolean;
+  /** The workspace's page on billing.tyms.ai. */
+  billingUrl: string;
+  /** Under this prepaid balance the account counts as running low. */
+  lowBalanceMicroUsd: number;
 };
 
 export type CentralCreditBucket = {
@@ -87,13 +108,4 @@ export async function reportUsage(env: Cloudflare.Env, events: UsageEventReport[
   entitlements: CentralEntitlements | null;
 }> {
   return await call(env, "/usage", {events});
-}
-
-/**
- * Ask the control plane to email the workspace's owner and admins that a teammate wants a
- * plan upgrade. The caller throttles; this just fires the notification.
- */
-export async function requestUpgrade(
-    env: Cloudflare.Env, opts: {requestedBy: string}): Promise<void> {
-  await call(env, "/billing/upgrade-request", opts);
 }

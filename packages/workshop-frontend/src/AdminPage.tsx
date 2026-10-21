@@ -8,7 +8,6 @@ import {
   BookOpenCheck,
   Bot,
   Building2,
-  CreditCard,
   Database,
   FileText,
   Hexagon,
@@ -70,9 +69,9 @@ export type AdminSectionId =
   | 'market-intelligence'
   | 'process-intelligence'
 
-// Cards for what is managed on the central portals (admin.tyms.ai, billing.tyms.ai) rather
+// Cards for what is managed on the admin portal (admin.tyms.ai) rather
 // than here. They open the portal page for this workspace and have no detail page of their own.
-type PortalSectionId = 'teammates' | 'billing' | 'assistant-settings' | 'intelligence-products' | 'channels-portal'
+type PortalSectionId = 'teammates' | 'assistant-settings' | 'intelligence-products' | 'channels-portal'
 
 type AdminSection = {
   id: AdminSectionId | PortalSectionId
@@ -124,14 +123,6 @@ const ADMIN_GROUPS: { label: string; sections: AdminSection[] }[] = [
         description: '',
         icon: <Users size={18} />,
         portal: { portal: 'admin', path: '/teammates' },
-      },
-      {
-        id: 'billing',
-        title: 'Plans & billing',
-        blurb: 'Your plan, credits, invoices, and payment details. Opens the billing portal.',
-        description: '',
-        icon: <CreditCard size={18} />,
-        portal: { portal: 'billing', path: '' },
       },
       {
         id: 'brand',
@@ -310,7 +301,7 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
   const { authenticatedApi, isAdmin } = useAuthenticatedApi()
   const toasts = useKumoToastManager()
   // Intelligence lives in the central directory; the hub hides its cards when central login
-  // isn't configured. Teammates and billing are on the portals; their cards need the links.
+  // isn't configured. Teammates are on the admin portal; their card needs the link.
   const serverConfig = useServerConfig()
   const centralLoginUrl = serverConfig?.centralLoginUrl
   const managed = Boolean(serverConfig?.settingsManagedCentrally)
@@ -1018,8 +1009,8 @@ export default function AdminPage({ section }: { section?: AdminSectionId }) {
           <h2 className="text-lg font-semibold text-kumo-strong mb-1">Top-bar notice</h2>
           <p className="text-sm text-kumo-subtle mb-5">
             Shown centered in the top navigation bar. Markdown is supported, so you can include
-            links. Keep it short — it renders on a single line. On the free plan, an upgrade
-            notice shows here until you set your own. Applies on each user&rsquo;s next connection.
+            links. Keep it short — it renders on a single line. Applies on each user&rsquo;s next
+            connection.
           </p>
 
           <Textarea

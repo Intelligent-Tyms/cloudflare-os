@@ -171,7 +171,7 @@ export default function AdminChannelDetailPage({ channel }: { channel: ChannelId
             {channels?.voice?.configured && (
               <InfoCard title="Voice replies on">
                 Teammates can send the bot voice notes and it answers with a spoken reply.
-                Voice messages use messaging credits; long or code-heavy answers still
+                Voice messages are billed as messaging usage; long or code-heavy answers still
                 arrive as text.
               </InfoCard>
             )}
