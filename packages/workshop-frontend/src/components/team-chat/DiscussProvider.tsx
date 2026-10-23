@@ -15,7 +15,7 @@ import {
   useChatContext,
   useCreateChatClient,
 } from 'stream-chat-react'
-import { ArrowLeft, ChevronDown, ChevronUp, Info, Maximize2, SquarePen } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Info, Maximize2, MessageCircle, SquarePen, X } from 'lucide-react'
 import 'stream-chat-react/dist/css/index.css'
 import './team-chat.css'
 import { PersonAvatar } from '../PersonAvatar'
@@ -29,14 +29,14 @@ import {
 
 // Discuss: human-to-human messaging between the members of this deployment. This component
 // owns the Stream client and everything that must run on every page — notifications, the
-// tab-title badge, sounds — and renders the dock (a bar docked bottom-right, the way LinkedIn
-// docks "Messaging") on every page except /discuss, which shows the same conversations full
-// size. It is rendered as a sibling of the app (never around it) and publishes its context
+// tab-title badge, sounds — and renders the dock (a round launcher bottom-right that opens a
+// floating panel, the way Intercom does) on every page except /discuss, which shows the same
+// conversations full size. Closed, the dock is only the launcher, so it never covers a page's
+// own controls the way a full-width bar did. It is rendered as a sibling of the app (never around it) and publishes its context
 // value through `onValue`, so the rest of the app never remounts because of it. Everything
 // chat-shaped (presence, unread counts, typing, receipts, reactions, attachments, threads,
 // @mentions) comes from Stream; this is the Tyms-styled shell around it.
 
-const EXPANDED_KEY = 'tyms.discuss.expanded'
 const PREFS_KEY = 'tyms.discuss.prefs'
 
 type View = 'list' | 'channel' | 'new'
@@ -95,7 +95,8 @@ function DiscussController({
   onValue: (value: DiscussContextValue | null) => void
 }) {
   const { client, channel, setActiveChannel } = useChatContext()
-  const [expanded, setExpandedState] = useState<boolean>(() => readStored(EXPANDED_KEY) === '1')
+  // Always starts closed: an open panel floats over the page, so it is never restored on load.
+  const [expanded, setExpandedState] = useState(false)
   const [view, setView] = useState<View>('list')
   const [prefs, setPrefsState] = useState<DiscussPrefs>(readPrefs)
   const [request, setRequest] = useState<DiscussRequest | null>(null)
@@ -131,7 +132,6 @@ function DiscussController({
   const setExpanded = useCallback((next: boolean) => {
     if (next) void requestNotificationPermission()
     setExpandedState(next)
-    writeStored(EXPANDED_KEY, next ? '1' : '0')
   }, [])
   const setPrefs = useCallback((patch: Partial<DiscussPrefs>) => {
     setPrefsState((prev) => {
@@ -228,6 +228,7 @@ function DiscussDock({
   const tick = useLiveTick()
   const [details, setDetails] = useState(false)
   const navigate = useNavigate()
+  const launcherRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => { setDetails(false) }, [channel])
 
@@ -236,7 +237,7 @@ function DiscussDock({
     if (event.key !== 'Escape') return
     event.stopPropagation()
     if (details) setDetails(false)
-    else if (view === 'list') setExpanded(false)
+    else if (view === 'list') { setExpanded(false); launcherRef.current?.focus() }
     else backToList()
   }
 
@@ -249,70 +250,56 @@ function DiscussDock({
 
   return (
     <div
-      className="team-chat fixed z-40 right-0 sm:right-6 w-full sm:w-[22rem]"
-      style={{ bottom: 'var(--app-bottom, 0px)' }}
+      className="team-chat fixed z-40 right-4 sm:right-6 flex flex-col items-end gap-3 pointer-events-none"
+      style={{ bottom: 'calc(var(--app-bottom, 0px) + 1rem)' }}
       onKeyDown={onKeyDown}
     >
-      <div className="team-chat-dock flex flex-col rounded-t-xl border border-b-0 border-kumo-line bg-kumo-base shadow-[0_-4px_24px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_24px_rgba(0,0,0,0.5)] overflow-hidden">
-        <div className={`flex items-center h-11 pr-1.5 gap-1 shrink-0 select-none ${conversation ? 'pl-1.5' : 'pl-3'}`}>
-          {conversation && channel ? (
-            <>
-              <IconButton label="Back to conversations" onClick={backToList}><ArrowLeft size={16} /></IconButton>
-              <button
-                type="button"
-                onClick={() => setExpanded(false)}
-                aria-label="Collapse Discuss"
-                className="flex-1 min-w-0 flex items-center gap-2.5 h-full text-left"
-              >
-                <ConversationAvatar info={conversation} api={api} size={28} />
-                <ConversationTitle info={conversation} />
-              </button>
-              <AskTymsMenu channel={channel} discuss={discuss} title={conversation.title} />
-              <IconButton label={details ? 'Hide details' : 'Details'} onClick={() => setDetails((d) => !d)} className={details ? 'bg-kumo-tint text-kumo-default' : ''}>
-                <Info size={16} />
-              </IconButton>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setExpanded(!expanded)}
-              aria-expanded={expanded}
-              aria-label={expanded ? 'Collapse Discuss' : 'Expand Discuss'}
-              className="flex-1 min-w-0 flex items-center gap-2.5 h-full text-left"
-            >
-              <span className="relative shrink-0">
-                <PersonAvatar api={api} userId={selfUserId} name={session.name} size={28} />
-                <span
-                  title={discuss.prefs.dnd ? 'Notifications paused' : 'Online'}
-                  className={`absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-kumo-base ${discuss.prefs.dnd ? 'bg-kumo-danger' : 'bg-kumo-success'}`}
-                />
-              </span>
-              <span className="text-sm font-semibold text-kumo-default truncate">{title}</span>
-              {!expanded && unread > 0 && <UnreadPill count={unread} />}
-            </button>
-          )}
-          {expanded && !conversation && (
-            <>
-              <PrefsMenu discuss={discuss} />
-              {view !== 'new' && (
-                <IconButton label="New message" onClick={() => { backToList(); setView('new') }}>
-                  <SquarePen size={16} />
+      {expanded && (
+        <div className="team-chat-dock pointer-events-auto flex flex-col w-[calc(100vw-2rem)] sm:w-[22rem] rounded-xl border border-kumo-line bg-kumo-base shadow-xl overflow-hidden">
+          <div className={`flex items-center h-11 pr-1.5 gap-1 shrink-0 select-none ${conversation ? 'pl-1.5' : 'pl-3'}`}>
+            {conversation && channel ? (
+              <>
+                <IconButton label="Back to conversations" onClick={backToList}><ArrowLeft size={16} /></IconButton>
+                <div className="flex-1 min-w-0 flex items-center gap-2.5 h-full">
+                  <ConversationAvatar info={conversation} api={api} size={28} />
+                  <ConversationTitle info={conversation} />
+                </div>
+                <AskTymsMenu channel={channel} discuss={discuss} title={conversation.title} />
+                <IconButton label={details ? 'Hide details' : 'Details'} onClick={() => setDetails((d) => !d)} className={details ? 'bg-kumo-tint text-kumo-default' : ''}>
+                  <Info size={16} />
                 </IconButton>
-              )}
-            </>
-          )}
-          {expanded && (
+              </>
+            ) : (
+              <div className="flex-1 min-w-0 flex items-center gap-2.5 h-full">
+                <span className="relative shrink-0">
+                  <PersonAvatar api={api} userId={selfUserId} name={session.name} size={28} />
+                  <span
+                    title={discuss.prefs.dnd ? 'Notifications paused' : 'Online'}
+                    className={`absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-kumo-base ${discuss.prefs.dnd ? 'bg-kumo-danger' : 'bg-kumo-success'}`}
+                  />
+                </span>
+                <span className="text-sm font-semibold text-kumo-default truncate">{title}</span>
+              </div>
+            )}
+            {!conversation && (
+              <>
+                <PrefsMenu discuss={discuss} />
+                {view !== 'new' && (
+                  <IconButton label="New message" onClick={() => { backToList(); setView('new') }}>
+                    <SquarePen size={16} />
+                  </IconButton>
+                )}
+              </>
+            )}
             <IconButton label="Open Discuss in full" onClick={() => { setExpanded(false); void navigate({ to: '/discuss' }) }}>
               <Maximize2 size={15} />
             </IconButton>
-          )}
-          <IconButton label={expanded ? 'Collapse' : 'Expand'} onClick={() => setExpanded(!expanded)}>
-            {expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
-          </IconButton>
-        </div>
+            <IconButton label="Minimize" onClick={() => setExpanded(false)}>
+              <ChevronDown size={18} />
+            </IconButton>
+          </div>
 
-        {expanded && (
-          <div className="team-chat-panel flex flex-col border-t border-kumo-line h-[min(30rem,calc(var(--app-height,100vh)-7rem))]">
+          <div className="team-chat-panel flex flex-col border-t border-kumo-line h-[min(30rem,calc(var(--app-height,100vh)-10rem))]">
             {view === 'list' && <ConversationList discuss={discuss} tick={tick} onNew={() => setView('new')} />}
             {view === 'channel' && channel && (
               <Channel channel={channel}>
@@ -337,8 +324,25 @@ function DiscussDock({
               <NewConversation discuss={discuss} showBack onBack={() => setView('list')} onCreated={openInDock} />
             )}
           </div>
+        </div>
+      )}
+
+      <button
+        ref={launcherRef}
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
+        aria-label={expanded ? 'Close Discuss' : unread > 0 ? `Open Discuss, ${unread} unread` : 'Open Discuss'}
+        title="Discuss"
+        className="pointer-events-auto relative w-12 h-12 rounded-full inline-flex items-center justify-center bg-kumo-brand hover:bg-kumo-brand-hover text-kumo-inverse shadow-lg transition-transform active:scale-95"
+      >
+        {expanded ? <X size={20} /> : <MessageCircle size={22} />}
+        {!expanded && unread > 0 && (
+          <span className="absolute -top-1 -right-1 ring-2 ring-kumo-base rounded-full">
+            <UnreadPill count={unread} />
+          </span>
         )}
-      </div>
+      </button>
     </div>
   )
 }
