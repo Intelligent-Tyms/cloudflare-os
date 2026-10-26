@@ -1,0 +1,68 @@
+// Generated from cloudflare.config.ts by scripts/generate-worker-configs.ts -- do not edit.
+// Change cloudflare.config.ts and run `pnpm configs:generate`.
+{
+  "name": "jamaa-tenant",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-04",
+  "compatibility_flags": [
+    "allow_irrevocable_stub_storage",
+    "global_fetch_strictly_public",
+    "nodejs_compat"
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "invocation_logs": false
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.5
+    }
+  },
+  "browser": {
+    "binding": "BROWSER"
+  },
+  "ai": {
+    "binding": "WORKERS_AI"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "BLUEPRINTS"
+    },
+    {
+      "binding": "AVATARS"
+    },
+    {
+      "binding": "CONTEXT_COLLECTIONS"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BLUEPRINT_CONTENT",
+      "bucket_name": "jamaa-tenant-blueprint-content"
+    }
+  ],
+  "worker_loaders": [
+    {
+      "binding": "LOADER"
+    }
+  ],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "UserDurableObject",
+        "OverseerDurableObject",
+        "AdminSettings",
+        "PendingLogin",
+        "UsageCollectorDurableObject",
+        "UserDirectoryDurableObject",
+        "ContextCollectionDurableObject",
+        "UserLibraryDurableObject",
+        "LibraryRegistryDurableObject",
+        "ContextGatekeeper"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "@gadgets/jamaa-tenant",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tenant": "./src/tenant.ts"
+  },
+  "scripts": {
+    "dev": "echo \"jamaa-tenant has no dev server; run 'pnpm dev-server' in the root directory\" >&2 && exit 1",
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "test:run": "vitest run && vitest run -c vitest.node.config.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "catalog:",
+    "@gadgets/gatekeeper-context": "workspace:*",
+    "@gadgets/scripts": "workspace:*",
+    "@gadgets/workshop-backend": "workspace:*",
+    "@types/node": "26.1.0",
+    "esbuild": "^0.28.2",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  }
+}
