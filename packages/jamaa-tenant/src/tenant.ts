@@ -8,6 +8,8 @@
 // `tenantClass` gives every exported class an env with those bindings filled in, and the default
 // handler does the router's job, calling each part's own fetch handler directly.
 
+import { prefixedKv } from "./prefixed-kv.js";
+
 /**
  * A class the runtime constructs with `(ctx, env)`: a Durable Object or a WorkerEntrypoint. A
  * TypeScript mixin base must take `any[]`.
@@ -53,13 +55,28 @@ export const TENANT_LOOPBACKS: readonly Loopback[] = [
 ];
 
 /**
- * `env` with every loopback in TENANT_LOOPBACKS this script can serve. A binding already present
- * wins, so a test (or a deployment that still binds a separate worker) can override one.
+ * The KV bindings a Workers for Platforms tenant shares with the fleet. With `KV_PREFIX` set (the
+ * uploader sets `t/<slug>/`) each is narrowed to that tenant's keys; unset, as on a stack, they are
+ * the tenant's own namespaces and pass through.
+ */
+export const SHARED_KV_BINDINGS: readonly string[] = ["BLUEPRINTS", "AVATARS", "CONTEXT_COLLECTIONS"];
+
+/**
+ * `env` with every loopback in TENANT_LOOPBACKS this script can serve, and its shared KV narrowed
+ * to the tenant. A loopback binding already present wins, so a test (or a deployment that still
+ * binds a separate worker) can override one.
  */
 export function withTenantEnv<E extends object>(env: E, exports: object): E {
   let vars = env as Record<string, unknown>;
   let entrypoints = exports as Record<string, unknown>;
   let added: Record<string, unknown> = {};
+  let prefix = vars.KV_PREFIX;
+  if (typeof prefix === "string" && prefix) {
+    for (let binding of SHARED_KV_BINDINGS) {
+      let kv = vars[binding];
+      if (kv) added[binding] = prefixedKv(kv as KVNamespace, prefix);
+    }
+  }
   for (let loopback of TENANT_LOOPBACKS) {
     if (loopback.binding in env) continue;
     let entrypoint = entrypoints[loopback.entrypoint];
@@ -100,6 +117,8 @@ export interface TenantEnv {
   ASSETS?: Fetcher;
   /** Release id reported by the readiness route. */
   RELEASE_ID?: string;
+  /** This tenant's key prefix in the shared KV namespaces (see SHARED_KV_BINDINGS). */
+  KV_PREFIX?: string;
 }
 
 /** Readiness route, polled by provisioning through the dispatch Worker. */
