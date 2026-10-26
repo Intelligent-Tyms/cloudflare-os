@@ -330,10 +330,17 @@ export const DEFAULT_CRED_INPUTS: DeployInput[] = [
 
 const GATEKEEPER_PREFIX = "gatekeeper-";
 
+// Tyms fork: Workers that have a wrangler.jsonc but are not released by this pipeline.
+// jamaa-tenant merges router, workshop-backend and gatekeeper-context into one script for a
+// Workers for Platforms namespace; tyms-os builds and uploads it, and it is none of the kinds
+// `workerKind` knows.
+const NOT_RELEASED = new Set(["jamaa-tenant"]);
+
 /** Read every deployable package and its Wrangler configuration, sorted by package name. */
 export function readDeployablePackages(packagesDir: string): DeployablePackage[] {
   return readdirSync(packagesDir)
       .filter((name) => {
+    if (NOT_RELEASED.has(name)) return false;
     try {
       return statSync(join(packagesDir, name, "wrangler.jsonc")).isFile();
     } catch {
