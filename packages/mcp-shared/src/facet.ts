@@ -18,7 +18,7 @@ import {
   scopedCatalog,
   type ScopedCatalog,
 } from "./catalog.js";
-import type { McpClient, McpToolCallResult } from "./client.js";
+import { McpCallNotDispatchedError, type McpClient, type McpToolCallResult } from "./client.js";
 import {
   withClient,
   type ConnectionAccount,
@@ -468,9 +468,9 @@ export abstract class McpFacetBase<
     }
   }
 
-  /** Stages an MCP action for approval. */
-  stageAction(toolName: string, args: Record<string, unknown>): StoredAction {
-    return this.#actions().stage(toolName, args);
+  /** Stages an MCP action for approval, with the person it is queued for when known. */
+  stageAction(toolName: string, args: Record<string, unknown>, actor?: string): StoredAction {
+    return this.#actions().stage(toolName, args, actor);
   }
 
   /** Discards an action whose approval submission failed. */
@@ -485,8 +485,30 @@ export abstract class McpFacetBase<
 
   /** Applies an approved action without retrying an outcome-unknown write. */
   async applyAction(action: number): Promise<void> {
+    const stored = this.#actions().get(action);
+    // Options are resolved inside the call, so failing to obtain them (the person is no longer
+    // allowed, say) fails the action as a call that was never sent: retryable, with the reason.
     await this.#actions().apply(
-      action, fn => this.call(fn, { retryOnExpiry: false }), this.log);
+      action,
+      async fn => {
+        let options: WithClientOptions;
+        try {
+          options = stored ? await this.actionCallOptions(stored) : {};
+        } catch (err) {
+          throw new McpCallNotDispatchedError(err instanceof Error ? err.message : String(err), err);
+        }
+        return this.call(fn, { ...options, retryOnExpiry: false });
+      },
+      this.log);
+  }
+
+  /**
+   * What an approved action's call carries beyond the account's credentials, derived from the
+   * stored action (e.g. the person it was queued for). The default carries nothing; a connector
+   * whose server takes a per-person credential overrides it, as it does `sessionContext`.
+   */
+  protected async actionCallOptions(_action: StoredAction): Promise<WithClientOptions> {
+    return {};
   }
 
   /** Rejects a pending action. */

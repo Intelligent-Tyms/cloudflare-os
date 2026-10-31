@@ -23,6 +23,7 @@ import {
   type GatekeeperVendor as GatekeeperVendorIface,
   type ResourceConfiguratorFrame,
   type ResourceDescription,
+  type SessionContext,
   type SupportedResource,
   type VendorDescription,
   type VendorSetup,
@@ -40,8 +41,13 @@ import { generateSessionTypes, sessionTypeName } from "@gadgets/mcp-shared/schem
 import { McpAccountBase, type ConnectedServer, type ConnectOutcome }
   from "@gadgets/mcp-shared/account";
 import { generateNonce } from "@gadgets/mcp-shared/connect-nonce";
-import { fetchTools, withClient, type ConnectionAccount } from "@gadgets/mcp-shared/connection";
-import { McpSessionBase } from "@gadgets/mcp-shared/session";
+import {
+  fetchTools,
+  withClient,
+  type ConnectionAccount,
+  type WithClientOptions,
+} from "@gadgets/mcp-shared/connection";
+import { McpSessionBase, type McpSessionContext, type StoredAction } from "@gadgets/mcp-shared/session";
 import { McpFacetBase } from "@gadgets/mcp-shared/facet";
 import {
   McpVerifierBase,
@@ -104,6 +110,12 @@ import {
   validateServerName,
   type TenantServer,
 } from "./tenant-servers.js";
+import {
+  appDiscoveryToken,
+  appPersonToken,
+  lastKnownTymsApps,
+  loadTymsApps,
+} from "./tyms-apps.js";
 import type { ConfiguratorUIOption } from "@gadgets/configurator-ui";
 import { MCP_BASE_TYPES } from "@gadgets/mcp-shared/base-types";
 import MCP_LOGO_SVG from "./mcp-logo.svg";
@@ -589,6 +601,8 @@ export class McpAccount extends McpAccountBase<Env> {
     const entry = companyServers(await tenantCatalog(this.env, this.ctx.exports, company.tenant))
       .find((candidate) => candidate.id === company.serverId);
     if (!entry || !sameEndpoint(entry.endpoint, server.endpoint)) return null;
+    // A Tyms app's shared account lists tools and nothing more; calls carry the person's token.
+    if (entry.app) return appDiscoveryToken(this.env, company.tenant, entry.app);
     if (entry.auth !== "token") return null;
     return (await loadCompanyKeys(this.ctx.exports, company.tenant))[keyInputName(entry.id)] ?? null;
   }
@@ -653,7 +667,7 @@ const SETUP_VALUE_MAX_LENGTH = 2048;
 /** One secret input per catalog company server that authenticates with a key. */
 export function companyKeyInputs(catalog: CatalogServer[]): VendorSetupInput[] {
   return companyServers(catalog)
-    .filter((server) => server.auth === "token")
+    .filter((server) => server.auth === "token" && server.app === undefined)
     .map((server) => ({
       name: keyInputName(server.id),
       kind: "secret" as const,
@@ -701,20 +715,27 @@ async function loadTenantServers(
   return servers;
 }
 
-/** The catalog one tenant sees: the central one plus the servers its administrator added. */
+/**
+ * The catalog one tenant sees: the central one, the servers its administrator added, and the Tyms
+ * apps it has switched on (tyms-apps.ts).
+ */
 async function tenantCatalog(
   env: Env, exports: SetupStoreExports, tenant: string, options?: { fresh?: boolean },
 ): Promise<CatalogServer[]> {
-  const [central, servers] = await Promise.all([
+  const [central, servers, apps] = await Promise.all([
     ensureCatalog(env), loadTenantServers(exports, tenant, options),
+    loadTymsApps(env, tenant, options),
   ]);
-  return mergeCatalog(central, servers);
+  return [...mergeCatalog(central, servers), ...apps];
 }
 
 // The same, from whatever this isolate last loaded, for the one sync reader (a facet's `sharing`
 // getter). A cold isolate sees no tenant servers and so answers conservatively.
 function lastKnownTenantCatalog(tenant: string): CatalogServer[] {
-  return mergeCatalog(catalogServers(), tenantServerCache.get(tenant)?.servers ?? []);
+  return [
+    ...mergeCatalog(catalogServers(), tenantServerCache.get(tenant)?.servers ?? []),
+    ...lastKnownTymsApps(tenant),
+  ];
 }
 
 async function loadCompanyKeys(
@@ -727,7 +748,7 @@ async function loadCompanyKeys(
   return values;
 }
 
-/** The company servers this tenant can use now: key entered, or no key needed. */
+/** The company servers this tenant can use now: key entered, no key needed, or a Tyms app. */
 async function usableCompanyServers(
   env: Env, exports: SetupStoreExports, tenant: string, catalog: CatalogServer[],
   options?: { fresh?: boolean },
@@ -735,7 +756,8 @@ async function usableCompanyServers(
   const servers = companyServers(catalog);
   if (servers.length === 0) return [];
   const keys = await loadCompanyKeys(exports, tenant, options);
-  return servers.filter((server) => server.auth !== "token" || keys[keyInputName(server.id)]);
+  return servers.filter((server) =>
+    server.app !== undefined || server.auth !== "token" || keys[keyInputName(server.id)]);
 }
 
 /**
@@ -877,6 +899,7 @@ export class CompanyAccountImpl
       scope,
       company: true,
       tenant: this.#tenant,
+      ...(entry.app ? { app: entry.app } : {}),
     };
     return {
       class: this.ctx.exports.McpGatekeeperImpl({ props }),
@@ -1120,6 +1143,9 @@ type McpGatekeeperImplProps = {
   // servers this tenant added for itself. Absent on a binding made before tenants could add
   // servers, which can only be to a central catalog entry.
   tenant?: string;
+  // Set for a Tyms app (tyms-apps.ts): first-party, so vetted, and every call runs on a token for
+  // the person the agent acts for rather than the shared account's.
+  app?: string;
 };
 
 
@@ -1162,7 +1188,36 @@ export class McpGatekeeperImpl
    * call; the tool-catalog cache is keyed on the tier and refetches when it flips.
    */
   protected get trust(): ServerTrust {
+    if (this.ctx.props.app) return "vetted";
     return trustFor(this.env, this.ctx.props.endpoint);
+  }
+
+  /**
+   * A Tyms app is called as the person the agent acts for: their token on every call this session
+   * makes, and their email on every call it queues, so an approval applied later runs as them too.
+   * With no person (a hook, a scheduled run) the session has only the shared account's discovery
+   * token, which the app refuses for anything but listing tools.
+   */
+  protected override async sessionContext(
+    context?: SessionContext,
+  ): Promise<McpSessionContext | undefined> {
+    const { app, tenant } = this.ctx.props;
+    const email = context?.actor?.email;
+    if (!app || tenant === undefined || !email) return undefined;
+    return {
+      callOptions: { authorization: await appPersonToken(this.env, tenant, app, email) },
+      actor: email,
+    };
+  }
+
+  /** An approved call to a Tyms app runs as the person who queued it, with a token minted now. */
+  protected override async actionCallOptions(action: StoredAction): Promise<WithClientOptions> {
+    const { app, tenant } = this.ctx.props;
+    if (!app || tenant === undefined) return {};
+    if (!action.actor) {
+      throw new Error(`${this.ctx.props.serverName} acts only for a person, and this call was queued without one.`);
+    }
+    return { authorization: await appPersonToken(this.env, tenant, app, action.actor) };
   }
 
   /**
@@ -1236,7 +1291,7 @@ export class McpGatekeeperImpl
       serverName: this.ctx.props.serverName,
       endpoint: this.ctx.props.endpoint,
       discriminator: this.resourceUrl,
-      trust: trustFor(this.env, this.ctx.props.endpoint),
+      trust: this.trust,
       tools: await this.tools(),
     });
   }

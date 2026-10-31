@@ -179,3 +179,79 @@ it("derives the session context once per session from what the Workshop passed",
     undefined,
   ]);
 });
+
+it("sends a per-operation bearer in place of the account's, and the account's otherwise", async () => {
+  const seen: (string | null)[] = [];
+  vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+    seen.push(new Headers(init.headers).get("Authorization"));
+    return okResult(JSON.parse(String(init.body)).id);
+  });
+
+  await withClient({}, account, "https://acme.tasks.tyms.ai/mcp",
+    client => client.callTool("create_card", {}), { authorization: "person-token" });
+  await withClient({}, account, "https://acme.tasks.tyms.ai/mcp",
+    client => client.callTool("create_card", {}));
+
+  expect(seen).toEqual(["Bearer person-token", "Bearer assistant-key"]);
+});
+
+it("records the session's person on every call it queues for approval", async () => {
+  const entry = classifyTool({ name: "create_card", annotations: { readOnlyHint: false } }, "vetted");
+  const staged: (string | undefined)[] = [];
+  const host = {
+    serverName: "Tasks",
+    endpoint: "https://acme.tasks.tyms.ai/mcp",
+    scope: {},
+    findTool: async () => entry,
+    actionKindFor: () => "test:create_card",
+    stageAction: (_name: string, _args: unknown, actor?: string) => {
+      staged.push(actor);
+      return { id: staged.length, toolName: "create_card", args: {}, state: "pending", submittedAt: 0 };
+    },
+  } as unknown as McpSessionHost;
+  const queue = { async submitAction() {} } as never;
+
+  await new McpSessionBase(host, queue, { actor: "ann@acme.test" }).callTool("create_card", {});
+  await new McpSessionBase(host, queue).callTool("create_card", {});
+
+  expect(staged).toEqual(["ann@acme.test", undefined]);
+});
+
+// A facet whose server takes a per-person credential: an approved call carries options derived
+// from the action it applies, resolved when it is applied.
+class PerPersonFacet extends ActorFacet {
+  static applied: (WithClientOptions | undefined)[] = [];
+  override call<T>(fn: (client: McpClient) => Promise<T>, options?: WithClientOptions): Promise<T> {
+    PerPersonFacet.applied.push(options);
+    return fn({ callTool: async () => ({ content: [] }) } as unknown as McpClient);
+  }
+  protected override async actionCallOptions(action: { actor?: string }): Promise<WithClientOptions> {
+    if (!action.actor) throw new Error("queued for nobody");
+    return { authorization: `token-for-${action.actor}` };
+  }
+}
+
+it("applies an approved call with the options its action calls for, and fails it when there are none", async () => {
+  const db = new (await import("node:sqlite")).DatabaseSync(":memory:");
+  const sql = {
+    exec(query: string, ...bindings: never[]) {
+      const rows = bindings.length > 0 || /^\s*(?:SELECT|INSERT.*RETURNING)/is.test(query)
+        ? db.prepare(query).all(...bindings) : (db.exec(query), []);
+      return { toArray: () => rows, one: () => rows[0] };
+    },
+  };
+  const subject = new PerPersonFacet({
+    props: { endpoint: "https://acme.tasks.tyms.ai/mcp", scope: {} },
+    storage: { kv: {}, sql },
+  } as never, {});
+  PerPersonFacet.applied = [];
+
+  const forAnn = subject.stageAction("create_card", {}, "ann@acme.test");
+  await subject.applyAction(forAnn.id);
+  expect(PerPersonFacet.applied).toEqual([{ authorization: "token-for-ann@acme.test", retryOnExpiry: false }]);
+
+  const forNobody = subject.stageAction("create_card", {});
+  await expect(subject.applyAction(forNobody.id)).rejects.toThrow("queued for nobody");
+  // Nothing was sent, so it may be tried again once a person can be named.
+  expect(subject.lookupAction(forNobody.id)).toMatchObject({ state: "failed", retryable: true, error: "queued for nobody" });
+});

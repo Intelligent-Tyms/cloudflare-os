@@ -36,6 +36,12 @@ export type WithClientOptions = {
    * is acting for, where the server verifies such a header itself.
    */
   headers?: Record<string, string>;
+  /**
+   * A bearer for this operation in place of the account's own, for a server that takes a
+   * credential per person rather than per account (a Tyms app reached as the person an agent acts
+   * for). Origin-bound like the account's.
+   */
+  authorization?: string;
   /** Replaces the platform `fetch` for this operation (see `FetchOptions.fetchImpl`). */
   fetchImpl?: typeof fetch;
 };
@@ -107,7 +113,8 @@ export async function withClient<T>(
   } catch (err) {
     throw notDispatched(err);
   }
-  const { authorization, sessionId, generation } = connection;
+  const { sessionId, generation } = connection;
+  const authorization = options.authorization ?? connection.authorization;
   const client = new McpClient(
     endpoint, async method => {
       if (method === "tools/call") {

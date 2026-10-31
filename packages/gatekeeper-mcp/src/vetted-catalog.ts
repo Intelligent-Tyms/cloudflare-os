@@ -62,6 +62,13 @@ export type CatalogServer = {
    * catalog lists (see tenant-servers.ts). Only ever an `organization` server.
    */
   custom?: boolean;
+  /**
+   * Set on a Tyms app (tyms-apps.ts): reached with tokens the control plane mints, never a key an
+   * administrator enters. The app's id (`tasks`).
+   */
+  app?: string;
+  /** An app's glyph, for its connector card. */
+  icon?: string;
 };
 
 type CatalogEnv = { MCP_CATALOG_URL?: string };
@@ -246,7 +253,9 @@ export function companySharingIn(catalog: CatalogServer[], endpoint: string): Mc
 // deliberately never the `https://*` catch-all, which the Workshop treats as the
 // whole-instance fallback (that stays the bring-your-own entry's job).
 export function catalogResource(server: CatalogServer): SupportedResource {
-  const description = server.description ||
+  const description = server.app
+    ? `${server.name}, built into Jamaa. Jamaa uses it as you, with nothing to set up.`
+    : server.description ||
     (server.credential === "organization"
       ? `Tools from ${server.name}, set up for the whole company.`
       : `Tools from ${server.name}, vetted by your organization.`);
@@ -265,6 +274,7 @@ export function catalogResource(server: CatalogServer): SupportedResource {
       tagline: server.description || undefined,
       description,
       url: new URL(server.endpoint).origin,
+      ...(server.icon ? { logo: { url: server.icon } } : {}),
       credentialScope: server.credential,
       ...setupInputNamesFor(server),
     },
@@ -274,7 +284,7 @@ export function catalogResource(server: CatalogServer): SupportedResource {
 // The setup inputs a server's own connector card owns: a company server's key, and for a server
 // the tenant added, the entry that lists it (removing which removes the server).
 function setupInputNamesFor(server: CatalogServer): { setupInputNames?: string[] } {
-  if (server.credential !== "organization") return {};
+  if (server.credential !== "organization" || server.app) return {};
   const names = [
     ...(server.custom ? [serverInputName(server.id)] : []),
     ...(server.auth === "token" ? [keyInputName(server.id)] : []),

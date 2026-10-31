@@ -6,6 +6,8 @@ declare namespace Cloudflare {
     MCP_ALLOW_INSECURE?: string;
     MCP_CLIENT_NAME?: string;
     MCP_CATALOG_URL?: string;
+    /** The control plane's JamaaAppsEntrypoint: Tyms apps built into Jamaa (tyms-apps.ts). */
+    TYMS_APPS?: import("./tyms-apps.js").TymsAppsService;
   }
 
   interface GlobalProps {
