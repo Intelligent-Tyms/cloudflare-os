@@ -163,6 +163,14 @@ describe("the person's account and app workspace", () => {
     const crm = await ann.ensureAppWorkspace("crm", "Crm");
     expect(crm).not.toBe(tasks);
     expect(await ann.getGadget(tasks!)).toMatchObject({ id: tasks, title: "Tasks" });
-    expect(await ann.ensureHomeWorkspace()).not.toBe(tasks);
+    const home = await ann.ensureHomeWorkspace();
+    expect(home).not.toBe(tasks);
+    // A workspace is listed once it has been opened (the Overseer reports it active).
+    for (const id of [tasks!, crm!, home!]) await ann.setGadgetLastActive(id, new Date(), undefined);
+    const listed = await ann.listGadgets();
+    expect(listed).toHaveLength(3);
+    expect(listed.find(g => g.id === tasks)?.app).toEqual({ id: "tasks", name: "Tasks" });
+    expect(listed.find(g => g.id === crm)?.app).toEqual({ id: "crm", name: "Crm" });
+    expect(listed.filter(g => !g.app)).toHaveLength(1); // the home workspace, unmarked
   });
 });

@@ -26,6 +26,7 @@ import { buildGatekeeperVendorMap } from "./auth/auth-vendors.js";
 import { validateAssistantProfile } from "./assistant-profile.js";
 import { CONNECT_FLOW_LIFETIME_MS, handoffTargetOrigin, hashPresentedSecret, hashSecret, newSecretToken, PENDING_HANDOFF_LIFETIME_MS } from "./connect-handoff.js";
 import { deliver, registerDevice } from "./notification-service.js";
+import { appWorkspaceTitle } from "./embedded.js";
 import {
   DEVICE_HANDOFF_LIFETIME_MS, isDeviceHandoffState, sealDeviceSessionHandoff,
   type DeviceSessionCredential, type DeviceSessionHandoff,
@@ -944,10 +945,13 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   }
 
   async listGadgets(): Promise<GadgetMetadataWithTimestamps[]> {
+    let appByWorkspace = new Map<string, string>();
+    for (let [app, id] of Object.entries(this.storage.appWorkspaceIds.get())) appByWorkspace.set(id, app);
     let result: GadgetMetadataWithTimestamps[] = [];
     for (let gadget of this.storage.gadgets.list()) {
       if (isFullyCreated(gadget)) {
-        result.push(gadget);
+        let app = appByWorkspace.get(gadget.id);
+        result.push(app ? { ...gadget, app: { id: app, name: appWorkspaceTitle(app) } } : gadget);
       }
     }
     return result;
