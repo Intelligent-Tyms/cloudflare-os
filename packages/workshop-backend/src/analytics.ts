@@ -119,7 +119,7 @@ export type ProductAnalyticsInput =
   | {
       event_name: "user_authenticated";
       user_id: string;
-      source: "password" | "cf_access" | "gatekeeper" | "session_token" | "central_handoff";
+      source: "password" | "cf_access" | "gatekeeper" | "session_token" | "central_handoff" | "embed";
     }
   | {
       event_name: "blueprint_imported";
