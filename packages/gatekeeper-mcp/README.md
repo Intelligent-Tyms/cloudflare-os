@@ -1,5 +1,6 @@
 | `MCP_ALLOW_INSECURE` | `"true"` to disable the endpoint checks entirely: permits `http://` **and** private, loopback, link-local, and cloud-metadata hosts, on the endpoint and on every OAuth URL discovered from it. Local dev only. |
 | `MCP_CATALOG_URL` | Optional URL of a curated catalog of vetted MCP servers (JSON `{ servers: [{ id, name, description, endpoint, vetted, sharing }] }`). Listed servers appear as one-click connect choices, and vetted entries earn the `vetted` trust tier: their own read-only/idempotent annotations may drive auto-approval. `sharing` (`owner-only`, `same-account`, `public`) says who besides the owner may open a Gadget bound to the server; see "Approvals and sharing". Absent means pure bring-your-own. |
+| `TYMS_APPS` | Optional service binding to the Tyms control plane's `JamaaAppsEntrypoint`. With it, every Tyms app a tenant has switched on is a connector here with nothing to set up; see "Tyms apps". |
 
 Per-server configuration is the catalog: listing an endpoint there is a review assertion (see
 `src/vetted-catalog.ts`). Everything else stays bring-your-own — users supply endpoints, and an
@@ -108,6 +109,25 @@ Adding a server is an administrator's job; a member only signs in.
 - **An administrator may still connect a server personally** with the bring-your-own form, for
   a server that needs their own sign-in or to try one out. That connection is theirs alone and a
   workspace bound to it is owner-only.
+
+### Tyms apps
+
+A Tyms app (Tasks, …) a tenant has switched on is built into Jamaa (`src/tyms-apps.ts`; tyms-docs
+`specs/jamaa-in-apps-spec.md`). The control plane lists the tenant's open apps over `TYMS_APPS`
+and each becomes a company server in the tenant's catalog (`app-<app>`), reached through the
+provisioned account like any company server, with these differences:
+
+- **No key.** The shared per-tenant account holds a *discovery token*, which lets it connect and
+  list the app's tools and nothing else.
+- **Every call runs as the person.** A session started by a person's agent turn carries an
+  access token for that person (`sessionContext`), and records them on every call it queues, so
+  an approval applied later runs as them too, with a token minted then (`actionCallOptions`).
+  The control plane admits the person exactly as their own sign-in to the app would, and their
+  role caps what the token can do. A session with no person (a hook, a scheduled run) has only the
+  discovery token, which the app refuses for anything but listing.
+- **Vetted.** The app is first-party, so its annotations drive approval.
+- **Owner-only sharing.** Apps have things only some people see (a private board), so a
+  workspace bound to an app opens for its owner alone.
 
 For local development no credentials are needed. Set `MCP_ALLOW_INSECURE=true` in the repo-root
 `.dev.vars` to connect a server running on localhost.

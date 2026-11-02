@@ -6,8 +6,7 @@ import { McpProtocolError, McpSessionExpiredError } from "../src/client.js";
 
 type TestSql = ConstructorParameters<typeof ActionStore>[0];
 
-function fakeSql(): TestSql {
-  const db = new DatabaseSync(":memory:");
+function fakeSql(db = new DatabaseSync(":memory:")): TestSql {
   return {
     exec<T>(query: string, ...bindings: SQLInputValue[]) {
       const rows = bindings.length > 0
@@ -30,6 +29,31 @@ const log = { debug() {}, info() {}, warn() {}, error() {}, with() { return log;
 const ok = async () => ({ content: [{ type: "text" as const, text: "done" }] });
 
 describe("ActionStore", () => {
+  it("records who a call was queued for, and reads back none for a call queued without one", () => {
+    const store = new ActionStore(fakeSql());
+    const forAnn = store.stage("create_card", { title: "x" }, "ann@acme.test");
+    const forNobody = store.stage("create_card", { title: "y" });
+    expect(forAnn.actor).toBe("ann@acme.test");
+    expect(store.get(forAnn.id)?.actor).toBe("ann@acme.test");
+    expect(forNobody).not.toHaveProperty("actor");
+    expect(store.get(forNobody.id)?.actor).toBeUndefined();
+  });
+
+  it("adds the actor column to a table made before calls recorded it, keeping its rows", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec(`CREATE TABLE mcp_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, tool_name TEXT NOT NULL, args_json TEXT NOT NULL,
+      state TEXT NOT NULL, submitted_at INTEGER NOT NULL, claimed_at INTEGER, retryable INTEGER,
+      result_json TEXT, error TEXT) STRICT`);
+    db.exec(`INSERT INTO mcp_actions (tool_name, args_json, state, submitted_at) VALUES ('old', '{}', 'pending', 1)`);
+    const store = new ActionStore(fakeSql(db));
+    expect(store.get(1)).toMatchObject({ toolName: "old", state: "pending" });
+    expect(store.get(1)?.actor).toBeUndefined();
+    expect(store.stage("new", {}, "bob@acme.test").actor).toBe("bob@acme.test");
+    // A second activation finds the column already there.
+    expect(() => new ActionStore(fakeSql(db))).not.toThrow();
+  });
+
   it("keeps a decided action available until the Gadget collects it", async () => {
     const store = new ActionStore(fakeSql());
     const staged = store.stage("send", { to: "a@b.c" });

@@ -22,6 +22,7 @@ type ActionRow = {
   retryable: number | null;
   result_json: string | null;
   error: string | null;
+  actor: string | null;
 };
 
 function fromRow(row: ActionRow): StoredAction {
@@ -37,6 +38,7 @@ function fromRow(row: ActionRow): StoredAction {
       ? JSON.parse(row.result_json) as StoredAction["result"]
       : undefined,
     error: row.error ?? undefined,
+    actor: row.actor ?? undefined,
   };
 }
 
@@ -60,8 +62,16 @@ export class ActionStore {
       claimed_at INTEGER,
       retryable INTEGER CHECK (retryable IS NULL OR retryable IN (0, 1)),
       result_json TEXT CHECK (result_json IS NULL OR json_valid(result_json)),
-      error TEXT
+      error TEXT,
+      actor TEXT
     ) STRICT`);
+    // Tables made before calls recorded who queued them gain the column; their rows read as
+    // queued by nobody in particular, which is what they were.
+    const columns = sql.exec<{ name: string }>(
+      "SELECT name FROM pragma_table_info('mcp_actions')").toArray();
+    if (!columns.some(column => column.name === "actor")) {
+      sql.exec("ALTER TABLE mcp_actions ADD COLUMN actor TEXT");
+    }
     // A fresh store means a fresh Durable Object activation. Any persisted claim belonged to an
     // interrupted prior activation and must never be replayed because the write may have landed.
     sql.exec(
@@ -91,7 +101,7 @@ export class ActionStore {
     );
   }
 
-  stage(toolName: string, args: Record<string, unknown>): StoredAction {
+  stage(toolName: string, args: Record<string, unknown>, actor?: string): StoredAction {
     let argsJson: string;
     let storedArgs: Record<string, unknown>;
     try {
@@ -116,11 +126,13 @@ export class ActionStore {
 
     const submittedAt = Date.now();
     const { id } = this.#sql.exec<{ id: number }>(
-      `INSERT INTO mcp_actions (tool_name, args_json, state, submitted_at)
-       VALUES (?, ?, 'pending', ?) RETURNING id`,
-      toolName, argsJson, submittedAt,
+      `INSERT INTO mcp_actions (tool_name, args_json, state, submitted_at, actor)
+       VALUES (?, ?, 'pending', ?, ?) RETURNING id`,
+      toolName, argsJson, submittedAt, actor ?? null,
     ).one();
-    return { id, toolName, args: storedArgs, state: "pending", submittedAt };
+    return {
+      id, toolName, args: storedArgs, state: "pending", submittedAt, ...(actor ? { actor } : {}),
+    };
   }
 
   discard(id: number): void {

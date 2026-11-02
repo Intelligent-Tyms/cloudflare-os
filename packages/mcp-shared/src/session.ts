@@ -59,6 +59,12 @@ export type StoredAction = {
   result?: Extract<McpCallResult, { status: "ok" }>;
   /** Terminal failure reason retained for later collection. */
   error?: string;
+  /**
+   * The person the agent that queued this call was acting for, when its session knew (see
+   * `McpSessionContext.actor`), so a host whose server takes a per-person credential can apply it
+   * as them after the session is gone.
+   */
+  actor?: string;
 };
 
 /**
@@ -86,7 +92,7 @@ export interface McpSessionHost {
   /** The approval-kind tag for one tool, namespaced so pre-approvals cannot cross servers. */
   actionKindFor(toolName: string): ActionKind;
 
-  stageAction(toolName: string, args: Record<string, unknown>): StoredAction;
+  stageAction(toolName: string, args: Record<string, unknown>, actor?: string): StoredAction;
   discardStagedAction(id: number): void;
   lookupAction(id: number): StoredAction | undefined;
 
@@ -105,6 +111,8 @@ export interface McpSessionHost {
 export type McpSessionContext = {
   /** Per-call options merged into every `host.call` this session makes. */
   callOptions?: WithClientOptions;
+  /** The person the session acts for, recorded with every call it queues for approval. */
+  actor?: string;
 };
 
 function requireToolName(method: string, name: unknown): asserts name is string {
@@ -233,7 +241,7 @@ export class McpSessionBase extends RpcTarget {
       return toCallResult(result);
     }
 
-    const staged = host.stageAction(name, toolArgs);
+    const staged = host.stageAction(name, toolArgs, this.#context?.actor);
     const description: ActionDescription = {
       title,
       description: text,
