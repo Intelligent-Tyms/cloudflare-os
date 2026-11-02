@@ -999,6 +999,32 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   }
 
   /**
+   * Where the first-party app `app` is reached from this user's accounts: the provisioned account
+   * that lists the app as a connector of its own (`app-<app>`, as the MCP connector lists
+   * each Tyms app the company has on), and the app's resource URL. Null when no account offers it.
+   * See Overseer.ensureAppResource.
+   */
+  async findAppResource(app: string): Promise<{accountId: number, resourceUrl: string} | null> {
+    await this.#ensureAutoProvisionedAccounts();
+    let connectorId = `app-${app}`;
+    for (let rec of this.#connectedAccountRecords()) {
+      if (!rec.autoProvisioned) continue;
+      let resources: SupportedResource[];
+      try {
+        resources = await rec.account.getSupportedResources();
+      } catch (err) {
+        logger.warn("failed to list a vendor's resources for an app", {
+          event: "app.resource.lookup.failed", vendorId: rec.vendorId, reason: app, error: err,
+        });
+        continue;
+      }
+      let resource = resources.find(r => r.connector?.id === connectorId);
+      if (resource) return {accountId: rec.id, resourceUrl: resource.urlPattern};
+    }
+    return null;
+  }
+
+  /**
    * The user's workspace for a first-party app (see PublicApi.openEmbedded), created on first use
    * under `title`, and again if it was deleted. As ordinary as the home workspace: one pointer here
    * is the whole concept. Null for an email with no account.

@@ -2798,6 +2798,15 @@ export interface Overseer extends RpcTarget {
   newGatekeeper(accountId: number, resourceUrl: string): Promise<GatekeeperClient<any> | null>;
 
   /**
+   * Owner only. Makes the first-party app `app` (e.g. "tasks") part of every chat in this
+   * workspace, through the owner's provisioned account for it, connecting it on first call and
+   * again if it was removed. Used for the person's workspace for that app (PublicApi.openEmbedded),
+   * so the assistant there can use the app with nothing to connect. Returns false when the owner
+   * has no account that offers the app (e.g. the app is not on for the company).
+   */
+  ensureAppResource(app: string): Promise<boolean>;
+
+  /**
    * Create a new gatekeeper for an AI model binding. The model can be any returned by
    * `AuthenticatedApi.listModels()`. A language model's gatekeeper provides a
    * `LanguageModelBinding`, a decision model's a `DecisionModelBinding`.
