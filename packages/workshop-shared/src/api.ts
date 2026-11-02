@@ -2571,7 +2571,7 @@ export type AgentSpawnerConfig = {
 export interface EmbeddedAssistant extends RpcTarget, Pick<Overseer,
     "listChats" | "getChatHistory" | "subscribeToChat" | "stopAgent" |
     "listActions" | "subscribeToActions" | "approveAction" | "rejectAction"> {
-  /** The workspace this view is of, for linking to it in the full Workshop (`/w/<id>`). */
+  /** The workspace this view is of, for linking to it in the full Workshop (`/workspace/<id>`, or `/workspace/<id>?chat=<chatId>` for one chat). */
   getWorkspaceId(): Promise<string>;
 
   /**
