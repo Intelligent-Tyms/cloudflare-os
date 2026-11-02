@@ -13,6 +13,7 @@ import { MENU_CONTENT, MENU_ITEM, MENU_ITEM_DANGER } from './menuStyles'
 import { BlueprintPreviewImage } from './BlueprintPreviewImage'
 import DeleteConfirmationDialog from './DeleteConfirmationDialog'
 import { isImeComposing } from '../keyboardEvent'
+import AppBadge from './AppBadge'
 
 // Neutral monogram for a workspace — matches the sidebar treatment (no per-item color noise).
 function initials(title: string | undefined): string {
@@ -115,10 +116,16 @@ function AppRow({
               {gadget.title || 'Untitled Workspace'}
             </h3>
           )}
+          {gadget.app && <AppBadge name={gadget.app.name} />}
           {muteDescription && (
             <BellOff size={12} role="img" aria-label={muteDescription} className="text-kumo-inactive flex-shrink-0" />
           )}
         </div>
+        {gadget.app && !gadget.owner && (
+          <p className="text-xs text-kumo-subtle truncate mt-0.5">
+            Conversations from {gadget.app.name}
+          </p>
+        )}
         {gadget.owner && (
           <p className="text-xs text-kumo-subtle truncate mt-0.5">
             Shared by {gadget.owner.name}

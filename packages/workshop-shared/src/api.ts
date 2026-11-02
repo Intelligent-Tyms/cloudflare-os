@@ -2164,6 +2164,12 @@ export type GadgetMetadata = {
 export type GadgetMetadataWithTimestamps = GadgetMetadata & {
   created: Date;
   lastActive: Date;
+
+  /**
+   * Set when this is the user's workspace for a first-party app (see PublicApi.openEmbedded): the
+   * app's id and its name as people read it, for marking it in the list.
+   */
+  app?: { id: string; name: string };
 }
 
 /**

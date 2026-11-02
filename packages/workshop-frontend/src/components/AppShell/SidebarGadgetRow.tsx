@@ -7,6 +7,7 @@ import type { GadgetMetadataWithTimestamps, NotificationMute } from '@gadgets/wo
 import { WorkspaceNotificationsMenu } from '../../features/notifications/WorkspaceNotificationsMenu'
 import { describeMute } from '../../features/notifications/notificationMute'
 import { isImeComposing } from '../../keyboardEvent'
+import AppBadge from '../AppBadge'
 
 function initials(title: string | undefined): string {
   const t = (title || 'Untitled').trim()
@@ -95,6 +96,7 @@ export default function SidebarGadgetRow({
           ) : (
             <span className="min-w-0 flex-1 truncate">{gadget.title || 'Untitled workspace'}</span>
           )}
+          {gadget.app && <AppBadge name={gadget.app.name} />}
           {muteDescription && (
             <BellOff size={12} role="img" aria-label={muteDescription} className="shrink-0 text-kumo-inactive" />
           )}
