@@ -267,6 +267,11 @@ export function makeUserStorage(storage: DurableObjectStorage) {
       // own chat thread instead of minting a workspace per conversation.
       homeWorkspaceId: <string | null>null,
 
+      // The user's workspace for each first-party app that embeds the assistant (app id ->
+      // workspace id; see PublicApi.openEmbedded). Ordinary workspaces, created on first use,
+      // so an app's panel reaches that workspace's chats and actions and nothing else.
+      appWorkspaceIds: <Record<string, string>>{},
+
       // How far that catch-up has got: the last workspace id examined. The sweep runs a page at a
       // time and resumes here on the next visit.
       outputsBackfillCursor: "",

@@ -1,7 +1,7 @@
 import { RpcStub, RpcTarget, newHttpBatchRpcResponse, newWebSocketRpcSession, RpcSessionOptions } from "capnweb";
 import { validateRpc } from "capnweb-validate";
 import type { JWTPayload } from "jose";
-import { PublicApi, AuthenticatedApi, Overseer, GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiGatewayInfo, AiModelProvider, ModelKind, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, ObserverConfigCallback, BlueprintLibrarySummary, BlueprintPublicInfo, BlueprintUserSummary, BlueprintBindingAssignment, AgentSpawnerConfig, WorkpieceId, BLUEPRINT_SCREENSHOT_PATH_PREFIX, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ServerConfig, CloudflareUsageInfo, CloudflareAccountOption, LoginAttempt, GatekeeperAppInfo, GatekeeperVendorInfo, OutputFormatOffer, ListOutputsResult, UserDirectoryRecord, createOpenGadgetError, getOpenGadgetErrorCode, OPEN_GADGET_ERROR_CODES, AUTH_ERROR_CODES, createAuthError, ConnectFlowStart, NotificationSubscriber, NotificationMute, AssistantProfile, BillingGateInfo, UserChannelsView, TelegramLinkCode, TeamChatSession, TeamChatTeammate, TeamChatChannelChanges } from '@gadgets/workshop-shared/api';
+import { PublicApi, AuthenticatedApi, Overseer, EmbeddedAssistant, GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiGatewayInfo, AiModelProvider, ModelKind, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, ObserverConfigCallback, BlueprintLibrarySummary, BlueprintPublicInfo, BlueprintUserSummary, BlueprintBindingAssignment, AgentSpawnerConfig, WorkpieceId, BLUEPRINT_SCREENSHOT_PATH_PREFIX, BLUEPRINT_SCREENSHOT_R2_PREFIX, blueprintScreenshotUrl, ServerConfig, CloudflareUsageInfo, CloudflareAccountOption, LoginAttempt, GatekeeperAppInfo, GatekeeperVendorInfo, OutputFormatOffer, ListOutputsResult, UserDirectoryRecord, createOpenGadgetError, getOpenGadgetErrorCode, OPEN_GADGET_ERROR_CODES, AUTH_ERROR_CODES, createAuthError, ConnectFlowStart, NotificationSubscriber, NotificationMute, AssistantProfile, BillingGateInfo, UserChannelsView, TelegramLinkCode, TeamChatSession, TeamChatTeammate, TeamChatChannelChanges } from '@gadgets/workshop-shared/api';
 import type { UiFeatureFlags } from "@gadgets/workshop-shared/feature-flags";
 import { getServerConfig } from "./deployment-config.js";
 import { isPasswordAuthEnabled, getAuthGatekeeperAllowlist, hasCentralLogin } from "./auth/config.js";
@@ -29,6 +29,7 @@ import { UserDirectoryDurableObject } from "./user-directory.js";
 import { ExternalMessageGateway } from "./external-message-gateway";
 import { RpcStub as NativeRpcStub } from "cloudflare:workers";
 import { recordAnalytics } from "./analytics";
+import { EmbeddedAssistantImpl, appWorkspaceTitle, embedOrigin, verifyEmbedToken } from "./embedded.js";
 import { handleClientErrorRequest } from "./client-errors.js";
 import { verifyCfAccessJwt } from "./access.js";
 import { importSPKI, jwtVerify } from "jose";
@@ -814,7 +815,9 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
 
   constructor(private ctx: ExecutionContext, private env: Env,
       private abortSession: (reason: Error) => void,
-      private accessSession?: { payload: JWTPayload; jwt: string }) {
+      private accessSession?: { payload: JWTPayload; jwt: string },
+      // The connecting page's Origin, which openEmbedded() checks against the app's host.
+      private origin?: string) {
     super();
     this.users = this.ctx.exports.UserDurableObject;
   }
@@ -929,6 +932,41 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
       source: "central_handoff",
     });
     return `${email}:${secret}`;
+  }
+
+  // The assistant inside a first-party app (see embedded.ts): verify the central embed token and the
+  // connecting page's origin, redeem the token once (creating the account like a handoff sign-in),
+  // and open the person's workspace for that app, narrowed to EmbeddedAssistant.
+  async openEmbedded(token: string): Promise<EmbeddedAssistant | null> {
+    if (!hasCentralLogin(this.env)) {
+      throw new Error("Central login is not enabled on this deployment.");
+    }
+    let claims = await verifyEmbedToken(this.env, token);
+    if (!claims) throw new Error("Invalid embed token.");
+    let origin = embedOrigin(this.env, claims.app);
+    if (!origin) throw new Error("This deployment does not open its assistant inside apps.");
+    if (this.origin !== origin) throw new Error("The assistant may not be opened from this page.");
+
+    let userId = this.users.idFromName(claims.email);
+    let user = this.users.get(userId);
+    let signupsEnabled = (await readAdminConfig(this.env)).signupsEnabled;
+    if (!(await user.redeemEmbedToken(
+        claims.email, signupsEnabled, claims.jti, claims.expiresAt, claims.role))) {
+      return null;
+    }
+    let workspaceId = await user.ensureAppWorkspace(claims.app, appWorkspaceTitle(claims.app));
+    if (!workspaceId) return null;
+
+    recordAnalytics(this.ctx, this.env, {
+      event_name: "user_authenticated",
+      user_id: userId.toString(),
+      source: "embed",
+    });
+    let api = new AuthenticatedApiImpl(this.ctx, this.env, userId, this.abortSession);
+    // @ts-expect-error Cap'n Web RPC stubs and native RPC stubs are compatible but the type
+    //     system doesn't know this.
+    let overseer: NativeRpcStub<Overseer> = await api.openGadget(workspaceId);
+    return new EmbeddedAssistantImpl(overseer, workspaceId, claims.app);
   }
 
   async authenticateFromCfAccess(): Promise<AuthenticatedApi> {
@@ -1192,7 +1230,8 @@ export default {
       };
 
       return await newWorkersRpcResponse(req,
-          new PublicApiImpl(ctx, env, abortSession, accessSession),
+          new PublicApiImpl(ctx, env, abortSession, accessSession,
+              req.headers.get("Origin") ?? undefined),
           { abortSignal: abortController.signal });
     }
 

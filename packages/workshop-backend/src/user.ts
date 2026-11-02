@@ -439,20 +439,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
    * returns null instead of creating one — existing users can still sign in.
    */
   async loginOrCreateViaGatekeeper(email: string, allowCreate: boolean): Promise<string | null> {
-    if (!this.storage.created.get()) {
-      if (!allowCreate) return null;
-      this.storage.created.put(true);
-      this.storage.profile.put({
-        type: "user",
-        name: email.split("@")[0],
-        id: email,
-      });
-      recordAnalytics(this.ctx, this.env, {
-        event_name: "account_created",
-        user_id: this.ctx.id.toString(),
-        source: "gatekeeper",
-      });
-    }
+    if (!this.#ensureAccount(email, allowCreate)) return null;
     recordAnalytics(this.ctx, this.env, {
       event_name: "user_authenticated",
       user_id: this.ctx.id.toString(),
@@ -471,6 +458,31 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   // next time the user signs in.
   async loginOrCreateViaHandoff(email: string, allowCreate: boolean, jti: string,
       expiresAt: number, role: string | null = null): Promise<string | null> {
+    this.#consumeHandoffJti(jti, expiresAt);
+
+    let token = await this.loginOrCreateViaGatekeeper(email, allowCreate);
+    // Only after a successful sign-in: a refused login (signups closed) must not write state.
+    if (token !== null) this.storage.centralRole.put(role);
+    return token;
+  }
+
+  /**
+   * Redeem a central embed token (see PublicApi.openEmbedded): single-use like a handoff, sharing
+   * its jti record, and creating the account like a handoff sign-in would, but minting no session.
+   * The caller has verified the signature, audience, purpose and origin. Returns false when the
+   * account does not exist and may not be created (signups closed).
+   */
+  async redeemEmbedToken(email: string, allowCreate: boolean, jti: string, expiresAt: number,
+      role: string | null): Promise<boolean> {
+    this.#consumeHandoffJti(jti, expiresAt);
+    if (!this.#ensureAccount(email, allowCreate)) return false;
+    this.storage.centralRole.put(role);
+    return true;
+  }
+
+  // Records a central token's jti, refusing one already seen (the DO is single-threaded, so
+  // check-and-record is atomic). Expired entries are pruned on the way.
+  #consumeHandoffJti(jti: string, expiresAt: number): void {
     let now = Date.now();
     let live: Record<string, number> = {};
     for (let [id, exp] of Object.entries(this.storage.usedHandoffJtis.get())) {
@@ -481,11 +493,25 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     }
     live[jti] = expiresAt;
     this.storage.usedHandoffJtis.put(live);
+  }
 
-    let token = await this.loginOrCreateViaGatekeeper(email, allowCreate);
-    // Only after a successful sign-in: a refused login (signups closed) must not write state.
-    if (token !== null) this.storage.centralRole.put(role);
-    return token;
+  // Creates the email-keyed account if it does not exist and creation is allowed. Returns whether
+  // the account exists afterwards.
+  #ensureAccount(email: string, allowCreate: boolean): boolean {
+    if (this.storage.created.get()) return true;
+    if (!allowCreate) return false;
+    this.storage.created.put(true);
+    this.storage.profile.put({
+      type: "user",
+      name: email.split("@")[0],
+      id: email,
+    });
+    recordAnalytics(this.ctx, this.env, {
+      event_name: "account_created",
+      user_id: this.ctx.id.toString(),
+      source: "gatekeeper",
+    });
+    return true;
   }
 
   // The central role recorded at the last handoff sign-in, or null when none was asserted.
@@ -965,6 +991,22 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     let id = this.ctx.exports.OverseerDurableObject.newUniqueId().toString();
     await this.newGadget(id, HOME_WORKSPACE_TITLE);
     this.storage.homeWorkspaceId.put(id);
+    return id;
+  }
+
+  /**
+   * The user's workspace for a first-party app (see PublicApi.openEmbedded), created on first use
+   * under `title`, and again if it was deleted. As ordinary as the home workspace: one pointer here
+   * is the whole concept. Null for an email with no account.
+   */
+  async ensureAppWorkspace(app: string, title: string): Promise<string | null> {
+    if (!this.storage.created.get()) return null;
+    let ids = this.storage.appWorkspaceIds.get();
+    let existing = ids[app];
+    if (existing && this.storage.gadgets.get(existing)) return existing;
+    let id = this.ctx.exports.OverseerDurableObject.newUniqueId().toString();
+    await this.newGadget(id, title);
+    this.storage.appWorkspaceIds.put({ ...ids, [app]: id });
     return id;
   }
 

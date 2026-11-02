@@ -102,6 +102,11 @@ declare global {
       HANDOFF_PUBLIC_KEY?: string;
       HANDOFF_AUDIENCE?: string;
 
+      // The assistant inside first-party apps (PublicApi.openEmbedded; see embedded.ts): the
+      // origin an app's panel connects from, with `{tenant}` for HANDOFF_AUDIENCE and `{app}` for
+      // the embed token's app, e.g. "https://{tenant}.{app}.tyms.ai". Unset = no embedding.
+      EMBED_ORIGIN_PATTERN?: string;
+
       // Central team directory (multi-tenant installations with central login): base URL and
       // bearer token for the identity service's tenant-scoped API (team directory, billing,
       // actor assertions). The workshop keeps no member list of its own. Both unset = none.
