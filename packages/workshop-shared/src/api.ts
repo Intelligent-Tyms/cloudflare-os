@@ -117,6 +117,19 @@ export interface PublicApi extends RpcTarget {
   loginWithHandoffToken(token: string): Promise<string | null>;
 
   /**
+   * Open one person's assistant from inside a first-party app (an app's own "Ask" panel, drawn by
+   * the app, talking to this backend). `token` is a central embed token: signed with the handoff
+   * key, `purpose: "embed"`, naming the person (`sub`), their central role and the app. It is
+   * redeemed once. The connection must come from that app's host for this deployment (see
+   * ServerConfig and the deployment's embed configuration); anything else is refused.
+   *
+   * What comes back reaches one workspace only: the person's workspace for that app, created on
+   * first use and listed with their others, so the app sees nothing else they have. Returns null
+   * if signups are disabled and no account exists for the person.
+   */
+  openEmbedded(token: string): Promise<EmbeddedAssistant | null>;
+
+  /**
    * Like authenticate() but the server is expected to be sitting behind Cloudflare Access, and the
    * client is expected to have already authenticated with Access (before they could load the
    * application in their browser at all). The credentials from the Cloudflare Access session will
@@ -2549,6 +2562,33 @@ export type AgentSpawnerConfig = {
  * blueprint listing. Per-gadget operations live on the GadgetClient sub-capability (see
  * createGadget()/getGadget()).
  */
+/**
+ * What a first-party app's panel may do in the person's workspace for that app (see
+ * `PublicApi.openEmbedded()`): read and follow its chats, talk to its agent, and decide its
+ * actions. A narrow view of that workspace's `Overseer`; each method behaves as the Overseer
+ * method of the same name. Nothing reaches the person's other workspaces, settings or connectors.
+ */
+export interface EmbeddedAssistant extends RpcTarget, Pick<Overseer,
+    "listChats" | "getChatHistory" | "subscribeToChat" | "stopAgent" |
+    "listActions" | "subscribeToActions" | "approveAction" | "rejectAction"> {
+  /** The workspace this view is of, for linking to it in the full Workshop (`/w/<id>`). */
+  getWorkspaceId(): Promise<string>;
+
+  /**
+   * Start a chat with the workspace's default model. `context` is what the person is looking at
+   * in the app, written by the app (e.g. "Board 'Launch' (id b1), card 'Ship it' selected."). The
+   * agent reads it as data about the app, never as instructions; it is capped at
+   * `EMBED_CONTEXT_MAX_CHARS`. Returns the new chat's id.
+   */
+  newChat(message: string, context?: string): Promise<number>;
+
+  /** Send a message to one of this workspace's chats, with the app's context as in `newChat()`. */
+  sendChatMessage(chatId: number, message: string, context?: string): Promise<void>;
+}
+
+/** The longest app context an embedded chat message carries (see `EmbeddedAssistant.newChat()`). */
+export const EMBED_CONTEXT_MAX_CHARS = 2000;
+
 export interface Overseer extends RpcTarget {
   /** Get metadata describing this workspace. */
   getMetadata(): Promise<GadgetMetadata>;
