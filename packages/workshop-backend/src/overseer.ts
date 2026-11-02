@@ -799,6 +799,12 @@ const MAX_APPLY_ACTION_MS = 60_000;
 // collaborator roles.
 type SessionKind = CollaboratorRole | "owner";
 
+// A connection every regular chat takes in: an ambient resource (e.g. the Context Library), or the
+// first-party app of the person's workspace for that app (see ensureAppResource).
+function isAlwaysAvailable(gk: GatekeeperRecord): boolean {
+  return gk.creationSpec?.type === "ambient" || gk.app !== undefined;
+}
+
 class OverseerImpl implements AgentHooks {
   public storage: OverseerStorage;
   readonly logger: ReturnType<typeof createWorkshopLogger>;
@@ -5300,6 +5306,22 @@ class OverseerImpl implements AgentHooks {
     return this.#preparingChatMessages.get(chatId);
   }
 
+  /** The workspace's connection to the first-party app `app`, if any (see ensureAppResource). */
+  findAppGatekeeper(app: string): GatekeeperRecord | undefined {
+    for (let gk of this.storage.gatekeepers.list()) {
+      if (gk.app === app) return gk;
+    }
+    return undefined;
+  }
+
+  /** Marks a connection as the workspace's app connection (see GatekeeperRecord.app). */
+  markAppGatekeeper(id: WorkpieceId, app: string): void {
+    let record = this.storage.gatekeepers.get(id);
+    if (!record) return;
+    record.app = app;
+    this.storage.gatekeepers.put(record);
+  }
+
   // `joinAs` counts the returned client toward #hasCollaboratorSession for its lifetime; passed by
   // the collaborator-facing mints, omitted for the owner's and for internal callers (see
   // GadgetClientImpl). `actorUserId` is who the returned client acts for, for analytics only.
@@ -8202,7 +8224,7 @@ class OverseerImpl implements AgentHooks {
       // determinism. A since-disconnected one stays in the list but becomes inert; ones the
       // workspace gains later are appended below.
       context.alwaysAvailableCapsuleIds = [...this.storage.gatekeepers.list()]
-          .filter(gk => gk.creationSpec?.type === "ambient")
+          .filter(isAlwaysAvailable)
           .map(gk => gk.id)
           .toSorted((a, b) => a - b);
       dirty = true;
@@ -8364,7 +8386,7 @@ class OverseerImpl implements AgentHooks {
     if (!context.spawnerConfig) {
       let known = new Set(ambientIds);
       let gained = [...this.storage.gatekeepers.list()]
-          .filter(gk => gk.creationSpec?.type === "ambient" && !known.has(gk.id))
+          .filter(gk => isAlwaysAvailable(gk) && !known.has(gk.id))
           .map(gk => gk.id)
           .toSorted((a, b) => a - b);
       for (let id of gained) {
@@ -12067,6 +12089,31 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
     return result;
   }
 
+  async ensureAppResource(app: string): Promise<boolean> {
+    if (!this.isOwner) throw new Error("Only the workspace's owner can add its app.");
+    let found = await this.#clientUser.findAppResource(app);
+    if (!found) return false;
+    let existing = this.impl.findAppGatekeeper(app);
+    if (existing?.creationSpec?.type === "gatekeeper" &&
+        existing.creationSpec.resourceUrl === found.resourceUrl) {
+      return true;
+    }
+    // Gone from the owner's account, or reached at a new address: replace it.
+    if (existing) this.impl.removeGatekeeper(existing.id);
+    let {class: cls, vendorId, typeUrlPattern} =
+        await this.#clientUser.getGatekeeperClassFor(found.accountId, found.resourceUrl);
+    let creationSpec: GatekeeperCreationSpec = {
+      type: "gatekeeper",
+      vendorId,
+      resourceUrl: found.resourceUrl,
+      typeUrlPattern,
+    };
+    let client = await this.impl.addGatekeeper(cls, creationSpec, this.clientUserId);
+    this.impl.markAppGatekeeper(await client.getId(), app);
+    await this.recordConnectionCreated(client, "gatekeeper", vendorId);
+    return true;
+  }
+
   async newAiModelGatekeeper(modelId: string): Promise<GatekeeperClient<any>> {
     let chatMeta = await retryOnDoReset(
         () => this.#clientUser.getChatContext(modelId), this.impl.logger);
@@ -13383,6 +13430,7 @@ class UseOverseerInterface extends RpcTarget implements Overseer {
   async getGatekeeperById(_id: number): Promise<GatekeeperClient<any>> { this.#deny(); }
   async newGatekeeper(_accountId: number, _resourceUrl: string)
       : Promise<GatekeeperClient<any> | null> { this.#deny(); }
+  async ensureAppResource(_app: string): Promise<boolean> { this.#deny(); }
   async newAiModelGatekeeper(_modelId: string): Promise<GatekeeperClient<any>> { this.#deny(); }
   async newAgentSpawnerGatekeeper(_config: AgentSpawnerConfig): Promise<GatekeeperClient<any>> {
     this.#deny();

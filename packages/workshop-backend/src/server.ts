@@ -966,6 +966,19 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
     // @ts-expect-error Cap'n Web RPC stubs and native RPC stubs are compatible but the type
     //     system doesn't know this.
     let overseer: NativeRpcStub<Overseer> = await api.openGadget(workspaceId);
+    // The app itself is in every chat here, so the assistant can use it with nothing to connect.
+    // Best-effort: without it the panel still opens, and the assistant can ask to connect it.
+    try {
+      if (!(await overseer.ensureAppResource(claims.app))) {
+        logger.warn("no account offers the app for its workspace", {
+          event: "embedded.app.resource.missing", reason: claims.app,
+        });
+      }
+    } catch (err) {
+      logger.error("failed to add the app to its workspace", {
+        event: "embedded.app.resource.failed", reason: claims.app, error: err,
+      });
+    }
     return new EmbeddedAssistantImpl(overseer, workspaceId, claims.app);
   }
 

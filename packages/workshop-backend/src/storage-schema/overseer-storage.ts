@@ -56,6 +56,13 @@ export type GatekeeperRecord = {
   creationSpec?: GatekeeperCreationSpec;
 
   /**
+   * Set on the connection to a first-party app in the person's workspace for that app (see
+   * Overseer.ensureAppResource): like an ambient resource, every regular chat takes it in, so the
+   * assistant opened inside the app can use the app with nothing to connect.
+   */
+  app?: string;
+
+  /**
    * OBSOLETE: Before we had support for multiple gadgets per workspace, the binding name and
    * blueprint annotation information lived on the GatekeeperRecord. These properties continue
    * to be declared only to support migrating them away. The version 0 -> 1 migration copies
