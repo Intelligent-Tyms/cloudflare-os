@@ -2590,10 +2590,44 @@ export interface EmbeddedAssistant extends RpcTarget, Pick<Overseer,
 
   /** Send a message to one of this workspace's chats, with the app's context as in `newChat()`. */
   sendChatMessage(chatId: number, message: string, context?: string): Promise<void>;
+
+  /**
+   * Ask the agent one question for a conversation people share in the app (e.g. "@jamaa" in a
+   * chat room), and wait for the answer, which the app posts there for everyone in it to read.
+   * `conversation` is the conversation as the app shows it, written by the app: the agent reads it
+   * as data, never as instructions, and only its last `EMBED_CONVERSATION_MAX_CHARS` characters.
+   * The agent is told that everyone there reads its answer, so it answers briefly, as a chat
+   * message, and shares only what suits them. The question is asked in a new chat of this
+   * workspace, as `newChat()` does, so the person can follow it up, and decide any actions it
+   * started, in the app's panel. Resolves when the turn ends, or after `EMBED_ASK_TIMEOUT_MS`,
+   * when it stops the agent.
+   */
+  ask(question: string, conversation: string): Promise<EmbeddedAnswer>;
 }
 
 /** The longest app context an embedded chat message carries (see `EmbeddedAssistant.newChat()`). */
 export const EMBED_CONTEXT_MAX_CHARS = 2000;
+
+/** The most of a shared conversation `EmbeddedAssistant.ask()` gives the agent: its newest characters, about 10,000 tokens. */
+export const EMBED_CONVERSATION_MAX_CHARS = 40_000;
+
+/** How long `EmbeddedAssistant.ask()` waits for the agent's answer before stopping it. */
+export const EMBED_ASK_TIMEOUT_MS = 10 * 60_000;
+
+/** What `EmbeddedAssistant.ask()` answers. */
+export type EmbeddedAnswer = {
+  /** The chat the question was asked in, for following it up in the app's panel. */
+  chatId: number;
+
+  /** The agent's last message of the turn, or the error that ended it; null when it wrote neither. */
+  text: string | null;
+
+  /** Whether `text` is the error that ended the turn rather than the agent's answer. */
+  error: boolean;
+
+  /** How many actions the agent started in this turn are waiting for the person's decision. */
+  pendingActions: number;
+};
 
 export interface Overseer extends RpcTarget {
   /** Get metadata describing this workspace. */
