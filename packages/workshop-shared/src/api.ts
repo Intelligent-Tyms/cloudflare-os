@@ -2598,8 +2598,8 @@ export interface EmbeddedAssistant extends RpcTarget, Pick<Overseer,
    * as data, never as instructions, and only its last `EMBED_CONVERSATION_MAX_CHARS` characters.
    * The agent is told that everyone there reads its answer, so it answers briefly, as a chat
    * message, and shares only what suits them. The question is asked in a new chat of this
-   * workspace, as `newChat()` does, so the person can follow it up, and decide any actions it
-   * started, in the app's panel. Resolves when the turn ends, or after `EMBED_ASK_TIMEOUT_MS`,
+   * workspace, as `newChat()` does, so the person can follow it up in Jamaa. It changes nothing
+   * that needs the person's approval: any such action it starts is declined (`declined`). Resolves when the turn ends, or after `EMBED_ASK_TIMEOUT_MS`,
    * when it stops the agent.
    */
   ask(question: string, conversation: string): Promise<EmbeddedAnswer>;
@@ -2625,8 +2625,12 @@ export type EmbeddedAnswer = {
   /** Whether `text` is the error that ended the turn rather than the agent's answer. */
   error: boolean;
 
-  /** How many actions the agent started in this turn are waiting for the person's decision. */
-  pendingActions: number;
+  /**
+   * The titles of the actions the agent started in this turn that needed the person's approval:
+   * all declined, as nothing is approved from a shared conversation. The app says so in place of
+   * `text`, which may still speak of them as waiting.
+   */
+  declined: string[];
 };
 
 export interface Overseer extends RpcTarget {
