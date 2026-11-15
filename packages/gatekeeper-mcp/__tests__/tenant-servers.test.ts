@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   MAX_TENANT_SERVERS,
+  appReplacing,
   asCatalogServer,
   mergeCatalog,
   parseTenantServers,
   serverInputName,
+  serverUrlInput,
   tenantServerId,
   validateServerName,
   type TenantServer,
@@ -16,6 +18,7 @@ import {
   keyInputName,
   type CatalogServer,
 } from "../src/vetted-catalog.js";
+import { appCatalogServers } from "../src/tyms-apps.js";
 
 const RESEND: CatalogServer = {
   id: "resend",
@@ -128,5 +131,50 @@ describe("a tenant server's connector", () => {
 
   it("leaves a central company server's inputs as they were", () => {
     expect(catalogResource(RESEND).connector?.setupInputNames).toEqual(["KEY_RESEND"]);
+  });
+});
+
+describe("a Tyms app taking over a company server on its host", () => {
+  // As the control plane lists them once Organization and Data Intelligence are apps.
+  const APPS = appCatalogServers([
+    { app: "organization", name: "Organization Intelligence", description: "", icon: null, mcpUrl: "https://acme.organization.tyms.ai/mcp" },
+    { app: "data", name: "Data Intelligence", description: "", icon: null, mcpUrl: "https://acme.data.tyms.ai/mcp" },
+  ]);
+  // As administrators added them, with the oik_/dik_ key: the company wiki's endpoint, and Data's /mcp.
+  const WIKI: TenantServer = { id: "custom-company-wiki", name: "Company wiki", endpoint: "https://ACME.organization.tyms.ai/w/company/mcp", auth: "token", addedAt: 1 };
+  const DATA: TenantServer = { id: "custom-data", name: "Data", endpoint: "https://acme.data.tyms.ai/mcp", auth: "token", addedAt: 2 };
+  const OTHER_WORKSPACE: TenantServer = { id: "custom-globex-wiki", name: "Globex wiki", endpoint: "https://globex.organization.tyms.ai/w/company/mcp", auth: "token", addedAt: 3 };
+
+  it("matches by host, whatever the path or case", () => {
+    expect(appReplacing(WIKI, APPS)?.app).toBe("organization");
+    expect(appReplacing(DATA, APPS)?.app).toBe("data");
+    expect(appReplacing(OTHER_WORKSPACE, APPS)).toBeUndefined();
+    expect(appReplacing(LEDGER, APPS)).toBeUndefined();
+    expect(appReplacing({ endpoint: "not a url" }, APPS)).toBeUndefined();
+  });
+
+  it("only an app takes over, not a central catalog server on the same host", () => {
+    expect(appReplacing(WIKI, [{ ...RESEND, endpoint: "https://acme.organization.tyms.ai/mcp" }])).toBeUndefined();
+  });
+
+  it("leaves the tenant's server out of the catalog, so its tools are listed once and its key is not sent", () => {
+    const merged = mergeCatalog([RESEND], [WIKI, DATA, LEDGER, OTHER_WORKSPACE], APPS);
+    expect(merged.map((server) => server.id)).toEqual(["resend", "custom-ledger", "custom-globex-wiki", "app-organization", "app-data"]);
+    expect(companySharingIn(merged, WIKI.endpoint)).toBe("owner-only");
+  });
+
+  it("gives the server back once the app is gone (the record was never deleted)", () => {
+    expect(mergeCatalog([], [WIKI, DATA]).map((server) => server.id)).toEqual(["custom-company-wiki", "custom-data"]);
+  });
+
+  it("says so where setup lists the server, which an administrator can still remove", () => {
+    expect(serverUrlInput(LEDGER)).toEqual({ name: serverInputName(LEDGER.id), kind: "var", label: "Server URL" });
+    const input = serverUrlInput(WIKI, appReplacing(WIKI, APPS));
+    expect(input).toMatchObject({
+      name: serverInputName(WIKI.id),
+      kind: "var",
+      label: "Server URL (not in use: Organization Intelligence is built into Jamaa)",
+    });
+    expect(input.setupSteps?.join(" ")).toContain("its key is not sent");
   });
 });
