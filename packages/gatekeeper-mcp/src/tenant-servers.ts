@@ -110,20 +110,66 @@ export function asCatalogServer(server: TenantServer): CatalogServer {
 }
 
 /**
- * The catalog one tenant sees: the central catalog, then the tenant's own servers. The central
- * catalog wins a collision, by id or by endpoint, so curating a server later takes over from a
- * tenant's copy rather than listing it twice; the tenant's key is stored under its own id and is
- * never sent on the central entry's behalf.
+ * The Tyms app (tyms-apps.ts) on the same host as a server a tenant added, if any. An app takes the
+ * place of such a server: Organization and Data Intelligence used to join Jamaa as a company server
+ * on `<slug>.organization.tyms.ai` or `<slug>.data.tyms.ai` with the workspace's `tyms-assistant`
+ * key, and once the control plane lists the product as an app Jamaa calls it as the person asking
+ * instead. The host decides, not the full endpoint: Organization's company server was often its
+ * company wiki's `/w/company/mcp`, while the app is the cell's `/mcp`.
  */
-export function mergeCatalog(central: CatalogServer[], tenant: TenantServer[]): CatalogServer[] {
+export function appReplacing(server: { endpoint: string }, apps: CatalogServer[]): CatalogServer | undefined {
+  const host = hostnameOf(server.endpoint);
+  if (!host) return undefined;
+  return apps.find((app) => app.app !== undefined && hostnameOf(app.endpoint) === host);
+}
+
+function hostnameOf(endpoint: string): string | null {
+  try {
+    return new URL(endpoint).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The catalog one tenant sees: the central catalog, then the tenant's own servers, then the Tyms
+ * apps it has switched on. The central catalog wins a collision, by id or by endpoint, so curating
+ * a server later takes over from a tenant's copy rather than listing it twice; the tenant's key is
+ * stored under its own id and is never sent on the central entry's behalf. An app likewise takes
+ * over from a tenant server on its host (`appReplacing`), so its tools are not listed twice and the
+ * company key is no longer sent there. The tenant's record and key are kept, not deleted: they are
+ * still shown in setup, and come back into use if the app is switched off.
+ */
+export function mergeCatalog(
+  central: CatalogServer[], tenant: TenantServer[], apps: CatalogServer[] = [],
+): CatalogServer[] {
   const merged = [...central];
   for (const server of tenant) {
     if (merged.some((entry) => entry.id === server.id || sameEndpoint(entry.endpoint, server.endpoint))) {
       continue;
     }
+    if (appReplacing(server, apps)) continue;
     merged.push(asCatalogServer(server));
   }
-  return merged;
+  return [...merged, ...apps];
+}
+
+/**
+ * The setup entry that lists a server the tenant added. When a Tyms app on its host has taken its
+ * place (`appReplacing`), the entry says so: the server and its key stay stored, so removing them is
+ * the administrator's choice, but Jamaa no longer lists the server or sends the key.
+ */
+export function serverUrlInput(server: TenantServer, replacedBy?: CatalogServer): VendorSetupInput {
+  const input = { name: serverInputName(server.id), kind: "var" as const, label: "Server URL" };
+  if (!replacedBy) return input;
+  return {
+    ...input,
+    label: `Server URL (not in use: ${replacedBy.name} is built into Jamaa)`,
+    setupSteps: [
+      `${replacedBy.name} is now built into Jamaa, so Jamaa uses it as each person asking, at their own access, instead of through ${server.name} and the company key.`,
+      `${server.name} is no longer offered as a connector, and its key is not sent. You can remove it here; the key itself stays valid for scripts and integrations until it is revoked.`,
+    ],
+  };
 }
 
 /** The inputs of the form that adds a server. */

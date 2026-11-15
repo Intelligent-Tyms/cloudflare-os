@@ -102,10 +102,12 @@ import {
   NEW_SERVER_KEY,
   NEW_SERVER_NAME,
   NEW_SERVER_URL,
+  appReplacing,
   mergeCatalog,
   newServerInputs,
   parseTenantServers,
   serverInputName,
+  serverUrlInput,
   tenantServerId,
   validateServerName,
   type TenantServer,
@@ -383,8 +385,9 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> impleme
    */
   async describeSetup(): Promise<VendorSetup> {
     const store = this.ctx.exports.VendorSetupStore.getByName(this.#tenant);
-    const [{ catalog, servers }, values, updatedAt] = await Promise.all([
+    const [{ catalog, servers }, values, updatedAt, apps] = await Promise.all([
       this.#freshCatalog(), store.getValues(), store.getUpdatedAt(),
+      loadTymsApps(this.env, this.#tenant),
     ]);
     const listed = servers.filter((server) => catalog.some((entry) => entry.id === server.id));
     const keyInputs = companyKeyInputs(catalog);
@@ -393,9 +396,7 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> impleme
         "for a server from the catalog. Everyone on the team then uses it without signing in.",
       inputs: [
         ...keyInputs,
-        ...listed.map((server) => ({
-          name: serverInputName(server.id), kind: "var" as const, label: "Server URL",
-        })),
+        ...listed.map((server) => serverUrlInput(server, appReplacing(server, apps))),
         ...newServerInputs(),
       ],
       status: "configured",
@@ -460,6 +461,11 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> impleme
     if (!named.ok) throw new Error(named.reason);
     const validated = validateCustomEndpoint(this.env, values[NEW_SERVER_URL] ?? "");
     if (!validated.ok) throw new Error(validated.reason);
+    const app = appReplacing({ endpoint: validated.url }, await loadTymsApps(this.env, this.#tenant, { fresh: true }));
+    if (app) {
+      throw new Error(`${app.name} is built into Jamaa: everyone uses it as themselves, with nothing to set up. ` +
+        "Its API keys are for scripts and integrations, not for Jamaa.");
+    }
     const existing = catalog.find((entry) => sameEndpoint(entry.endpoint, validated.url));
     if (existing) {
       throw new Error(`${existing.name} is already a connector here. Open it from the Connectors list.`);
@@ -726,16 +732,14 @@ async function tenantCatalog(
     ensureCatalog(env), loadTenantServers(exports, tenant, options),
     loadTymsApps(env, tenant, options),
   ]);
-  return [...mergeCatalog(central, servers), ...apps];
+  return mergeCatalog(central, servers, apps);
 }
 
 // The same, from whatever this isolate last loaded, for the one sync reader (a facet's `sharing`
 // getter). A cold isolate sees no tenant servers and so answers conservatively.
 function lastKnownTenantCatalog(tenant: string): CatalogServer[] {
-  return [
-    ...mergeCatalog(catalogServers(), tenantServerCache.get(tenant)?.servers ?? []),
-    ...lastKnownTymsApps(tenant),
-  ];
+  return mergeCatalog(
+    catalogServers(), tenantServerCache.get(tenant)?.servers ?? [], lastKnownTymsApps(tenant));
 }
 
 async function loadCompanyKeys(
