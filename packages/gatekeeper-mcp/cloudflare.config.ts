@@ -31,4 +31,6 @@ export const migrations: DurableObjectMigration[] = [
   { tag: "v0", new_sqlite_classes: ["McpAccount", "McpGatekeeperImpl"] },
   // Tyms fork: admin-entered setup (company servers / portal), keyed by tenant.
   { tag: "v1", new_sqlite_classes: ["VendorSetupStore"] },
+  // Tyms fork: Operational Intelligence change hooks (ops-hooks.ts), one driver per tenant.
+  { tag: "v2", new_sqlite_classes: ["OpsHookDriver"] },
 ];

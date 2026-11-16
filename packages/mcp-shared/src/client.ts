@@ -1,6 +1,6 @@
 // Minimal Model Context Protocol client over the Streamable HTTP transport. Implements
-// `initialize`, `tools/list`, and `tools/call`; prompts, resources, sampling, and elicitation are
-// out of scope (see README).
+// `initialize`, `tools/list`, and `tools/call`, plus `resources/read` for connector-side hooks;
+// prompts, other resource methods, sampling, and elicitation are out of scope (see README).
 //
 // The transport accepts either a single JSON response or an SSE stream for any POST, so responses
 // are parsed both ways. Servers that hand out an `Mcp-Session-Id` get it echoed back on subsequent
@@ -691,5 +691,19 @@ export class McpClient {
   /** Invokes one tool. A tool-level failure arrives as `isError`, not as a thrown error. */
   async callTool(name: string, args: Record<string, unknown>): Promise<McpToolCallResult> {
     return this.#call<McpToolCallResult>("tools/call", { name, arguments: args });
+  }
+
+  /**
+   * Reads one resource's text (`resources/read`), joining its text parts; binary parts are skipped.
+   * Used by hooks that watch a first-party server's resources (gatekeeper-mcp ops-hooks.ts), not
+   * offered to Gadgets: resources are otherwise out of scope here.
+   */
+  async readResource(uri: string): Promise<{ uri: string; mimeType: string | null; text: string }> {
+    const result = await this.#call<{ contents?: { uri?: unknown; mimeType?: unknown; text?: unknown }[] }>(
+      "resources/read", { uri });
+    const parts = Array.isArray(result?.contents) ? result.contents : [];
+    const texts = parts.filter(part => typeof part?.text === "string");
+    const mimeType = typeof texts[0]?.mimeType === "string" ? texts[0].mimeType : null;
+    return { uri, mimeType, text: texts.map(part => part.text as string).join("\n") };
   }
 }

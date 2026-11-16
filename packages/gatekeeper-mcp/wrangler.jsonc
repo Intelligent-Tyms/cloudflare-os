@@ -45,6 +45,12 @@
       "new_sqlite_classes": [
         "VendorSetupStore"
       ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": [
+        "OpsHookDriver"
+      ]
     }
   ]
 }

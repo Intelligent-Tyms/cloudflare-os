@@ -7,13 +7,14 @@
 // The endpoint is whatever a user typed, so annotations never earn auto-approval here and a Gadget
 // bound to it is owner-only, unless the deployment's vetted catalog says otherwise for that
 // endpoint. See `sharing-policy.ts` and the README.
-import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
+import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint, restore } from "cloudflare:workers";
 import { validateRpc, skipRpcValidation } from "capnweb-validate";
 import { createLogger } from "@gadgets/observability/logger";
 import { readTextCapped } from "@gadgets/gatekeeper-kit/response-body";
 import {
   stripTrailingSlashes,
   type AccountDescription,
+  type ApprovalQueue,
   type AvatarImage,
   type Gatekeeper,
   type GatekeeperConnectCallback,
@@ -47,7 +48,24 @@ import {
   type ConnectionAccount,
   type WithClientOptions,
 } from "@gadgets/mcp-shared/connection";
-import { McpSessionBase, type McpSessionContext, type StoredAction } from "@gadgets/mcp-shared/session";
+import {
+  McpSessionBase,
+  type McpSessionContext,
+  type McpSessionHost,
+  type StoredAction,
+} from "@gadgets/mcp-shared/session";
+import {
+  OPS_APP,
+  OPS_WATCHES,
+  OpsHookDeliveryImpl,
+  opsHookTypes,
+  type OpsChangeHookTarget,
+  type OpsHookDelivery,
+  type OpsHookParams,
+  type OpsWatch,
+} from "./ops-hooks.js";
+
+export { OpsHookController, OpsHookDriver } from "./ops-hooks.js";
 import { McpFacetBase } from "@gadgets/mcp-shared/facet";
 import {
   McpVerifierBase,
@@ -1285,7 +1303,7 @@ export class McpGatekeeperImpl
 
   async getTypeScriptTypes(): Promise<string> {
     await ensureCatalog(this.env);
-    return generateSessionTypes({
+    const types = generateSessionTypes({
       baseTypes: MCP_BASE_TYPES,
       serverId: this.ctx.props.serverId,
       serverName: this.ctx.props.serverName,
@@ -1293,6 +1311,49 @@ export class McpGatekeeperImpl
       discriminator: this.resourceUrl,
       trust: this.trust,
       tools: await this.tools(),
+    });
+    if (this.ctx.props.app !== OPS_APP) return types;
+    return types + opsHookTypes(sessionTypeName(this.ctx.props.serverId, this.resourceUrl));
+  }
+
+  /** A delivery stub minted by `bindOpsHook()`, restored for each firing (ops-hooks.ts). */
+  [restore](params: OpsHookParams): OpsHookDelivery {
+    return new OpsHookDeliveryImpl(params, this.ctx.props.serverName);
+  }
+
+  /**
+   * Bind an Operational Intelligence change hook (`onOpsChange()` on the session). Only the
+   * Operational Intelligence app has one, and only for a person: its reads run as them.
+   */
+  async bindOpsHook(
+    queue: RpcStub<ApprovalQueue>, hook: RpcStub<OpsChangeHookTarget>, watch: OpsWatch[],
+    actor: string | undefined,
+  ): Promise<void> {
+    const { app, tenant, endpoint, serverName } = this.ctx.props;
+    if (app !== OPS_APP || tenant === undefined) {
+      throw new Error(`${serverName} has no change hooks; only Operational Intelligence does.`);
+    }
+    if (!actor) {
+      throw new Error(`${serverName} acts only for a person, and this session has none to watch as.`);
+    }
+    const params: OpsHookParams = { watch };
+    using delivery: RpcStub<OpsHookDelivery> = await this.ctx.restore(params);
+    const controller = this.ctx.exports.OpsHookController({ props: {
+      ...params,
+      key: crypto.randomUUID(),
+      tenant,
+      app,
+      endpoint,
+      actor,
+      delivery,
+    } });
+    const what = watch.map(w => (w === "alerts" ? "an alert fires" : "something new needs attention")).join(" or ");
+    // @ts-expect-error Worker RPC's mapped types can't relate the controller's typed initiator to the
+    // queue's generic one; the hook target is the same OpsChangeHookTarget on both sides.
+    await queue.bindHook(controller, hook, {
+      title: `Watch ${serverName} for changes`,
+      description: `Call this hook when ${what} on ${serverName}, checked every minute, ` +
+        `reading it as ${actor} with personal data masked.`,
     });
   }
 }
@@ -1303,4 +1364,33 @@ export class McpGatekeeperImpl
 // Subclassed rather than used directly so `@validateRpc()` is applied in the file that hands the
 // class to a Gadget, where it can be seen.
 @validateRpc()
-class McpSessionImpl extends McpSessionBase {}
+class McpSessionImpl extends McpSessionBase {
+  // Kept for `onOpsChange()`; the base keeps its own references private.
+  #host: McpSessionHost;
+  #queue: RpcStub<ApprovalQueue>;
+  #actor: string | undefined;
+
+  constructor(host: McpSessionHost, queue: RpcStub<ApprovalQueue>, context?: McpSessionContext) {
+    super(host, queue, context);
+    this.#host = host;
+    this.#queue = queue;
+    this.#actor = context?.actor;
+  }
+
+  /**
+   * Operational Intelligence only: call `hook.opsChanged()` when an alert fires or what waits for
+   * a person changes. See `opsHookTypes()` in ops-hooks.ts for the documentation Gadgets see.
+   */
+  async onOpsChange(
+    hook: RpcStub<OpsChangeHookTarget>, options?: { watch?: OpsWatch[] },
+  ): Promise<void> {
+    const requested = options?.watch ?? [...OPS_WATCHES];
+    if (!Array.isArray(requested) || requested.length === 0 ||
+        requested.some(w => !(OPS_WATCHES as readonly string[]).includes(w))) {
+      throw new Error(`onOpsChange() watch must list some of: ${OPS_WATCHES.join(", ")}.`);
+    }
+    const watch = [...new Set(requested)];
+    // The host is the facet that started this session (McpFacetBase.startSession passes `this`).
+    await (this.#host as unknown as McpGatekeeperImpl).bindOpsHook(this.#queue, hook, watch, this.#actor);
+  }
+}
