@@ -15,7 +15,8 @@ import type { ScopedCatalog } from "../src/catalog.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
-const ACTOR = "x-tyms-actor";
+// A header a facet adds for one session, as a server that checks something per session would ask.
+const EXTRA = "x-session-extra";
 
 const account: ConnectionAccount = {
   async getConnection() {
@@ -36,21 +37,21 @@ it("sends the extra headers on a tool call, alongside the bearer", async () => {
   const seen: Record<string, string | null>[] = [];
   vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
     const headers = new Headers(init.headers);
-    seen.push({ actor: headers.get(ACTOR), authorization: headers.get("Authorization") });
+    seen.push({ extra: headers.get(EXTRA), authorization: headers.get("Authorization") });
     return okResult(JSON.parse(String(init.body)).id);
   });
 
   await withClient({}, account, "https://acme.organization.tyms.ai/w/company/mcp",
     client => client.callTool("search", { q: "expenses" }),
-    { headers: { [ACTOR]: "signed-assertion" } });
+    { headers: { [EXTRA]: "per-session" } });
 
-  expect(seen).toEqual([{ actor: "signed-assertion", authorization: "Bearer assistant-key" }]);
+  expect(seen).toEqual([{ extra: "per-session", authorization: "Bearer assistant-key" }]);
 });
 
 it("sends no extra header when the operation carries none", async () => {
   const seen: (string | null)[] = [];
   vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
-    seen.push(new Headers(init.headers).get(ACTOR));
+    seen.push(new Headers(init.headers).get(EXTRA));
     return okResult(JSON.parse(String(init.body)).id);
   });
 
@@ -61,23 +62,23 @@ it("sends no extra header when the operation carries none", async () => {
 });
 
 it("keeps an origin-bound header on a same-origin redirect and drops it across origins", async () => {
-  const hops: { url: string; actor: string | null }[] = [];
+  const hops: { url: string; extra: string | null }[] = [];
   const chain: Record<string, string> = {
     "https://mcp.example.com/mcp": "https://mcp.example.com/v2/mcp",
     "https://mcp.example.com/v2/mcp": "https://elsewhere.example.net/mcp",
   };
   vi.stubGlobal("fetch", async (input: string, init: RequestInit) => {
-    hops.push({ url: String(input), actor: new Headers(init.headers).get(ACTOR) });
+    hops.push({ url: String(input), extra: new Headers(init.headers).get(EXTRA) });
     const target = chain[String(input)];
     if (target) return new Response("", { status: 302, headers: { Location: target } });
     return new Response("ok", { status: 200 });
   });
 
   await guardedFetch("https://mcp.example.com/mcp",
-    { headers: { [ACTOR]: "signed-assertion", Authorization: "Bearer key" } },
-    { originBoundHeaders: [ACTOR] });
+    { headers: { [EXTRA]: "per-session", Authorization: "Bearer key" } },
+    { originBoundHeaders: [EXTRA] });
 
-  expect(hops.map(hop => hop.actor)).toEqual(["signed-assertion", "signed-assertion", null]);
+  expect(hops.map(hop => hop.extra)).toEqual(["per-session", "per-session", null]);
 });
 
 it("does not treat an extra header as origin-bound unless told so", async () => {
@@ -111,22 +112,22 @@ it("forwards the session context's call options to the host on a read", async ()
       return fn({ callTool: async () => ({ content: [] }) } as unknown as McpClient);
     },
   } as unknown as McpSessionHost;
-  const context: McpSessionContext = { callOptions: { headers: { [ACTOR]: "signed" } } };
-  const withActor = new McpSessionBase(host, { authorizeObservation() {} } as never, context);
+  const context: McpSessionContext = { callOptions: { headers: { [EXTRA]: "per-session" } } };
+  const withExtra = new McpSessionBase(host, { authorizeObservation() {} } as never, context);
   const without = new McpSessionBase(host, { authorizeObservation() {} } as never);
 
-  await withActor.callTool("search", {});
+  await withExtra.callTool("search", {});
   await without.callTool("search", {});
 
-  expect(calls).toEqual([{ headers: { [ACTOR]: "signed" } }, undefined]);
+  expect(calls).toEqual([{ headers: { [EXTRA]: "per-session" } }, undefined]);
 });
 
-// A facet that turns the Workshop's session context into a header its server verifies (the
-// wiki's actor assertion); the base class must hand it to the session it constructs.
+// A facet that turns the Workshop's session context into per-call options (here a header naming the
+// person); the base class must hand them to the session it constructs.
 const log = { debug() {}, info() {}, error() {}, warn() {}, with() { return this; } };
 
 class RecordingSession extends McpSessionBase {
-  constructor(host: McpSessionHost, queue: never, context?: McpSessionContext) {
+  constructor(host: McpSessionHost, queue: ConstructorParameters<typeof McpSessionBase>[1], context?: McpSessionContext) {
     super(host, queue, context);
     RecordingSession.contexts.push(context);
   }
@@ -152,8 +153,8 @@ class ActorFacet extends McpFacetBase<ConnectionEnv, { endpoint: string; scope: 
   protected override async sessionContext(
     context?: SessionContext,
   ): Promise<McpSessionContext | undefined> {
-    const minted = await context?.actor?.assertion?.mint();
-    return minted ? { callOptions: { headers: { [ACTOR]: minted.token } } } : undefined;
+    const email = context?.actor?.email;
+    return email ? { callOptions: { headers: { [EXTRA]: email } } } : undefined;
   }
 }
 
@@ -165,17 +166,13 @@ it("derives the session context once per session from what the Workshop passed",
   const queue = { dup() { return this; } };
   RecordingSession.contexts = [];
 
-  await subject.startSession(queue as never, {
-    actor: { email: "ann@acme.test", assertion: {
-      async mint() { return { token: "signed-for-ann", expiresAt: Date.now() + 900_000 }; },
-    } as never },
-  });
+  await subject.startSession(queue as never, { actor: { email: "ann@acme.test" } });
   await subject.startSession(queue as never, { actor: { email: "bob@acme.test" } });
   await subject.startSession(queue as never);
 
   expect(RecordingSession.contexts).toEqual([
-    { callOptions: { headers: { [ACTOR]: "signed-for-ann" } } },
-    undefined,
+    { callOptions: { headers: { [EXTRA]: "ann@acme.test" } } },
+    { callOptions: { headers: { [EXTRA]: "bob@acme.test" } } },
     undefined,
   ]);
 });

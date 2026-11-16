@@ -1713,14 +1713,28 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
   // Auto-provisioned (ambient) accounts never re-auth, and re-auth is otherwise the only event that
   // re-runs describe() — so a redeployed gatekeeper's new title/icon would never reach records minted
   // before the deploy. Refresh them once per DO instance instead: DOs restart on deploy, so each
-  // deploy picks up description changes on the user's next visit. Best-effort per record.
+  // deploy picks up description changes on the user's next visit. Best-effort per record. A vendor
+  // whose accounts' descriptions change on their own (VendorDescription.refreshesAccountDescriptions)
+  // has its connected accounts refreshed the same way.
   #descriptionsRefreshed = false;
 
   async #refreshAutoProvisionedDescriptions(): Promise<void> {
     if (this.#descriptionsRefreshed) return;
     this.#descriptionsRefreshed = true;
+    let refreshing = new Map<string, Promise<boolean>>();
+    let vendorRefreshes = (vendorId: string): Promise<boolean> => {
+      let known = refreshing.get(vendorId);
+      if (!known) {
+        let vendor = this.vendors.get(vendorId);
+        known = vendor
+          ? vendor.describe().then(d => d.refreshesAccountDescriptions === true, () => false)
+          : Promise.resolve(false);
+        refreshing.set(vendorId, known);
+      }
+      return known;
+    };
     for (let rec of this.#connectedAccountRecords()) {
-      if (!rec.autoProvisioned) continue;
+      if (!rec.autoProvisioned && !(await vendorRefreshes(rec.vendorId))) continue;
       try {
         let description = await rec.account.describe();
         if (JSON.stringify(description) !== JSON.stringify(rec.description)) {
