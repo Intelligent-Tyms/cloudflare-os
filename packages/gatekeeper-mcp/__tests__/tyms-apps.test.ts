@@ -5,6 +5,7 @@ import {
   appDiscoveryToken,
   appOfServerId,
   appPersonToken,
+  appReplacingConnection,
   lastKnownTymsApps,
   loadTymsApps,
   resetTymsAppsCachesForTests,
@@ -138,5 +139,38 @@ describe("tokens", () => {
     const refusing = { TYMS_APPS: { ...env.TYMS_APPS, token: async () => { throw new Error("not a member of that workspace"); } } };
     await expect(appPersonToken(refusing, "acme", "tasks", "eve@evil.test")).rejects.toThrow("not a member of that workspace");
     await expect(appPersonToken({}, "acme", "tasks", "ann@acme.test")).rejects.toThrow("not available");
+  });
+});
+
+describe("a person's own connection on a Tyms app's host", () => {
+  const ORGANIZATION: TymsApp = {
+    app: "organization", name: "Organization Intelligence", description: "", icon: null,
+    mcpUrl: "https://acme.organization.tyms.ai/mcp",
+  };
+
+  it("is taken over by the app of the workspace it was made in, whatever the path", async () => {
+    const { env, calls } = controlPlane([TASKS, ORGANIZATION]);
+    const app = await appReplacingConnection(env, "https://ACME.organization.tyms.ai/w/company/mcp", "acme");
+    expect(app?.app).toBe("organization");
+    expect(calls).toEqual(["apps:acme"]);
+  });
+
+  it("is left alone on a host no app of that workspace has", async () => {
+    const { env } = controlPlane([TASKS, ORGANIZATION]);
+    expect(await appReplacingConnection(env, "https://globex.organization.tyms.ai/mcp", "acme")).toBeUndefined();
+    expect(await appReplacingConnection(env, "https://mcp.example.com/mcp", "acme")).toBeUndefined();
+  });
+
+  it("is judged by the workspace its host names when it was made before the workspace was recorded", async () => {
+    const { env, calls } = controlPlane([ORGANIZATION]);
+    expect((await appReplacingConnection(env, "https://acme.organization.tyms.ai/mcp", null))?.app).toBe("organization");
+    expect(calls).toEqual(["apps:acme"]);
+    // A two-label host names no workspace, so the control plane is not asked.
+    expect(await appReplacingConnection(env, "https://example.com/mcp", null)).toBeUndefined();
+    expect(calls).toEqual(["apps:acme"]);
+  });
+
+  it("is never taken over without the control plane", async () => {
+    expect(await appReplacingConnection({}, "https://acme.organization.tyms.ai/mcp", "acme")).toBeUndefined();
   });
 });

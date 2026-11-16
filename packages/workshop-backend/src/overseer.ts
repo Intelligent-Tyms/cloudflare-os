@@ -5,8 +5,7 @@ import { Overseer, GadgetMetadata, UiBundle, WorkpieceId, WorkpieceSummary, Work
 import { applyCodeChange, changedGadgets, codeChangeSerializedSize, composeCodeChange,
   MAX_CODE_CHANGE_SIZE, transformCodeChange, validateCodeChangeContent, validateCodeChangeSchema,
   requireTextFiles, type FileContent, type CodeContent, type CodeChange } from "@gadgets/workshop-shared/code-change";
-import { type AgentCatalog, Gatekeeper, GatekeeperUserVerifier, HookInitiator, ResourceDescription, ApprovalQueue, ActionDescription, ObservationAuthorizer, ObservationDescription, VendorDescription, SupportedResource, resolveRequestedResource, HookController, HookDescription, ActionKind, GitCache, GitPullHints, ActorAssertionProvider, SessionContext } from "@gadgets/workshop-shared/gatekeeper";
-import { ActorAssertionImpl, hasActorAssertions } from "./actor-assertion";
+import { type AgentCatalog, Gatekeeper, GatekeeperUserVerifier, HookInitiator, ResourceDescription, ApprovalQueue, ActionDescription, ObservationAuthorizer, ObservationDescription, VendorDescription, SupportedResource, resolveRequestedResource, HookController, HookDescription, ActionKind, GitCache, GitPullHints, SessionContext } from "@gadgets/workshop-shared/gatekeeper";
 import {
   DurableObject, WorkerEntrypoint, RpcStub as NativeRpcStub,
   RpcTarget as NativeRpcTarget, restore,
@@ -6628,7 +6627,7 @@ class OverseerImpl implements AgentHooks {
       : Promise<RpcStub<Session>> {
     this.assertGatekeeperUsable(id);
     // @ts-expect-error TODO: Remove annotation when Cap'n Web fixes cyclic type issues
-    return facet.startSession(new ApprovalQueueImpl(this, id, caller), sessionContextFor(this.env, caller));
+    return facet.startSession(new ApprovalQueueImpl(this, id, caller), sessionContextFor(caller));
   }
 
   // Sessions are authorized and verified only at open(), so widening what a live session's holder
@@ -13932,23 +13931,11 @@ class UseGadgetClientInterface extends RpcTarget implements GadgetClient {
   }
 }
 
-// The person an agent session acts for, with a way to prove it to a server that checks. Only an
-// agent turn started by a person has one; a hook, gadget, or user-opened session passes nothing
-// and the gatekeeper behaves as it always has.
-function sessionContextFor(env: Cloudflare.Env, caller: GatekeeperCaller): SessionContext | undefined {
+// The person an agent session acts for. Only an agent turn started by a person has one; a hook,
+// gadget, or user-opened session passes nothing and the gatekeeper behaves as it always has.
+function sessionContextFor(caller: GatekeeperCaller): SessionContext | undefined {
   if (caller.from !== "agent" || !caller.actorEmail) return undefined;
-  let email = caller.actorEmail;
-  return {
-    actor: {
-      email,
-      // Handed across the facet boundary as a stub, exactly like the ApprovalQueueImpl beside it;
-      // the declared type is the stub the gatekeeper sees.
-      ...(hasActorAssertions(env)
-          ? {assertion: new ActorAssertionImpl(env, email) as
-              unknown as NativeRpcStub<ActorAssertionProvider>}
-          : {}),
-    },
-  };
+  return { actor: { email: caller.actorEmail } };
 }
 
 @validateRpc()

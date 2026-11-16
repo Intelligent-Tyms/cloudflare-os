@@ -141,6 +141,11 @@ export type VendorDescription = {
   // its row visible so setup can be entered.
   supportsAdminSetup?: boolean;
 
+  // If set, an account's description can change without a reconnect and is cheap to read (the MCP
+  // connector marks a person's connection "not in use" once a built-in Tyms app takes its place),
+  // so the Workshop re-reads it as it does an auto-provisioned account's: once per instance.
+  refreshesAccountDescriptions?: boolean;
+
   // Whose credential this vendor's connections run on (see CredentialScope). Display and policy
   // guidance for the admin panel: an "organization" vendor is enabled by entering its setup, and
   // the panel says so, while a "personal" one is enabled by letting people sign in. Omitted means
@@ -1523,27 +1528,15 @@ export interface Gatekeeper<Session> extends DurableObject {
 /**
  * What the Workshop knows about the session it is opening, beyond the approval queue. Optional
  * and additive: a gatekeeper that ignores it behaves as before. Today it carries the person an
- * agent is acting for, so a gatekeeper whose server verifies per-person identity (the
- * Organization Intelligence wiki) can send a signed assertion of that person with each call.
+ * agent is acting for, so a gatekeeper whose server takes a per-person credential (a Tyms app)
+ * can call it as that person.
  */
 export type SessionContext = {
   actor?: {
     /** The signed-in person whose turn started this session. */
     email: string;
-    /**
-     * Mints a short-lived, signed assertion of that person for the gatekeeper's server. Absent when
-     * the deployment cannot mint one (no central directory); the gatekeeper then calls without it.
-     * The stub is live for the duration of `startSession`.
-     */
-    assertion?: RpcStub<ActorAssertionProvider>;
   };
 };
-
-/** Mints actor assertions for one person; see SessionContext. */
-export interface ActorAssertionProvider extends RpcTarget {
-  /** A signed assertion and its expiry (epoch ms), or null when none can be minted right now. */
-  mint(): Promise<{ token: string; expiresAt: number } | null>;
-}
 
 export interface ObservationAuthorizer extends RpcTarget {
   /**

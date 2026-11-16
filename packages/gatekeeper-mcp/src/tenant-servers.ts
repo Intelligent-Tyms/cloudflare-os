@@ -164,12 +164,23 @@ export function serverUrlInput(server: TenantServer, replacedBy?: CatalogServer)
   if (!replacedBy) return input;
   return {
     ...input,
-    label: `Server URL (not in use: ${replacedBy.name} is built into Jamaa)`,
+    label: `Server URL (${notInUseNote(replacedBy)})`,
     setupSteps: [
       `${replacedBy.name} is now built into Jamaa, so Jamaa uses it as each person asking, at their own access, instead of through ${server.name} and the company key.`,
       `${server.name} is no longer offered as a connector, and its key is not sent. You can remove it here; the key itself stays valid for scripts and integrations until it is revoked.`,
     ],
   };
+}
+
+/** How a server or connection that a Tyms app has taken over (`appReplacing`) is marked. */
+export function notInUseNote(app: CatalogServer): string {
+  return `not in use: ${app.name} is built into Jamaa`;
+}
+
+/** Why a server on a Tyms app's host is not added, by an administrator or by a person. */
+export function builtInAppRefusal(app: CatalogServer): string {
+  return `${app.name} is built into Jamaa: everyone uses it as themselves, with nothing to set up. ` +
+    "Its API keys are for scripts and integrations, not for Jamaa.";
 }
 
 /** The inputs of the form that adds a server. */

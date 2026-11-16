@@ -4,6 +4,7 @@ import {
   MAX_TENANT_SERVERS,
   appReplacing,
   asCatalogServer,
+  builtInAppRefusal,
   mergeCatalog,
   parseTenantServers,
   serverInputName,
@@ -176,5 +177,11 @@ describe("a Tyms app taking over a company server on its host", () => {
       label: "Server URL (not in use: Organization Intelligence is built into Jamaa)",
     });
     expect(input.setupSteps?.join(" ")).toContain("its key is not sent");
+  });
+
+  it("refuses a new server on the app's host in the app's name", () => {
+    expect(builtInAppRefusal(appReplacing(WIKI, APPS)!)).toBe(
+      "Organization Intelligence is built into Jamaa: everyone uses it as themselves, with nothing to set up. " +
+      "Its API keys are for scripts and integrations, not for Jamaa.");
   });
 });

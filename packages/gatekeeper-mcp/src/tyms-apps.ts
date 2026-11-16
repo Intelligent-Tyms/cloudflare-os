@@ -17,6 +17,7 @@
 //
 // The tenant comes from this connector's binding props, which a tenant cannot set; the control
 // plane checks the person against the workspace exactly as it would their own sign-in to the app.
+import { appReplacing } from "./tenant-servers.js";
 import type { CatalogServer } from "./vetted-catalog.js";
 
 /** One app as the control plane lists it (tyms-os src/jamaa-apps.ts JamaaApp). */
@@ -124,6 +125,31 @@ export async function loadTymsApps(
 /** The apps last loaded for a tenant, for a sync reader (a facet's `sharing` getter). */
 export function lastKnownTymsApps(tenant: string): CatalogServer[] {
   return appCatalogServers(appsCache.get(tenant)?.apps ?? []);
+}
+
+/**
+ * The app that has taken over a person's own connection to `endpoint`, if any: the same rule as for
+ * a company server (`appReplacing`), so a key a person pasted for Organization or Data Intelligence
+ * is not sent once Jamaa calls the product as them. `tenant` is the workspace the connection was
+ * made in. A connection made before that was recorded has none and is judged by the workspace its
+ * host names: an app's host is `<slug>.<product domain>` (tyms-os jamaa-apps.ts), so the first label
+ * is the only workspace whose app could share it.
+ */
+export async function appReplacingConnection(
+  env: TymsAppsEnv, endpoint: string, tenant: string | null, options?: { fresh?: boolean },
+): Promise<CatalogServer | undefined> {
+  const workspace = tenant || hostSlug(endpoint);
+  if (!workspace) return undefined;
+  return appReplacing({ endpoint }, await loadTymsApps(env, workspace, options));
+}
+
+function hostSlug(endpoint: string): string | null {
+  try {
+    const labels = new URL(endpoint).hostname.toLowerCase().split(".");
+    return labels.length > 2 ? labels[0] : null;
+  } catch {
+    return null;
+  }
 }
 
 async function cachedToken(key: string, mint: () => Promise<TymsAppToken>): Promise<string> {

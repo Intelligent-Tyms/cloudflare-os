@@ -109,7 +109,7 @@ declare global {
 
       // Central team directory (multi-tenant installations with central login): base URL and
       // bearer token for the identity service's tenant-scoped API (team directory, billing,
-      // actor assertions). The workshop keeps no member list of its own. Both unset = none.
+      // settings). The workshop keeps no member list of its own. Both unset = none.
       CENTRAL_TEAM_API_URL?: string;
       CENTRAL_TEAM_API_TOKEN?: string;
 

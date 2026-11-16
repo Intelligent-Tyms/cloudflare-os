@@ -45,6 +45,7 @@ import {
   fetchTools,
   withClient,
   type ConnectionAccount,
+  type McpConnection,
   type WithClientOptions,
 } from "@gadgets/mcp-shared/connection";
 import { McpSessionBase, type McpSessionContext, type StoredAction } from "@gadgets/mcp-shared/session";
@@ -103,8 +104,10 @@ import {
   NEW_SERVER_NAME,
   NEW_SERVER_URL,
   appReplacing,
+  builtInAppRefusal,
   mergeCatalog,
   newServerInputs,
+  notInUseNote,
   parseTenantServers,
   serverInputName,
   serverUrlInput,
@@ -115,6 +118,7 @@ import {
 import {
   appDiscoveryToken,
   appPersonToken,
+  appReplacingConnection,
   lastKnownTymsApps,
   loadTymsApps,
 } from "./tyms-apps.js";
@@ -224,11 +228,16 @@ async function continueConnect(
 ): Promise<Response> {
   let target: ConnectedServer | null = null;
 
-  if (endpointUrl !== null) {
-    const validated = validateCustomEndpoint(env, endpointUrl);
-    if (!validated.ok) {
-      return htmlResponse(await connectForm(account, env, formPath, validated.reason), 400);
-    }
+  // A person's own connection to a built-in Tyms app's host is refused, as an administrator's
+  // company server there is (`GatekeeperVendor.#addServer`): Jamaa calls the app as them.
+  const validated = endpointUrl === null ? null : validateCustomEndpoint(env, endpointUrl);
+  if (validated && !validated.ok) {
+    return htmlResponse(await connectForm(account, env, formPath, validated.reason), 400);
+  }
+  const app = await account.replacingApp(validated?.url ?? null, { fresh: true });
+  if (app) return htmlResponse(await connectForm(account, env, formPath, builtInAppRefusal(app)), 400);
+
+  if (validated) {
     // A catalog member seeds the curated display name; either way the handshake may report the
     // server's own name, and `auth` is a guess that `beginConnect` corrects to `"none"` if the
     // endpoint turns out to be public. Provenance stays "user" — the person chose this server —
@@ -311,6 +320,9 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> impleme
       // Always: besides the keys catalog servers take, setup is where an administrator adds a
       // server of the company's own.
       supportsAdminSetup: true,
+      // A person's connection is marked not in use once a Tyms app takes its place
+      // (`GatekeeperUserImpl.describe`), with no reconnect to re-read it.
+      refreshesAccountDescriptions: true,
     };
   }
 
@@ -322,6 +334,9 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> impleme
     const initiationNonce = generateNonce();
     const account = this.ctx.exports.McpAccount.get(accountId);
     await account.setCallback(callback, initiationNonce);
+    // Which workspace this person's connection is in, so a built-in Tyms app on its host can take
+    // its place (see `McpAccount.replacingApp`).
+    if (this.#tenant) await account.setTenant(this.#tenant);
     // Requested patterns that leave out the bring-your-own catch-alls limit the connect to the
     // catalog servers they name, which is how every member's connect arrives (the Workshop
     // offers the catch-alls to administrators only). One such server pre-selects its endpoint
@@ -462,10 +477,7 @@ export class GatekeeperVendor extends WorkerEntrypoint<Env, VendorProps> impleme
     const validated = validateCustomEndpoint(this.env, values[NEW_SERVER_URL] ?? "");
     if (!validated.ok) throw new Error(validated.reason);
     const app = appReplacing({ endpoint: validated.url }, await loadTymsApps(this.env, this.#tenant, { fresh: true }));
-    if (app) {
-      throw new Error(`${app.name} is built into Jamaa: everyone uses it as themselves, with nothing to set up. ` +
-        "Its API keys are for scripts and integrations, not for Jamaa.");
-    }
+    if (app) throw new Error(builtInAppRefusal(app));
     const existing = catalog.find((entry) => sameEndpoint(entry.endpoint, validated.url));
     if (existing) {
       throw new Error(`${existing.name} is already a connector here. Open it from the Connectors list.`);
@@ -617,6 +629,36 @@ export class McpAccount extends McpAccountBase<Env> {
     return this.ctx.storage.kv.get<string>("requestedCatalogEndpoint") ?? null;
   }
 
+  /** The workspace a person's connection was made in (see `GatekeeperVendor.connectAccount`). */
+  async setTenant(tenant: string): Promise<void> {
+    this.ctx.storage.kv.put("tenant", tenant);
+  }
+
+  /**
+   * The Tyms app that has taken the place of this person's connection, if any: one on the host of
+   * `endpoint` (one being connected) or of the connected server. Jamaa calls such an app as each
+   * person asking, so the connection is not used and its key is not sent, as for a company server
+   * on that host (`appReplacing`). The connection itself is kept, so the person can still remove
+   * it, and it comes back into use if the app is switched off. Never for a company server's shared
+   * account, which the catalog merge already leaves out.
+   */
+  async replacingApp(
+    endpoint: string | null = null, options?: { fresh?: boolean },
+  ): Promise<CatalogServer | null> {
+    if (this.ctx.storage.kv.get<CompanyRef>("company")) return null;
+    const target = endpoint ?? this.server()?.endpoint;
+    if (!target) return null;
+    const tenant = this.ctx.storage.kv.get<string>("tenant") ?? null;
+    return (await appReplacingConnection(this.env, target, tenant, options)) ?? null;
+  }
+
+  /** Every call goes through here, so a connection a Tyms app has replaced sends nothing. */
+  override async getConnection(endpoint: string): Promise<McpConnection> {
+    const app = await this.replacingApp();
+    if (app) throw new Error(notInUseError(this.requireServer(), app));
+    return super.getConnection(endpoint);
+  }
+
   /**
    * Limits this connect to the listed catalog endpoints (see `GatekeeperVendor.connectAccount`):
    * the connect page then offers only those and accepts nothing typed. Like the requested
@@ -659,6 +701,12 @@ export class McpAccount extends McpAccountBase<Env> {
 
 // Which tenant's key a shared company account sends, and for which catalog server.
 type CompanyRef = { tenant: string; serverId: string };
+
+// What a person is told when something reaches for a connection a Tyms app has replaced.
+function notInUseError(server: { serverName: string }, app: CatalogServer): string {
+  return `${server.serverName} is ${notInUseNote(app)}. Jamaa uses ${app.name} as you, at your own ` +
+    "access, so this connection is not used and its key is not sent. You can remove it under Connectors.";
+}
 
 // The stable name of the shared account behind one company server for one tenant.
 function companyAccountName(tenant: string, serverId: string): string {
@@ -980,13 +1028,22 @@ export class GatekeeperUserImpl
     return { account: this.#account(), avatar: MCP_AVATAR, baseUrl: getBaseUrl(this.env) };
   }
 
+  /** As the base describes it, marked not in use when a Tyms app has taken its place. */
+  override async describe(): Promise<AccountDescription> {
+    const [description, app] = await Promise.all([super.describe(), this.#account().replacingApp()]);
+    if (!app) return description;
+    return { ...description, displayName: `${description.displayName} (${notInUseNote(app)})` };
+  }
+
   /**
    * The one resource this account can grant: the server it is connected to, reported as its
    * catalog entry when it has one and as the bring-your-own catch-all otherwise. An account is
    * bound to one endpoint, so advertising the whole catalog would offer grants it cannot mint.
+   * None once a Tyms app has taken its place: the app is the connector for that server now.
    */
   async getSupportedResources(): Promise<SupportedResource[]> {
-    const server = await this.#account().getServer();
+    const [server, app] = await Promise.all([this.#account().getServer(), this.#account().replacingApp()]);
+    if (app) return [];
     return [mcpResourceFor(server.endpoint, await ensureCatalog(this.env))];
   }
 
@@ -995,6 +1052,8 @@ export class GatekeeperUserImpl
     resource: SupportedResource;
   }> {
     const server = await this.#account().getServer();
+    const app = await this.#account().replacingApp();
+    if (app) throw new Error(notInUseError(server, app));
 
     // The account is bound to one endpoint, so a resource URL naming anything else is not this
     // account's to grant, and the protocol-specific resource pattern matches any URL so this is the whole
