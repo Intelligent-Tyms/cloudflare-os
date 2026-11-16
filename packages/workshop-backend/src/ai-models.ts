@@ -37,6 +37,7 @@ import {
 import { completeText } from "./ai-invoke.js";
 import { createWorkshopLogger } from "./observability";
 import { dollarsToMicroUsd, recordUsage, usageCollector } from "./usage-collector.js";
+import { aiTaskMeta, newAppTask } from "./ai-task.js";
 import { bridgePdfAttachments } from "./chat-attachment-pdf.js";
 import { hasGpt56PromptCaching, splitSystemPrompt } from "./system-prompt-blocks.js";
 
@@ -1080,7 +1081,11 @@ export class LanguageModelGatekeeper
     // as chat-turn metering (overseer.ts #getCostFromAiGateway).
     let onUsage = (usage: Usage) => {
       const sourceKey = `ai:${crypto.randomUUID()}`;
-      const meta = { source: "model-binding", gadgetId: this.ctx.props.metadata?.gadgetId };
+      // Each call an app makes through its binding is a billing task of its own.
+      const meta = {
+        source: "model-binding", gadgetId: this.ctx.props.metadata?.gadgetId,
+        ...aiTaskMeta(newAppTask()),
+      };
       const estimateMicroUsd = dollarsToMicroUsd(usage.cost.total);
       // Capture synchronously: lastResponse is per-request state on the shared handle and the
       // next run() on this binding will overwrite it.

@@ -34,6 +34,7 @@ import type {
 } from "@gadgets/workshop-shared/gatekeeper";
 import type { SpawnCallableOptions } from "../agent-spawner-binding";
 import type { AgentPromptContextSnapshot, AgentSkillSnapshot } from "../agent-catalog.js";
+import type { AiTask } from "../ai-task.js";
 
 // =======================================================================================
 // Workpieces
@@ -781,6 +782,12 @@ export type ActiveAgentRecord = {
   callbackInitiated: boolean;
   /** Model-lookup attempts since the last successful preparation, bounded across DO resets. */
   resumeAttempts?: number;
+  /**
+   * The billing task the turn's AI usage is reported under (see ai-task.ts), kept so a resumed
+   * turn goes on billing the same task. Absent on records written before tasks existed; a
+   * resume then derives it afresh.
+   */
+  task?: AiTask;
 };
 
 /**

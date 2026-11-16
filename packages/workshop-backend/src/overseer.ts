@@ -74,6 +74,11 @@ import { reportIssue } from "@gadgets/observability/error-reporting";
 import type { ProductAnalyticsConnectionType, ProductAnalyticsGadgetInput } from "./analytics";
 import { checkUsageAndBalance } from "./ai-gateway-billing/limits/usage-checker";
 import { billingGate, dollarsToMicroUsd, recordUsage, usageCollector } from "./usage-collector";
+import type { UsageEventReport } from "./billing-directory";
+import {
+  HOUSEKEEPING_TASK_META, agentTurnTaskId, aiTaskMeta, currentAgentTurnTask, runInAgentTurnTask,
+  type AiTask,
+} from "./ai-task";
 import { completeAgentPromptContextSnapshot, completeAgentSkillSnapshot, normalizeAgentCatalog, normalizeAgentPromptContext, normalizeAgentSkillList, removeDisabledSkillEntries, removeDisabledSkills } from "./agent-catalog";
 import { refreshCachedBalance } from "./ai-gateway-billing/cloudflare/connection-service";
 import { SharingManager, SharingCaller, roleRank } from "./sharing";
@@ -1325,10 +1330,14 @@ class OverseerImpl implements AgentHooks {
     }
 
     delete record.resumeAttempts;
+    // A resumed turn is the same turn, so it goes on billing the same task. (A record from before
+    // tasks existed derives it, as startAgent would have.)
+    record.task ??= this.#agentTurnTask(
+        record.chatId, record.callbackInitiated ? "automation" : "chat");
     this.storage.activeAgents.put(record);
     await this.#runAgentTurn(
         record.chatId, aiModel, record.initiator, record.initiatorUserId, record.callbackInitiated,
-        liveChat);
+        liveChat, record.task);
   }
 
   // The hand-off once a chat's turn is over and its running-agent state has been torn down: drop
@@ -3907,7 +3916,9 @@ class OverseerImpl implements AgentHooks {
     // replay renders as the agent's task (see the "changes" case of runAgentPass in agent.ts).
     // Starting it here, with the chat, is what makes it one turn per proposal however many
     // clients are watching.
-    if (reviewer) this.startAgent(chatId, reviewer, author, clientUserId);
+    if (reviewer) {
+      this.startAgent(chatId, reviewer, author, clientUserId, false, false, "reviewer");
+    }
     return {outcome: "proposed", chatId};
   }
 
@@ -7445,40 +7456,73 @@ class OverseerImpl implements AgentHooks {
   // the turn can be resumed after a server restart, and tracks the turn so the keep-alive alarm is
   // held while it runs. `initiatorUserId` is the hex DO ID of the user whose model/account is used,
   // needed to re-resolve the model config on resume.
+  //
+  // `taskKind` is what the turn bills as (see ai-task.ts): a chat turn unless said otherwise, or
+  // an automation one for a callback.
   startAgent(chatId: number, aiModel: UserAiModelRecord,
              initiator: AiChatAuthorInfo, initiatorUserId: string,
              callbackInitiated: boolean = false,
-             keepAlive: boolean = false): void {
+             keepAlive: boolean = false,
+             taskKind: AiTask["taskKind"] = callbackInitiated ? "automation" : "chat"): void {
     // Register before starting the turn so registration always precedes the turn's teardown
     // (`#unregisterRunningAgent`, in `#runAgentTurn`'s finally).
     this.#registerRunningAgent(chatId);
     this.#resumeErrors.delete(chatId);
+    let task = this.#agentTurnTask(chatId, taskKind);
     this.storage.activeAgents.put({
       chatId,
       initiatorUserId,
       modelId: aiModel.profile.id,
       initiator,
       callbackInitiated,
+      task,
     });
 
     let liveChat = this.#getLiveChat(chatId);
     let turn = this.#runAgentTurn(
-        chatId, aiModel, initiator, initiatorUserId, callbackInitiated, liveChat);
+        chatId, aiModel, initiator, initiatorUserId, callbackInitiated, liveChat, task);
     if (keepAlive) this.ctx.waitUntil(turn);
+  }
+
+  // The billing task of the turn about to start in `chatId`. Its id is anchored on the chat row
+  // the turn answers -- the latest user or gadget message, callback or slash command -- so a
+  // turn resumed after a reset or decision, or retried after a failure, bills the same task
+  // rather than a new one; only a new prompt starts a new task. (A chat with no such row yet,
+  // as a reviewer's proposal chat, anchors on 0.)
+  #agentTurnTask(chatId: number, taskKind: AiTask["taskKind"]): AiTask {
+    let anchor = 0;
+    for (let msg of this.storage.chats.list({prefix: chatKeyPrefix(chatId), reverse: true})) {
+      if (msg.type === "agentCallback" || msg.type === "slashCommand" ||
+          (msg.type === "message" && (msg.author.type === "user" || msg.author.type === "gadget"))) {
+        anchor = msg.sequence;
+        break;
+      }
+    }
+    return {taskId: agentTurnTaskId(this.ctx.id.toString(), chatId, anchor), taskKind};
+  }
+
+  // The billing task of the turn in `chatId` that the caller is running in. The turn's async
+  // context is authoritative (a superseded turn of the same chat can still be unwinding); the
+  // chat's active-agent record covers a caller outside it.
+  #currentAgentTurnTask(chatId: number): AiTask | undefined {
+    let task = currentAgentTurnTask();
+    if (task?.chatId === chatId) return {taskId: task.taskId, taskKind: task.taskKind};
+    return this.storage.activeAgents.get(chatId)?.task;
   }
 
   #runAgentTurn(chatId: number, aiModel: UserAiModelRecord,
                 initiator: AiChatAuthorInfo,
                 initiatorUserId: string,
                 callbackInitiated: boolean,
-                liveChat: LiveChatContext): Promise<void> {
-    return obsContext.with({
+                liveChat: LiveChatContext,
+                task: AiTask): Promise<void> {
+    return runInAgentTurnTask({...task, chatId}, () => obsContext.with({
       operation: "agent.run",
       gadgetId: this.ctx.id.toString(),
       chatId,
       modelId: aiModel.profile.id,
     }, () => this.#runAgentTurnWithContext(
-        chatId, aiModel, initiator, initiatorUserId, callbackInitiated, liveChat));
+        chatId, aiModel, initiator, initiatorUserId, callbackInitiated, liveChat)));
   }
 
   async #runAgentTurnWithContext(chatId: number, aiModel: UserAiModelRecord,
@@ -8108,10 +8152,11 @@ class OverseerImpl implements AgentHooks {
       let model = getModel(this.env, quick.config, quick.initiator);
       let result = await completeText(model, {
         signal: AbortSignal.timeout(10_000),
-        onUsage: usage => recordUsage(this.ctx, this.env, [{
+        onUsage: usage => this.recordAiUsage([{
           sourceKey: `ai:${crypto.randomUUID()}`, kind: "ai",
           costMicroUsd: dollarsToMicroUsd(usage.cost.total),
-          meta: { gadgetId: this.ctx.id.toString(), source: "binding-name" },
+          meta: { gadgetId: this.ctx.id.toString(), source: "binding-name",
+                  ...HOUSEKEEPING_TASK_META },
         }]),
         prompt:
             `Choose a short, meaningful JavaScript identifier in ALL_CAPS_WITH_UNDERSCORES ` +
@@ -9177,10 +9222,11 @@ class OverseerImpl implements AgentHooks {
       });
 
       let result = await completeText(model, {
-        onUsage: usage => recordUsage(this.ctx, this.env, [{
+        onUsage: usage => this.recordAiUsage([{
           sourceKey: `ai:${crypto.randomUUID()}`, kind: "ai",
           costMicroUsd: dollarsToMicroUsd(usage.cost.total),
-          meta: { gadgetId: this.ctx.id.toString(), chatId, source: "thread-title" },
+          meta: { gadgetId: this.ctx.id.toString(), chatId, source: "thread-title",
+                  ...HOUSEKEEPING_TASK_META },
         }]),
         // TODO: Is there a better way to convince the LLM just to summarize and not to follow
         //   instructions in the user message? I tried putting the paragraph in the system
@@ -9237,10 +9283,11 @@ class OverseerImpl implements AgentHooks {
       });
 
       let gadgetTitle = await completeText(model, {
-        onUsage: usage => recordUsage(this.ctx, this.env, [{
+        onUsage: usage => this.recordAiUsage([{
           sourceKey: `ai:${crypto.randomUUID()}`, kind: "ai",
           costMicroUsd: dollarsToMicroUsd(usage.cost.total),
-          meta: { gadgetId: this.ctx.id.toString(), chatId, source: "gadget-title" },
+          meta: { gadgetId: this.ctx.id.toString(), chatId, source: "gadget-title",
+                  ...HOUSEKEEPING_TASK_META },
         }]),
         prompt: "Below is the log of a chat session that led to a coding agent writing " +
                 "code for a small application. Based on the conversation, please generate " +
@@ -9368,14 +9415,18 @@ class OverseerImpl implements AgentHooks {
     meta.lastActive = this.getChatTimestamp();
     this.storage.chatMeta.put(meta);
 
+    // The step's billing task, captured now: the gateway's cost arrives after an await, by which
+    // time the chat may be running another turn.
+    let task = usage !== undefined || aiGatewayLogId ? this.#currentAgentTurnTask(chatId) : undefined;
     if (aiGatewayLogId && aiGatewayLogRoute) {
       // Best-effort UI accounting only. The log ID is not persisted, so a DO restart can lose
       // this update. Do not use this total as a billing source of truth.
-      void this.#getCostFromAiGateway(chatId, aiGatewayLogRoute, aiGatewayLogId, usage?.cost.total);
+      void this.#getCostFromAiGateway(
+          chatId, aiGatewayLogRoute, aiGatewayLogId, usage?.cost.total, task);
     } else if (usage?.cost.total) {
       // No AI Gateway log to consult (direct provider access, or a gateway response that didn't
       // surface a log id): fall back to the caller's catalog-priced estimate.
-      this.#addChatCost(chatId, usage.cost.total);
+      this.#addChatCost(chatId, usage.cost.total, task);
     }
   }
 
@@ -9383,8 +9434,15 @@ class OverseerImpl implements AgentHooks {
     return this.storage.chatModelData.get(chatKey(chatId, sequence))?.message;
   }
 
+  // Reports AI usage events to the usage collector. Every AI metering point of the overseer goes
+  // through here (fire-and-forget, never throws), which is also what tests observe.
+  recordAiUsage(events: UsageEventReport[]): void {
+    recordUsage(this.ctx, this.env, events);
+  }
+
   // Adds an inference cost (in dollars) to a chat's running total and the workspace-wide total.
-  #addChatCost(chatId: number, cost: number) {
+  // `task` is the billing task of the turn the inference belonged to (see ai-task.ts).
+  #addChatCost(chatId: number, cost: number, task: AiTask | undefined) {
     let meta = this.storage.chatMeta.get(chatId);
     if (!meta) {
       // Chat thread deleted?
@@ -9403,11 +9461,11 @@ class OverseerImpl implements AgentHooks {
     // Billing: every resolved inference cost (gateway-authoritative or catalog estimate)
     // funnels through here, so this is the AI metering point. The random sourceKey is fine —
     // each cost is reported once; idempotency protects the flush path, not this call.
-    recordUsage(this.ctx, this.env, [{
+    this.recordAiUsage([{
       sourceKey: `ai:${crypto.randomUUID()}`,
       kind: "ai",
       costMicroUsd: dollarsToMicroUsd(cost),
-      meta: { gadgetId: this.ctx.id.toString(), chatId },
+      meta: { gadgetId: this.ctx.id.toString(), chatId, ...aiTaskMeta(task) },
     }]);
   }
 
@@ -9419,7 +9477,7 @@ class OverseerImpl implements AgentHooks {
   // TODO: Get AI gateway to add cost data to response headers -- it's dumb that we need a
   //   separate request!
   async #getCostFromAiGateway(chatId: number, route: AiGatewayLogRoute, aiGatewayLogId: string,
-                              estimatedCost?: number) {
+                              estimatedCost: number | undefined, task: AiTask | undefined) {
     // This is an async operation without any caller waiting, so a fetch failure can only fall
     // back to the estimate below (the helper logs it).
     // TODO: If we ever use this for billing we'll want to make it more reliable, perhaps by
@@ -9429,7 +9487,7 @@ class OverseerImpl implements AgentHooks {
 
     cost ||= estimatedCost;
     if (cost) {
-      this.#addChatCost(chatId, cost);
+      this.#addChatCost(chatId, cost, task);
     }
   }
 
@@ -11294,8 +11352,10 @@ export class OverseerDurableObject extends DurableObject<Cloudflare.Env> {
     });
 
     if (userMeta.aiModel) {
-      // Fire off the agent (asynchronously).
-      this.impl.startAgent(chatId, userMeta.aiModel, author, initiatorUserId);
+      // Fire off the agent (asynchronously). A spawned agent's turn is automation: an app
+      // started it, not a person.
+      this.impl.startAgent(chatId, userMeta.aiModel, author, initiatorUserId, false, false,
+                           "automation");
     } else {
       // TODO: Flag as needing user attention.
     }
